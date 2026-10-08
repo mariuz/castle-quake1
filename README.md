@@ -4,6 +4,11 @@ A modern port of **Quake 1** using the **Castle Game Engine** (Object Pascal / F
 
 Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom), Castle Quake showcases the full suite of features offered by Castle Game Engine (CGE): full 3D X3D scene graphs, real-time dynamic PBR lighting with shadow mapping, Quake 1 Alias MDL 3D model loading and animation, spatial 3D audio via OpenAL, custom URL protocols (`quakepak:`, `quaketex:`), multiple camera navigation modes (First-Person, Third-Person, Free-Fly), interactive submodels (doors, platforms, buttons), particle effects, in-game developer console, authentic status bar HUD, and an automated headless testing harness (`--autotest`, `--demo`).
 
+- 🌐 **[Play in Browser (WebAssembly)](https://mariuz.github.io/castle-quake1/)**
+- 📖 **[Architecture & Engine Mapping](docs/ARCHITECTURE.md)**
+- 🗺️ **[Quake 1 Comparison & Roadmap](docs/ROADMAP.md)**
+- 📦 **[Download Windows & Linux Releases](https://github.com/mariuz/castle-quake1/releases)**
+
 ---
 
 ## Features Showcasing Castle Game Engine
@@ -97,6 +102,13 @@ castle-engine compile --mode=release
 .\castle-quake1.exe -pak custom.pak                # Load additional PAK file
 .\castle-quake1.exe --autotest start test_shot     # Headless test and screenshot
 ```
+
+---
+
+## Continuous Integration & Deployment
+
+- `.github/workflows/build.yml`: Packages Windows x86_64 and Linux x86_64 standalone release builds using the Castle Game Engine Docker container (`kambi/castle-engine-cloud-builds-tools:cge-unstable`). Pushing tags like `v*` automatically creates a GitHub Release and attaches the packaged archives.
+- `.github/workflows/web.yml`: Builds the WebAssembly version using Free Pascal's wasm32 cross-compiler and Pas2js, assembling the interactive landing page and deploying directly to **GitHub Pages**.
 
 ---
 

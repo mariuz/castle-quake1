@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Castle Quake</title>
+  <meta name="description" content="Quake 1 levels, models, dynamic lighting, and gameplay rendered and played with Castle Game Engine, running in your browser through WebAssembly.">
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --panel: #171b22;
+      --panel-border: #323b47;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #e26a2c;
+      --accent-hover: #ff7d3b;
+      --accent-gold: #f5b642;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+    header { text-align: center; padding: 36px 0 20px; }
+    h1 {
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      margin: 0;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      text-transform: uppercase;
+      text-shadow: 0 0 24px rgba(226, 106, 44, 0.35);
+    }
+    header p { color: var(--muted); font-size: 1.2rem; margin: 10px 0 26px; }
+    .cta-container { margin: 18px 0; }
+    .cta {
+      display: inline-block; padding: 14px 30px; border-radius: 8px;
+      background: var(--accent); color: #fff; font-weight: 700; font-size: 1.2rem;
+      text-decoration: none; letter-spacing: 0.04em;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .cta.secondary {
+      background: var(--panel); border: 1px solid var(--panel-border);
+      color: var(--text); margin-left: 10px;
+    }
+    .cta.secondary:hover { background: #21262d; border-color: #484f58; }
+    .note { color: var(--muted); font-size: 0.95rem; margin-top: 14px; max-width: 800px; margin-left: auto; margin-right: auto; }
+    .hero { margin-top: 24px; }
+    .hero img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--panel-border); display: block; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+    .grid img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--panel-border); display: block; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+    section { margin-top: 44px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px; padding: 24px 28px; }
+    h2 { color: var(--accent-gold); margin-top: 0; margin-bottom: 12px; font-size: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.95rem; margin-top: 12px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.05em; }
+    code { background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    kbd {
+      background: #21262d; border: 1px solid #30363d; border-bottom-width: 2px;
+      border-radius: 4px; padding: 2px 7px; font-size: 0.9em; font-family: inherit;
+      color: var(--accent-gold); margin: 0 2px; display: inline-block;
+    }
+    footer { margin-top: 54px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+    a { color: var(--accent-gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Castle Quake</h1>
+    <p>Quake 1 levels and gameplay, rendered and played with <a href="https://castle-engine.io/">Castle Game Engine</a>. LibreQuake and Quake 1 Demo assets supported.</p>
+    <div class="cta-container">
+      <a class="cta" href="play/">Play in the browser</a>
+      <a class="cta secondary" href="https://github.com/mariuz/castle-quake1/releases">Download for Windows / Linux</a>
+    </div>
+    <p class="note">The browser version runs via WebAssembly and WebGL 2. Click the viewport canvas to lock mouse look. Desktop releases support loading your own custom PAKs and warp options.</p>
+  </header>
+
+  <div class="hero">
+    <img src="docs/screenshot-start-hub.png" alt="Castle Quake running the start hub level with dynamic lighting and HUD">
+  </div>
+  <div class="grid">
+    <img src="docs/screenshot-combat.png" alt="Castle Quake weapon recoil, real-time lighting, and ammo counters">
+  </div>
+
+  <section>
+    <h2>Controls</h2>
+    <p>
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to move &amp; strafe,
+      mouse look to aim,
+      <kbd>Left Click</kbd> or <kbd>Ctrl</kbd> to fire weapon,
+      <kbd>Space</kbd> to jump,
+      <kbd>E</kbd> to use doors and buttons,
+      <kbd>1</kbd>&ndash;<kbd>8</kbd> to switch weapons (Axe, Shotgun, Super Shotgun, Nailgun, Super Nailgun, Grenade Launcher, Rocket Launcher, Lightning Gun),
+      <kbd>F1</kbd> or <kbd>C</kbd> to toggle camera view (First-Person, Third-Person, Free-Fly),
+      <kbd>F2</kbd> to toggle real-time dynamic shadows,
+      <kbd>F12</kbd> for screenshot,
+      <kbd>~</kbd> for Quake developer console,
+      <kbd>Esc</kbd> for Menu and Options.
+    </p>
+  </section>
+
+  <section>
+    <h2>How Quake 1 maps onto Castle Game Engine</h2>
+    <table>
+      <thead>
+        <tr><th>Quake 1 System</th><th>Castle Game Engine Implementation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>BSP World (v29)</strong></td>
+          <td>Direct parser builds procedural X3D scene graphs using <code>TShapeNode</code>, <code>TIndexedTriangleSetNode</code>, and <code>TCoordinateNode</code> with texture coordinate mapping.</td>
+        </tr>
+        <tr>
+          <td><strong>Dynamic PBR &amp; Lightstyles</strong></td>
+          <td>Quake light entities are translated to real-time <code>TCastlePointLight</code> instances with all 13 animated light styles (flicker, strobe, pulse) evaluated at 10 Hz, plus <code>TCastleDirectionalLight</code> ambient sun fill and weapon muzzle flashes.</td>
+        </tr>
+        <tr>
+          <td><strong>Animated Models (MDL v6)</strong></td>
+          <td>Custom Alias <code>.mdl</code> parser reads skins, keyframes, and vertices, generating animated X3D meshes for weapons, pickups, and monsters.</td>
+        </tr>
+        <tr>
+          <td><strong>Submodels (Doors &amp; Lifts)</strong></td>
+          <td>Movable map brushes (<code>func_door</code>, <code>func_plat</code>, <code>func_button</code>) are encapsulated in dynamic <code>TCastleTransform</code> instances with smooth real-time kinematics and collisions.</td>
+        </tr>
+        <tr>
+          <td><strong>Spatial 3D Audio</strong></td>
+          <td>OpenAL 3D sound spatialization with distance attenuation using <code>TCastleSoundSource</code> attached to moving submodels, triggers, and entities, plus OGG music channels.</td>
+        </tr>
+        <tr>
+          <td><strong>Streaming Protocols</strong></td>
+          <td>Custom <code>quakepak:</code> URL protocol streams lumps directly from stacked PAK archives; <code>quaketex:</code> generates RGBA textures from Quake's 256-color palette on the fly.</td>
+        </tr>
+        <tr>
+          <td><strong>Camera &amp; Navigation</strong></td>
+          <td><code>TCastleWalkNavigation</code> provides authentic player dimensions (40-unit eye level), step climbing (18 units), jump velocity, head bobbing, and multiple camera views.</td>
+        </tr>
+        <tr>
+          <td><strong>Combat &amp; Particles</strong></td>
+          <td>Real-time raycast hitscan detection, projectile simulation, explosion particles, blood splatters, and wall impact sparks.</td>
+        </tr>
+        <tr>
+          <td><strong>Status Bar HUD</strong></td>
+          <td>Vector-rendered Quake status bar with live Armor, Health, and Ammo counters, keycards, crosshair, and level statistics.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Asset Support</h2>
+    <ul>
+      <li><strong>LibreQuake</strong>: Bundled open-source game assets (<code>pak0.pak</code>, <code>pak1.pak</code>, and digital soundtrack).</li>
+      <li><strong>Quake 1 Demo / Shareware</strong>: Compatible with original ID Software demo data (<code>quake1_demo.pak</code>).</li>
+      <li><strong>Commercial Quake 1</strong>: Drop in your registered <code>pak0.pak</code> and <code>pak1.pak</code> from Steam or GOG for all 4 original episodes!</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>
+      <a href="https://github.com/mariuz/castle-quake1">Source code on GitHub</a> &middot;
+      <a href="https://github.com/mariuz/castle-quake1/blob/main/docs/ARCHITECTURE.md">Architecture</a> &middot;
+      <a href="https://github.com/mariuz/castle-quake1/blob/main/docs/ROADMAP.md">Roadmap</a> &middot;
+      Built with <a href="https://castle-engine.io/">Castle Game Engine</a>, Free Pascal, and WebAssembly.
+    </p>
+  </footer>
+</main>
+</body>
+</html>
