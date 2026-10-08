@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Castle Quake: Quake 1 levels, models, sounds and gameplay rendered and played with Castle Game Engine.
+-->
+<project name="castle-quake1"
+  game_units="GameInitialize"
+  qualified_name="io.castleengine.castlequake1"
+  caption="Castle Quake"
+  author="castle-quake1"
+  screen_orientation="landscape"
+>
+  <version value="0.1.0" code="1" />
+  <compiler_options>
+    <search_paths>
+      <path value="code/" />
+    </search_paths>
+  </compiler_options>
+</project>

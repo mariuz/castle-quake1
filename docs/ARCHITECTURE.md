@@ -1,0 +1,156 @@
+# Castle Quake: Architecture & Technical Design
+
+This document explains the technical architecture of **Castle Quake**, how Quake 1 game data is parsed and rendered in the **Castle Game Engine (CGE)**, and which engine features each subsystem utilizes.
+
+---
+
+## 1. Overview & Data Flow
+
+```
+┌────────────────────────┐
+│  pak0.pak / pak1.pak   │
+│ (LibreQuake / Quake 1) │
+└───────────┬────────────┘
+            │
+            ▼
+        QuakePak (TQuakePak)
+        ┌───┴──────────────────────────────┐
+        ▼                                  ▼
+   QuakePalette                       QuakeBsp (v29)
+(palette.lmp, colormap.lmp)       (lumps, planes, faces,
+        │                          texinfo, models, ents)
+        ▼                                  │
+quaketex: URL protocol                     ▼
+(CGE Texture Cache)                QuakeGeometry
+        │                      (X3D Node Scene Graph)
+        │                                  │
+        └──────────────┬───────────────────┘
+                       ▼
+                 QuakeWorld (Simulation)
+            ┌──────────┴──────────┐
+            ▼                     ▼
+      QuakeEntities          QuakeLight
+   (Pickups, Monsters,   (TCastlePointLight,
+     Projectiles)         Lightstyles, Shadows)
+            │                     │
+            └──────────┬──────────┘
+                       ▼
+                 GameViewPlay (TCastleView)
+                 ├── TCastleViewport
+                 ├── TCastleWalkNavigation
+                 ├── QuakeHud (Status Bar)
+                 ├── QuakeParticles
+                 └── QuakeConsole & QuakeMenu
+```
+
+Three core design principles drive Castle Quake:
+
+1. **Native Engine Representation**: Geometry is represented as standard X3D nodes (`TShapeNode`, `TIndexedTriangleSetNode`, `TCoordinateNode`, `TAppearanceNode`, `TMaterialNode`) loaded into `TCastleScene`. Submodels (`func_door`, `func_plat`, `func_button`) are dynamic `TCastleTransform` nodes.
+2. **Custom URL Protocols**: PAK files and textures are served through CGE's URL system (`quakepak:`, `quaketex:`). Textures are decoded into 32-bit TGA streams in memory, allowing CGE's GPU texture cache and mipmapping to work transparently without disk writes.
+3. **Showcasing CGE Features**: Dynamic point lights with animated lightstyles, real-time shadow maps, positional 3D sound sources (`TCastleSoundSource`), particle effects, customizable camera navigation, and an automated headless test harness.
+
+---
+
+## 2. Coordinate System & Units
+
+Quake uses:
+- X = East (+X right)
+- Y = North (+Y forward)
+- Z = Height (+Z up)
+
+Castle Game Engine uses Y-up:
+- CGE.X =  Quake.X
+- CGE.Y =  Quake.Z  (Height)
+- CGE.Z = -Quake.Y  (Forward is -Z)
+
+This transformation has a determinant of +1, preserving triangle winding order, surface normals, and handedness. 1 Quake unit equals 1 CGE unit.
+
+Player dimensions:
+- Quake eye height: 40 units -> `TCastleWalkNavigation.PreferredHeight = 40.0`
+- Maximum step height: 18 units -> `TCastleWalkNavigation.ClimbHeight = 18.0`
+- Run speed: 320 units/s -> `TCastleWalkNavigation.MoveSpeed = 320.0`
+- Jump velocity: 270 units/s -> `TCastleWalkNavigation.JumpSpeed = 270.0`
+
+---
+
+## 3. QuakePak: Archive Management
+
+- Supports stacking multiple PAK archives (`pak0.pak`, `pak1.pak`, PWAD/custom paks).
+- Case-insensitive lookup.
+- Registered protocol `quakepak:` allows loading sounds and models via `quakepak:/sound/weapons/sgun1.wav`.
+
+---
+
+## 4. QuakePalette: Colors and Textures
+
+- Quake palette `gfx/palette.lmp`: 256 RGB triples (768 bytes).
+- Fullbright colors: indices 224 to 255 (unaffected by dimming).
+- `quaketex:` protocol serves uncompressed 32-bit TGA streams (`WriteTga`), avoiding slow PNG encoding in native and WebAssembly builds.
+- Textures are cached in `TQuakePalette.FTextureCache` and referenced by `TImageTextureNode`.
+
+---
+
+## 5. QuakeBsp & QuakeGeometry: 3D Map Generation
+
+- Reads Quake BSP version 29 lumps:
+  - Faces, vertices, edges, surfedges, planes, texinfo, miptex, models, entities.
+- Triangles grouped by texture into `TQuakeGeomBatch`es.
+- Interactive submodels (`func_door`, `func_plat`, `func_button`):
+  - Model 0 is static world geometry.
+  - Models 1..N are separate `TCastleScene`s attached to `TCastleTransform` with automated sliding, elevation, sound, and collision detection.
+- Animated textures (`+0`..`+9`):
+  - Cycled every 0.2s by updating `TImageTextureNode.SetUrl`.
+
+---
+
+## 6. QuakeLight: Real-Time Dynamic Lighting
+
+- Maps Quake `light` entities to real-time `TCastlePointLight` nodes.
+- Quake lightstyles (0..12) emulated at 10 Hz:
+  - `0: "m"` (steady)
+  - `1: "mmnmmommommnonmmonqnmmo"` (flicker)
+  - `10: "mmamammmmammamamaaamamm"` (fluorescent flicker)
+- Dynamic muzzle flash: point light created at camera upon firing.
+- Real-time shadows: `TCastlePointLight.CastShadows = true`.
+
+---
+
+## 7. QuakeMdl: 3D Alias Models
+
+- Decodes Quake 1 Alias `.mdl` files (`IDPO`, version 6).
+- Converts skins into CGE textures.
+- Constructs `TCastleScene` meshes with `TIndexedTriangleSetNode`.
+- Supports keyframe animation via in-place vertex updating on `TCoordinateNode`.
+
+---
+
+## 8. QuakeSound: Spatial Audio & Music
+
+- 2D sounds for UI and weapon fire (`SoundEngine.Play`).
+- 3D spatial sounds with distance attenuation via `TCastleSoundSource` attached to doors, lifts, and monsters.
+- Background OGG music played on `SoundEngine.LoopingChannel[0]`.
+
+---
+
+## 9. QuakeWorld & Combat Simulation
+
+- Weapons: Axe, Shotgun, Super Shotgun, Nailgun, Super Nailgun, Grenade Launcher, Rocket Launcher, Thunderbolt.
+- Pickups: Armor, Health, Ammo, Keys, Powerups (Quad Damage, Pentagram).
+- Monster AI: Grunt (`monster_army`), Dog (`monster_dog`), Ogre (`monster_ogre`), Knight (`monster_knight`).
+- Projectiles: Nails, rockets with collision, splash damage, and explosion particles.
+
+---
+
+## 10. Automated Headless Testing
+
+Command line parameters:
+- `--autotest <MAP> <PREFIX>`: loads map headlessly, executes demo actions, takes screenshot, and terminates.
+- `--demo "COMMANDS"`:
+  - `W:sec` wait
+  - `S` take screenshot
+  - `X` fire weapon
+  - `U` use/activate
+  - `C:slot` change weapon
+  - `K` give all
+  - `Y` god mode
+  - `Q` quit
