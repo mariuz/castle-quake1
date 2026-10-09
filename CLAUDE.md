@@ -38,6 +38,8 @@ Demo script actions:
 - `C:slot` switch weapon (1: Axe, 2: Shotgun, 3: SSG, 4: Nailgun, 5: SNG, 6: GL, 7: RL, 8: LG)
 - `A:deg` absolute yaw angle
 - `T:deg` relative yaw turn
+- `P:deg` absolute pitch (positive looks up), keeps current yaw
+- `M:units` move camera along view direction
 - `K` cheat: give all weapons, ammo, keys
 - `Y` cheat: toggle god mode
 - `Q` quit application

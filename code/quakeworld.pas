@@ -555,7 +555,7 @@ begin
 
   { Advance geometry submodels and animations }
   if FGeometry <> nil then
-    FGeometry.Update(SecondsPassed);
+    FGeometry.Update(SecondsPassed, PlayerPos);
 
   { Advance pickups }
   for I := 0 to FPickups.Count - 1 do

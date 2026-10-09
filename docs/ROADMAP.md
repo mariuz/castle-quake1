@@ -11,7 +11,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **World Geometry** | BSP v29 tree, PVS clusters | Procedural X3D scene graphs (`TShapeNode`, `TIndexedTriangleSetNode`) | Full BSP geometry supported with texture coordinate mapping. |
 | **Surface Lighting** | Static 8-bit luxel lightmaps in BSP + lightstyle animators | Real-time PBR lighting (`TCastlePointLight`, `TCastleDirectionalLight`) | Option for authentic baked lightmap rendering via custom GLSL shaders. |
 | **Dynamic Lights** | Lightstyles (0..63) modulated at 10 Hz; muzzle flashes | Quake lightstyles (0..12) evaluated dynamically; muzzle flashes; shadow maps | Matches original; enhanced with real-time shadow mapping. |
-| **Sky & Atmosphere** | Double-layer scrolling cylindrical sky dome | Unlit sky surface material | Dual-layer counter-rotating UV scrolling sky shader. |
+| **Sky & Atmosphere** | Double-layer scrolling cylindrical sky dome | Dual-layer scrolling sky shader (`Effect` node, GLQuake `EmitSkyPolys` projection per fragment) | Matches original. |
 | **Liquid Surfaces** | Translucent water, lava, slime with sine wave turbulence (`R_Turbulent`) | Animated textures and transparent blend mode | GLSL vertex/fragment wave distortion shader. |
 | **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | Clean rendering without screen tints | Full-screen color blend tint overlay on damage and item pickup. |
 | **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser with skin mapping and X3D mesh generation | Add vertex interpolation (mesh lerping) between keyframes. |
@@ -30,8 +30,8 @@ This document outlines the architectural comparison between **Castle Quake** and
 ## 🗺️ Milestone Roadmap
 
 ### Phase 1: Authentic Look & Feel (Visual Polish)
-- [ ] **Dual-Layer Scrolling Sky Shader**:
-  - Implement Quake's iconic spherical sky dome with two scrolling texture layers rotating in opposite directions.
+- [x] **Dual-Layer Scrolling Sky Shader**:
+  - Sky miptexes are split into a solid back layer and a transparent cloud front layer, projected onto Quake's flattened sky dome per fragment and scrolled at 8 / 16 texels per second.
 - [ ] **Underwater Screen Distortion & Palette Tints**:
   - Implement full-screen screen flash overlays: red flash on player damage, gold flash on item pickup, green flash for biosuit.
   - Implement GLSL underwater wave distortion (sine lookup turbulence).
