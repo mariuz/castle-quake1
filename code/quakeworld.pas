@@ -75,6 +75,12 @@ type
     FLevelStartServerFlags: Integer;
     FLevelStartValid: Boolean;
     FViewForward: TVector3;     { horizontal view direction, Quake coordinates }
+    { Intermission: the camera looks from an info_intermission spot while the
+      tallies are shown; the next map loads when the player presses a button }
+    FIntermission: Boolean;
+    FIntermissionExitTime: Single;
+    FIntermissionMap: String;
+    FIntermissionEye, FIntermissionDir: TVector3; { CGE coordinates }
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
@@ -141,6 +147,7 @@ type
     { func_episodegate / func_bossgate follow the collected runes }
     procedure ApplyEpisodeGates;
     function IsStartMap: Boolean;
+    procedure StartIntermission(const NextMap: String);
   public
     constructor Create(const ARoot: TCastleTransform);
     destructor Destroy; override;
@@ -190,6 +197,10 @@ type
     { New game: starting inventory, normal skill, no runes }
     procedure NewGame;
 
+    { Fire, jump or use pressed during the intermission: go to the next map
+      once the tallies had their time (IntermissionThink) }
+    procedure IntermissionContinue;
+
     { Contents (CONTENTS_xxx) at a point in CGE coordinates, CONTENTS_EMPTY without a map }
     function PointContents(const P: TVector3): Integer;
 
@@ -206,6 +217,9 @@ type
     property NextMap: String read FNextMap;
     property Skill: Integer read FSkill write FSkill;
     property ServerFlags: Integer read FServerFlags write FServerFlags;
+    property Intermission: Boolean read FIntermission;
+    property IntermissionEye: TVector3 read FIntermissionEye;
+    property IntermissionDir: TVector3 read FIntermissionDir;
     property Monsters: TQuakeMonsterList read FMonsters;
     property Pickups: TQuakePickupList read FPickups;
     property WeaponTransform: TCastleTransform read FWeaponTransform;
@@ -268,7 +282,7 @@ end;
 
 function TWorldMonsterEnv.PlayerAlive: Boolean;
 begin
-  Result := not FWorld.FPlayerDead;
+  Result := not FWorld.FPlayerDead and not FWorld.FIntermission;
 end;
 
 function TWorldMonsterEnv.CanSeePlayer(const M: TQuakeMonster): Boolean;
@@ -417,6 +431,55 @@ end;
 function TQuakeWorld.IsStartMap: Boolean;
 begin
   Result := (FBsp <> nil) and SameText(FBsp.MapName, 'start');
+end;
+
+procedure TQuakeWorld.StartIntermission(const NextMap: String);
+var
+  Spots: TQuakeEntityList;
+  Ent, World: TQuakeEntity;
+  Angles, Dir: TVector3;
+  Title: String;
+begin
+  { execute_changelevel: freeze the player and look from a random
+    info_intermission spot (mangle = pitch yaw roll) }
+  FIntermission := True;
+  FIntermissionExitTime := FTime + 5;
+  FIntermissionMap := NextMap;
+  FIntermissionEye := QuakeToCge(FPhys.EyePosition);
+  FIntermissionDir := QuakeToCge(FViewForward);
+  Spots := FBsp.FindEntities('info_intermission');
+  try
+    if Spots.Count > 0 then
+    begin
+      Ent := Spots[Random(Spots.Count)];
+      Angles := Ent.GetVector('mangle', TVector3.Zero);
+      SinCos(DegToRad(Angles.Y), Dir.Y, Dir.X);
+      Dir := Vector3(Dir.X * Cos(DegToRad(Angles.X)), Dir.Y * Cos(DegToRad(Angles.X)),
+        -Sin(DegToRad(Angles.X)));
+      FIntermissionEye := QuakeToCge(Ent.Origin);
+      FIntermissionDir := QuakeToCge(Dir);
+    end;
+  finally
+    Spots.Free;
+  end;
+  FPhys.Velocity := TVector3.Zero;
+
+  Title := '';
+  World := FBsp.FindEntity('worldspawn');
+  if World <> nil then
+    Title := World.MessageText;
+  if FHud <> nil then
+    FHud.StartIntermission(Title, FPlayerStats.LevelTime, FPlayerStats.Kills,
+      FPlayerStats.TotalKills, FPlayerStats.Secrets, FPlayerStats.TotalSecrets);
+  Sounds.PlayMusic('track03.ogg');
+end;
+
+procedure TQuakeWorld.IntermissionContinue;
+begin
+  if not FIntermission or FLevelExited or (FTime < FIntermissionExitTime) then
+    Exit;
+  FLevelExited := True;
+  FNextMap := FIntermissionMap;
 end;
 
 procedure TQuakeWorld.ApplyEpisodeGates;
@@ -661,7 +724,7 @@ function TQuakeWorld.MonsterCanSeePlayer(const M: TQuakeMonster): Boolean;
 begin
   { visible(): line from the monster's eyes to the player's eyes, only
     world geometry and brush entities block it }
-  if (FBsp = nil) or FPlayerDead then
+  if (FBsp = nil) or FPlayerDead or FIntermission then
     Exit(False);
   Result := FPhys.Trace(M.Origin + Vector3(0, 0, 25), FPhys.EyePosition, True, True).Fraction = 1;
 end;
@@ -1122,6 +1185,14 @@ begin
   Yaw := RadToDeg(ArcTan2(Q.Y, Q.X));
   Pitch := -RadToDeg(ArcSin(EnsureRange(Q.Z, -1, 1)));
 
+  { The player is frozen during the intermission; jump continues }
+  if FIntermission then
+  begin
+    if Cmd.Jump then
+      IntermissionContinue;
+    Exit;
+  end;
+
   FViewForward := Vector3(Q.X, Q.Y, 0);
   if not FViewForward.IsPerfectlyZero then
     FViewForward := FViewForward.Normalize;
@@ -1177,7 +1248,7 @@ const
 var
   Save, Take: Integer;
 begin
-  if FPlayerDead or FGodMode or (Damage <= 0) then
+  if FPlayerDead or FGodMode or FIntermission or (Damage <= 0) then
     Exit;
 
   Save := Ceil(ArmorAbsorb[EnsureRange(FPlayerStats.ArmorType, 0, 3)] * Damage);
@@ -1483,7 +1554,7 @@ begin
     { Triggers }
     if (CName = 'trigger_teleport') or (CName = 'trigger_changelevel') or
        (CName = 'trigger_multiple') or (CName = 'trigger_once') or
-       (CName = 'trigger_setskill') then
+       (CName = 'trigger_setskill') or (CName = 'trigger_secret') then
     begin
       { Brush triggers use the bounds of their BSP model; point ones a small box }
       MdlIdx := -1;
@@ -1502,6 +1573,15 @@ begin
       Trig.TargetName := Ent.TargetName;
       Trig.SpawnFlags := Ent.SpawnFlags;
       Trig.Message := StringReplace(Ent.MessageText, '\n', LineEnding, [rfReplaceAll]);
+      if CName = 'trigger_secret' then
+      begin
+        { trigger_secret: a trigger_once counted in the level stats }
+        Inc(FPlayerStats.TotalSecrets);
+        Trig.WaitTime := -1;
+        if Trig.Message = '' then
+          Trig.Message := 'You found a secret area!';
+        Trig.Touchable := (Ent.GetFloat('health', 0) = 0) and ((Ent.SpawnFlags and 1) = 0);
+      end else
       if (CName = 'trigger_multiple') or (CName = 'trigger_once') then
       begin
         { trigger_multiple waits 0.2 s by default, trigger_once fires once;
@@ -1554,6 +1634,11 @@ begin
   FPlayerStats.LevelTime := 0;
   FPlayerStats.Kills := 0;
   FPlayerStats.TotalKills := 0;
+  FPlayerStats.Secrets := 0;
+  FPlayerStats.TotalSecrets := 0;
+  FIntermission := False;
+  if FHud <> nil then
+    FHud.StopIntermission;
 
   MapPath := AMapName;
   if ExtractFileExt(MapPath) = '' then
@@ -1748,7 +1833,8 @@ begin
   PlayerBox(BoxMins, BoxMaxs);
   for Trig in FTriggers do
   begin
-    if Trig.Removed or not Trig.Touchable or not Trig.Touches(BoxMins, BoxMaxs) or FPlayerDead then
+    if Trig.Removed or not Trig.Touchable or not Trig.Touches(BoxMins, BoxMaxs) or
+       FPlayerDead or FIntermission or FLevelExited then
       Continue;
 
     if Trig.EntityClassName = 'trigger_changelevel' then
@@ -1765,10 +1851,16 @@ begin
         end;
         Continue;
       end;
-      if not FLevelExited then
-        SetChangeParms;
-      FLevelExited := True;
-      FNextMap := Trig.MapName;
+      SetChangeParms;
+      { changelevel_touch: NO_INTERMISSION portals (the start map) go
+        straight to the next map }
+      if (Trig.SpawnFlags and 1) <> 0 then
+      begin
+        FLevelExited := True;
+        FNextMap := Trig.MapName;
+      end else
+        StartIntermission(Trig.MapName);
+      Exit;
     end else
     if Trig.EntityClassName = 'trigger_setskill' then
     begin
@@ -1804,7 +1896,8 @@ begin
       Particles.SpawnTeleport(QuakeToCge(Dest.Origin + Forward * 32));
       Sounds.Play('sound/misc/r_tele1.wav');
     end else
-    if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') then
+    if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') or
+       (Trig.EntityClassName = 'trigger_secret') then
     begin
       { multi_touch / multi_trigger }
       if (Trig.WaitTime > 0) and (FTime < Trig.LastTriggerTime + Trig.WaitTime) then
@@ -1815,6 +1908,13 @@ begin
       Trig.LastTriggerTime := FTime;
       if Trig.WaitTime < 0 then
         Trig.Removed := True;
+      if Trig.EntityClassName = 'trigger_secret' then
+      begin
+        Inc(FPlayerStats.Secrets);
+        Sounds.Play('sound/misc/secret.wav');
+        if FHud <> nil then
+          FHud.ShowMessage(Trig.Message, 3.0);
+      end else
       if Trig.Message <> '' then
       begin
         if FHud <> nil then
@@ -1873,6 +1973,8 @@ begin
 
   { Advance triggers }
   CheckTriggers;
+  if FIntermission and (Hud <> nil) then
+    Hud.IntermissionReady := FTime >= FIntermissionExitTime;
 
   { Advance monsters }
   for I := 0 to FMonsters.Count - 1 do
@@ -2227,6 +2329,11 @@ var
   M: TQuakeMonster;
   CanFire: Boolean;
 begin
+  if FIntermission then
+  begin
+    IntermissionContinue;
+    Exit;
+  end;
   if (FWeaponCooldown > 0) or FPlayerDead or (FBsp = nil) then
     Exit;
 
@@ -2732,6 +2839,11 @@ var
   AMins, AMaxs, P: TVector3;
   I: Integer;
 begin
+  if FIntermission then
+  begin
+    IntermissionContinue;
+    Exit;
+  end;
   { Quake has no use key, this is a convenience: activate the door or button
     whose bounds are close to the point in front of the player }
   if FGeometry = nil then
