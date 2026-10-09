@@ -12,6 +12,16 @@ uses
   QuakeBsp, QuakePalette, QuakeLight;
 
 type
+  { Lightmap atlases (one per lightstyle slot) of a BSP model and the shader
+    that blends them with the live lightstyle values and dynamic lights }
+  TQuakeLightmapSet = record
+    Layers: array[0..3] of TPixelTextureNode;
+    LayerCount: Integer;
+    Effect: TEffectNode;
+    StylesField: TMFFloat;
+    DLightsField: TMFVec4f;
+  end;
+
   { A batch of triangles sharing one texture }
   TQuakeGeomBatch = class
   public
@@ -19,6 +29,7 @@ type
     Coords: TVector3List;
     TexCoords: TVector2List;
     LMTexCoords: TVector2List;
+    LMStyles: TSingleList; { 4 lightstyle indexes per vertex }
     Normals: TVector3List;
     Indices: TInt32List;
     TexNode: TImageTextureNode;
@@ -37,25 +48,27 @@ type
     constructor Create(const ATexName: String);
     destructor Destroy; override;
     procedure AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
-      const Normal: TVector3);
-    { Build X3D nodes. LightmapTex may be nil (then the batch is fullbright). }
-    procedure CreateNodes(const MapName: String; const LightmapTex: TPixelTextureNode);
+      const Normal: TVector3; const Styles: TVector4);
+    { Build X3D nodes. Lightmaps.Effect may be nil (then the batch is fullbright). }
+    procedure CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet);
   end;
 
-  { Packs per-face Quake lightmaps (style-summed, 8-bit luminance) into one atlas. }
+  { Packs the per-face Quake lightmaps (8-bit luminance, one map per
+    lightstyle slot) into atlases, one per slot }
   TQuakeLightmapAtlas = class
   private
     FWidth, FHeight: Integer;
-    FData: array of Byte;
+    FData: array[0..3] of array of Byte;
+    FLayerUsed: array[0..3] of Boolean;
     FShelfX, FShelfY, FShelfH: Integer;
     FUsedHeight: Integer;
   public
     constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096);
     { Reserve a W x H block. Returns False if the atlas is full. }
     function Allocate(const W, H: Integer; out X, Y: Integer): Boolean;
-    procedure SetTexel(const X, Y: Integer; const Value: Byte);
-    { Create final texture node (power-of-two height). Returns nil if nothing was packed. }
-    function CreateTextureNode: TPixelTextureNode;
+    procedure SetTexel(const Layer, X, Y: Integer; const Value: Byte);
+    { Create the texture of a lightstyle slot; nil if nothing was packed in it }
+    function CreateTextureNode(const Layer: Integer): TPixelTextureNode;
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
   end;
@@ -128,6 +141,10 @@ type
     FSkyTimeFields: TSFFloatList;
     FSkyEyeFields: TSFVec3fList;
     FSkyTime: Single;
+    FLightmapSets: array of TQuakeLightmapSet;
+    FLastStyles: array[0..63] of Single;
+    FDLightsOn: Boolean;
+    function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
       var OutBatches: TQuakeGeomBatchDict);
     procedure SetupSubmodels(const Parent: TCastleTransform);
@@ -155,6 +172,12 @@ type
     property WorldTransform: TCastleTransform read FWorldTransform;
     property Submodels: TQuakeSubmodelList read FSubmodels;
   end;
+
+var
+  { World surfaces: True = Quake's baked lightmaps blended in a shader
+    (lightstyles, dynamic lights), False = lit materials under the engine's
+    real-time lights. Takes effect when a map is loaded. }
+  WorldLightmaps: Boolean = True;
 
 implementation
 
@@ -188,6 +211,59 @@ const
     '  fragment_color = vec4(mix(back.rgb, front.rgb, front.a), 1.0);' + LineEnding +
     '}' + LineEnding;
 
+  { R_BuildLightMap in a shader: the lightmaps of the face's lightstyle
+    slots, scaled by the current lightstyle values, plus the dynamic lights
+    (R_AddDynamicLights); x2 overbright like Quake's colormap }
+  LightmapVertexShader =
+    'attribute vec2 quake_lm_coord;' + LineEnding +
+    'attribute vec4 quake_styles;' + LineEnding +
+    'varying vec2 quake_lm_coord_v;' + LineEnding +
+    'varying vec4 quake_styles_v;' + LineEnding +
+    'varying vec3 quake_pos_v;' + LineEnding +
+    'void PLUG_vertex_object_space(const in vec4 vertex_object, const in vec3 normal_object)' + LineEnding +
+    '{' + LineEnding +
+    '  quake_lm_coord_v = quake_lm_coord;' + LineEnding +
+    '  quake_styles_v = quake_styles;' + LineEnding +
+    '  quake_pos_v = vec3(vertex_object);' + LineEnding +
+    '}' + LineEnding;
+
+  LightmapFragmentShader =
+    'uniform sampler2D quake_lm0;' + LineEnding +
+    'uniform sampler2D quake_lm1;' + LineEnding +
+    'uniform sampler2D quake_lm2;' + LineEnding +
+    'uniform sampler2D quake_lm3;' + LineEnding +
+    'uniform int quake_lm_layers;' + LineEnding +
+    'uniform float quake_lightstyles[64];' + LineEnding +
+    'uniform vec4 quake_dlights[4];' + LineEnding +
+    'varying vec2 quake_lm_coord_v;' + LineEnding +
+    'varying vec4 quake_styles_v;' + LineEnding +
+    'varying vec3 quake_pos_v;' + LineEnding +
+    'float quake_style(float s)' + LineEnding +
+    '{' + LineEnding +
+    '  int i = int(s + 0.5);' + LineEnding +
+    '  if (i < 0 || i > 63) return 0.0;' + LineEnding +
+    '  return quake_lightstyles[i];' + LineEnding +
+    '}' + LineEnding +
+    'void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)' + LineEnding +
+    '{' + LineEnding +
+    '  float light = 0.0;' + LineEnding +
+    '  if (quake_lm_layers > 0 && quake_styles_v.x < 254.5)' + LineEnding +
+    '    light += texture2D(quake_lm0, quake_lm_coord_v).r * quake_style(quake_styles_v.x);' + LineEnding +
+    '  if (quake_lm_layers > 1 && quake_styles_v.y < 254.5)' + LineEnding +
+    '    light += texture2D(quake_lm1, quake_lm_coord_v).r * quake_style(quake_styles_v.y);' + LineEnding +
+    '  if (quake_lm_layers > 2 && quake_styles_v.z < 254.5)' + LineEnding +
+    '    light += texture2D(quake_lm2, quake_lm_coord_v).r * quake_style(quake_styles_v.z);' + LineEnding +
+    '  if (quake_lm_layers > 3 && quake_styles_v.w < 254.5)' + LineEnding +
+    '    light += texture2D(quake_lm3, quake_lm_coord_v).r * quake_style(quake_styles_v.w);' + LineEnding +
+    '  for (int i = 0; i < 4; i++)' + LineEnding +
+    '  {' + LineEnding +
+    '    float rad = quake_dlights[i].w;' + LineEnding +
+    '    if (rad > 0.0)' + LineEnding +
+    '      light += max(rad - distance(quake_pos_v, quake_dlights[i].xyz), 0.0) / 255.0;' + LineEnding +
+    '  }' + LineEnding +
+    '  fragment_color.rgb *= min(light, 1.0) * 2.0;' + LineEnding +
+    '}' + LineEnding;
+
   { Both layers repeat after 128 texels: 16 s for the back one, 8 s for the front one.
     Wrapping keeps the shader time small (float precision). }
   SkyTimePeriod = 16.0;
@@ -210,6 +286,7 @@ begin
   Coords := TVector3List.Create;
   TexCoords := TVector2List.Create;
   LMTexCoords := TVector2List.Create;
+  LMStyles := TSingleList.Create;
   Normals := TVector3List.Create;
   Indices := TInt32List.Create;
   IsSky := (Pos('sky', LowerCase(ATexName)) = 1);
@@ -221,13 +298,14 @@ begin
   Coords.Free;
   TexCoords.Free;
   LMTexCoords.Free;
+  LMStyles.Free;
   Normals.Free;
   Indices.Free;
   inherited Destroy;
 end;
 
 procedure TQuakeGeomBatch.AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
-  const Normal: TVector3);
+  const Normal: TVector3; const Styles: TVector4);
 var
   BaseIdx, I: Integer;
 begin
@@ -240,6 +318,10 @@ begin
     Coords.Add(Verts[I]);
     TexCoords.Add(UVs[I]);
     LMTexCoords.Add(LMUVs[I]);
+    LMStyles.Add(Styles.X);
+    LMStyles.Add(Styles.Y);
+    LMStyles.Add(Styles.Z);
+    LMStyles.Add(Styles.W);
     Normals.Add(Normal);
   end;
 
@@ -252,13 +334,12 @@ begin
   end;
 end;
 
-procedure TQuakeGeomBatch.CreateNodes(const MapName: String; const LightmapTex: TPixelTextureNode);
+procedure TQuakeGeomBatch.CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet);
 var
   TexProps: TTexturePropertiesNode;
   UnlitMat: TUnlitMaterialNode;
-  MultiTex: TMultiTextureNode;
-  MultiCoord: TMultiTextureCoordinateNode;
-  LMCoordNode: TTextureCoordinateNode;
+  PhysMat: TPhysicalMaterialNode;
+  LMCoordAttrib, StylesAttrib: TFloatVertexAttributeNode;
   UseLightmap, UseSkyShader: Boolean;
   SkyEffect: TEffectNode;
   VertexPart, FragmentPart: TEffectPartNode;
@@ -284,7 +365,7 @@ begin
     visible side of every wall and you see the map "inside out". }
   Geometry.Ccw := False;
   Geometry.Solid := not IsLiquid;
-  Geometry.NormalPerVertex := False;
+  Geometry.NormalPerVertex := True; { one (face) normal per vertex }
 
   Appearance := TAppearanceNode.Create;
 
@@ -307,14 +388,30 @@ begin
     TexNode.TextureProperties := TexProps;
   end;
 
-  { Quake surfaces are not lit dynamically: the look comes from the baked
-    lightmaps. Use an unlit material and modulate the surface texture by the
-    lightmap (x2 "overbright", like Quake's colormap where mid-light = 100%). }
-  UnlitMat := TUnlitMaterialNode.Create;
-  UnlitMat.EmissiveColor := Vector3(1, 1, 1);
-  Appearance.Material := UnlitMat;
+  UseLightmap := WorldLightmaps and (Lightmaps.Effect <> nil) and (not IsSky) and (not IsLiquid);
+  UnlitMat := nil;
+  if WorldLightmaps or IsSky or IsLiquid or UseSkyShader then
+  begin
+    { Quake surfaces are not lit dynamically: the look comes from the baked
+      lightmaps, blended by the lightmap shader below }
+    UnlitMat := TUnlitMaterialNode.Create;
+    UnlitMat.EmissiveColor := Vector3(1, 1, 1);
+    Appearance.Material := UnlitMat;
+  end else
+  begin
+    { Dynamic lighting: the surface is lit by the engine's lights (and
+      shadow maps) like any PBR material }
+    PhysMat := TPhysicalMaterialNode.Create;
+    PhysMat.BaseColor := Vector3(1, 1, 1);
+    PhysMat.Metallic := 0;
+    PhysMat.Roughness := 0.9;
+    { A little minlight so unlit corners are not pitch black }
+    PhysMat.EmissiveColor := Vector3(0.08, 0.08, 0.08);
+    if TexNode <> nil then
+      PhysMat.BaseTexture := TexNode;
+    Appearance.Material := PhysMat;
+  end;
 
-  UseLightmap := (LightmapTex <> nil) and (not IsSky) and (not IsLiquid);
   if UseSkyShader then
   begin
     { No regular texture: the sky effect computes the color from both layers }
@@ -342,27 +439,30 @@ begin
   end else
   if UseLightmap then
   begin
-    MultiTex := TMultiTextureNode.Create;
-    MultiTex.FdTexture.Add(TexNode);
-    MultiTex.FdTexture.Add(LightmapTex);
-    MultiTex.FdMode.Items.Clear;
-    MultiTex.FdMode.Items.Add('MODULATE');
-    MultiTex.FdMode.Items.Add('MODULATE2X');
-    Appearance.Texture := MultiTex;
-
-    LMCoordNode := TTextureCoordinateNode.Create;
-    LMCoordNode.SetPoint(LMTexCoords);
-    MultiCoord := TMultiTextureCoordinateNode.Create;
-    MultiCoord.FdTexCoord.Add(TexCoordNode);
-    MultiCoord.FdTexCoord.Add(LMCoordNode);
-    Geometry.TexCoord := MultiCoord;
+    Appearance.Texture := TexNode;
+    Geometry.TexCoord := TexCoordNode;
+    { Lightmap coordinates and the face's lightstyles go to the shader as
+      vertex attributes }
+    LMCoordAttrib := TFloatVertexAttributeNode.Create;
+    LMCoordAttrib.NameField := 'quake_lm_coord';
+    LMCoordAttrib.NumComponents := 2;
+    LMCoordAttrib.FdValue.Items.Count := LMTexCoords.Count * 2;
+    Move(LMTexCoords.L^, LMCoordAttrib.FdValue.Items.L^, LMTexCoords.Count * SizeOf(TVector2));
+    StylesAttrib := TFloatVertexAttributeNode.Create;
+    StylesAttrib.NameField := 'quake_styles';
+    StylesAttrib.NumComponents := 4;
+    StylesAttrib.FdValue.Items.Assign(LMStyles);
+    Geometry.FdAttrib.Add(LMCoordAttrib);
+    Geometry.FdAttrib.Add(StylesAttrib);
+    Appearance.SetEffects([Lightmaps.Effect]);
   end else
   begin
-    Appearance.Texture := TexNode;
+    if UnlitMat <> nil then
+      Appearance.Texture := TexNode;
     Geometry.TexCoord := TexCoordNode;
   end;
 
-  if IsLiquid then
+  if IsLiquid and (UnlitMat <> nil) then
   begin
     UnlitMat.Transparency := 0.35;
     Appearance.AlphaMode := amBlend;
@@ -381,18 +481,22 @@ end;
 
 constructor TQuakeLightmapAtlas.Create(const AWidth, AMaxHeight: Integer);
 var
-  X, Y: Integer;
+  X, Y, L: Integer;
 begin
   inherited Create;
   FWidth := AWidth;
   FHeight := AMaxHeight;
-  SetLength(FData, FWidth * FHeight);
-  FillChar(FData[0], Length(FData), 0);
-  { Reserve a 4x4 block at (0,0) filled with 128 (mid-gray = 1.0 with MODULATE2X)
-    so unlit surfaces (sky/liquids/unlit) can safely sample (2,2) without border bleeding. }
+  for L := 0 to 3 do
+  begin
+    SetLength(FData[L], FWidth * FHeight);
+    FillChar(FData[L][0], Length(FData[L]), 0);
+  end;
+  { Reserve a 4x4 block at (0,0) filled with 128 (mid-gray = 1.0 with the x2
+    overbright) so faces without a lightmap can sample (2,2) without bleeding }
   for Y := 0 to 3 do
     for X := 0 to 3 do
-      FData[Y * FWidth + X] := 128;
+      FData[0][Y * FWidth + X] := 128;
+  FLayerUsed[0] := True;
   FShelfX := 5; { 1 texel padding after the 4x4 block }
   FShelfY := 0;
   FShelfH := 4;
@@ -425,25 +529,30 @@ begin
   Result := True;
 end;
 
-procedure TQuakeLightmapAtlas.SetTexel(const X, Y: Integer; const Value: Byte);
+procedure TQuakeLightmapAtlas.SetTexel(const Layer, X, Y: Integer; const Value: Byte);
 begin
-  if (X >= 0) and (X < FWidth) and (Y >= 0) and (Y < FHeight) then
-    FData[Y * FWidth + X] := Value;
+  if (Layer >= 0) and (Layer <= 3) and (X >= 0) and (X < FWidth) and (Y >= 0) and (Y < FHeight) then
+  begin
+    FData[Layer][Y * FWidth + X] := Value;
+    FLayerUsed[Layer] := True;
+  end;
 end;
 
-function TQuakeLightmapAtlas.CreateTextureNode: TPixelTextureNode;
+function TQuakeLightmapAtlas.CreateTextureNode(const Layer: Integer): TPixelTextureNode;
 var
   Img: TGrayscaleImage;
-  Y: Integer;
+  Y, H: Integer;
   TexProps: TTexturePropertiesNode;
 begin
   Result := nil;
-  if FUsedHeight = 0 then
+  if (FUsedHeight = 0) or (Layer < 0) or (Layer > 3) or not FLayerUsed[Layer] then
     Exit;
 
-  Img := TGrayscaleImage.Create(FWidth, FHeight);
-  for Y := 0 to FHeight - 1 do
-    Move(FData[Y * FWidth], Img.PixelPtr(0, Y)^, FWidth);
+  { The full atlas: the lightmap coordinates were computed against it }
+  H := FHeight;
+  Img := TGrayscaleImage.Create(FWidth, H);
+  for Y := 0 to H - 1 do
+    Move(FData[Layer][Y * FWidth], Img.PixelPtr(0, Y)^, FWidth);
 
   TexProps := TTexturePropertiesNode.Create;
   TexProps.MagnificationFilter := magLinear;
@@ -704,7 +813,9 @@ var
   RawVert: TVector3;
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
   Atlas: TQuakeLightmapAtlas;
-  LightmapTex: TPixelTextureNode;
+  LMSet: TQuakeLightmapSet;
+  NumStyles, K: Integer;
+  FaceStyles: TVector4;
   MinS, MaxS, MinT, MaxT: Single;
   BMinS, BMinT, BMaxS, BMaxT: Integer;
   SurfW, SurfH, SurfSize: Integer;
@@ -802,9 +913,14 @@ begin
       SurfH := (BMaxT - BMinT) + 1;
       SurfSize := SurfW * SurfH;
 
-      HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and
+      { One lightmap per lightstyle slot in use (255 ends the list) }
+      NumStyles := 0;
+      while (NumStyles < 4) and (Face.Styles[NumStyles] <> 255) do
+        Inc(NumStyles);
+      FaceStyles := Vector4(Face.Styles[0], Face.Styles[1], Face.Styles[2], Face.Styles[3]);
+      HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and (NumStyles > 0) and
                      (SurfW > 0) and (SurfH > 0) and (SurfW <= 256) and (SurfH <= 256) and
-                     (Face.LightmapOffset + SurfSize <= LongInt(FBsp.LightmapsSize)) and
+                     (Face.LightmapOffset + SurfSize * NumStyles <= LongInt(FBsp.LightmapsSize)) and
                      (not Batch.IsSky) and (not Batch.IsLiquid);
 
       AllocOk := False;
@@ -813,10 +929,13 @@ begin
         AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
         if AllocOk then
         begin
-          SrcPtr := FBsp.Lightmaps + Face.LightmapOffset;
-          for Row := 0 to SurfH - 1 do
-            for Col := 0 to SurfW - 1 do
-              Atlas.SetTexel(AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
+          for K := 0 to NumStyles - 1 do
+          begin
+            SrcPtr := FBsp.Lightmaps + Face.LightmapOffset + K * SurfSize;
+            for Row := 0 to SurfH - 1 do
+              for Col := 0 to SurfW - 1 do
+                Atlas.SetTexel(K, AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
+          end;
 
           for V := 0 to VertCount - 1 do
           begin
@@ -832,18 +951,20 @@ begin
 
       if not AllocOk then
       begin
+        { Full brightness from the gray block, style 0 }
         for V := 0 to VertCount - 1 do
           PolyLMUVs[V] := Vector2(2.0 / Atlas.Width, 2.0 / Atlas.Height);
+        FaceStyles := Vector4(0, 255, 255, 255);
       end;
 
-      Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal);
+      Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal, FaceStyles);
     end;
 
-    LightmapTex := Atlas.CreateTextureNode;
+    LMSet := CreateLightmapSet(Atlas);
     for BatchPair in OutBatches do
     begin
       Batch := BatchPair.Value;
-      Batch.CreateNodes(FBsp.MapName, LightmapTex);
+      Batch.CreateNodes(FBsp.MapName, LMSet);
       if Batch.Shape <> nil then
       begin
         RootNode.AddChildren(Batch.Shape);
@@ -1015,14 +1136,96 @@ begin
   SetupSubmodels(Parent);
 end;
 
+function TQuakeGeometry.CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
+var
+  K, I: Integer;
+  VertexPart, FragmentPart: TEffectPartNode;
+  Styles: array[0..63] of Single;
+begin
+  Result := Default(TQuakeLightmapSet);
+  if not WorldLightmaps then
+    Exit;
+  for K := 0 to 3 do
+  begin
+    Result.Layers[K] := Atlas.CreateTextureNode(K);
+    if Result.Layers[K] <> nil then
+      Result.LayerCount := K + 1;
+  end;
+  if Result.LayerCount = 0 then
+    Exit;
+
+  Result.Effect := TEffectNode.Create;
+  Result.Effect.Language := slGLSL;
+  Result.Effect.UniformMissing := umIgnore;
+  for K := 0 to Result.LayerCount - 1 do
+  begin
+    if Result.Layers[K] = nil then
+      Result.Layers[K] := Result.Layers[0]; { a slot without data in between }
+    Result.Effect.AddCustomField(TSFNode.Create(Result.Effect, False, 'quake_lm' + IntToStr(K), [],
+      Result.Layers[K]));
+  end;
+  Result.Effect.AddCustomField(TSFInt32.Create(Result.Effect, False, 'quake_lm_layers', Result.LayerCount));
+  for I := 0 to 63 do
+    Styles[I] := Lighting.GetStyleMultiplier(I);
+  Result.StylesField := TMFFloat.Create(Result.Effect, True, 'quake_lightstyles', Styles);
+  Result.Effect.AddCustomField(Result.StylesField);
+  Result.DLightsField := TMFVec4f.Create(Result.Effect, True, 'quake_dlights',
+    [TVector4.Zero, TVector4.Zero, TVector4.Zero, TVector4.Zero]);
+  Result.Effect.AddCustomField(Result.DLightsField);
+
+  VertexPart := TEffectPartNode.Create;
+  VertexPart.ShaderType := stVertex;
+  VertexPart.Contents := LightmapVertexShader;
+  FragmentPart := TEffectPartNode.Create;
+  FragmentPart.ShaderType := stFragment;
+  FragmentPart.Contents := LightmapFragmentShader;
+  Result.Effect.SetParts([VertexPart, FragmentPart]);
+
+  SetLength(FLightmapSets, Length(FLightmapSets) + 1);
+  FLightmapSets[High(FLightmapSets)] := Result;
+end;
+
 procedure TQuakeGeometry.Update(const SecondsPassed: Single; const EyePos: TVector3);
 var
   Sub: TQuakeSubmodel;
   Anim: TQuakeAnimTex;
-  I: Integer;
+  I, K: Integer;
+  StylesChanged, DLightsOn: Boolean;
+  V: Single;
+  DL: array[0..3] of TVector4;
 begin
   for Sub in FSubmodels do
     Sub.Update(SecondsPassed);
+
+  { Lightstyle values and dynamic lights for the lightmap shaders }
+  if Length(FLightmapSets) > 0 then
+  begin
+    StylesChanged := False;
+    for I := 0 to 63 do
+    begin
+      V := Lighting.GetStyleMultiplier(I);
+      if V <> FLastStyles[I] then
+      begin
+        FLastStyles[I] := V;
+        StylesChanged := True;
+      end;
+    end;
+    DLightsOn := False;
+    for I := 0 to 3 do
+    begin
+      DL[I] := Lighting.DLightUniform(I);
+      if DL[I].W > 0 then
+        DLightsOn := True;
+    end;
+    for K := 0 to High(FLightmapSets) do
+    begin
+      if StylesChanged then
+        FLightmapSets[K].StylesField.Send(FLastStyles);
+      if DLightsOn or FDLightsOn then
+        FLightmapSets[K].DLightsField.Send(DL);
+    end;
+    FDLightsOn := DLightsOn;
+  end;
 
   for Anim in FAnimTextures do
     Anim.Update(SecondsPassed);
