@@ -7,7 +7,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, Math,
-  CastleVectors, CastleTransform, CastleScene, CastleLog,
+  CastleVectors, CastleTransform, CastleScene, CastleLog, CastleQuaternions,
   QuakeBsp, QuakeMdl, QuakeLight, QuakeSound;
 
 type
@@ -85,22 +85,26 @@ type
 
   TQuakeMonsterList = specialize TObjectList<TQuakeMonster>;
 
-  { Active projectile (rocket, grenade, nail) }
+  TQuakeProjectileKind = (pjNail, pjSuperNail, pjGrenade, pjRocket);
+
+  { Active player projectile. Origin and Velocity are in Quake coordinates;
+    the world moves it with hull traces (see TQuakeWorld.UpdateProjectiles). }
   TQuakeProjectile = class
   public
+    Kind: TQuakeProjectileKind;
     Transform: TCastleTransform;
     Scene: TCastleScene;
+    Origin: TVector3;
     Velocity: TVector3;
-    Damage: Integer;
-    SplashRadius: Single;
-    Life: Single;
-    IsRocket: Boolean;
-    FromPlayer: Boolean;
-    constructor Create(const Parent: TCastleTransform; const Pos, Vel: TVector3;
-      const MdlPath: String; const ADamage: Integer; const ASplash: Single;
-      const ARocket, AFromPlayer: Boolean);
+    Life: Single;        { removed (grenades: explode) when it runs out }
+    OnGround: Boolean;   { grenade resting on the floor }
+    TrailTimer: Single;
+    Spin: Single;        { grenade tumbling angle }
+    constructor Create(const Parent: TCastleTransform; const AKind: TQuakeProjectileKind;
+      const AOrigin, AVelocity: TVector3);
     destructor Destroy; override;
-    function Update(const SecondsPassed: Single): Boolean; { returns False if expired }
+    { Place the model at Origin, facing along Velocity }
+    procedure UpdateVisual;
   end;
 
   TQuakeProjectileList = specialize TObjectList<TQuakeProjectile>;
@@ -563,31 +567,49 @@ end;
 
 { TQuakeProjectile }
 
-constructor TQuakeProjectile.Create(const Parent: TCastleTransform; const Pos, Vel: TVector3;
-  const MdlPath: String; const ADamage: Integer; const ASplash: Single;
-  const ARocket, AFromPlayer: Boolean);
+constructor TQuakeProjectile.Create(const Parent: TCastleTransform;
+  const AKind: TQuakeProjectileKind; const AOrigin, AVelocity: TVector3);
 var
   Mdl: TQuakeMdl;
+  MdlPath: String;
 begin
   inherited Create;
-  Velocity := Vel;
-  Damage := ADamage;
-  SplashRadius := ASplash;
-  IsRocket := ARocket;
-  FromPlayer := AFromPlayer;
-  Life := 6.0;
+  Kind := AKind;
+  Origin := AOrigin;
+  Velocity := AVelocity;
+  case Kind of
+    pjGrenade:
+      begin
+        MdlPath := 'progs/grenade.mdl';
+        Life := 2.5; { fuse }
+      end;
+    pjRocket:
+      begin
+        MdlPath := 'progs/missile.mdl';
+        Life := 5.0;
+      end;
+    pjSuperNail:
+      begin
+        MdlPath := 'progs/s_spike.mdl';
+        Life := 6.0;
+      end;
+    else
+      begin
+        MdlPath := 'progs/spike.mdl';
+        Life := 6.0;
+      end;
+  end;
 
   Transform := TCastleTransform.Create(nil);
-  Transform.Translation := Pos;
-
   Mdl := MdlManager.GetModel(MdlPath);
   if Mdl <> nil then
   begin
     Scene := Mdl.CreateScene(0);
+    Scene.Collides := False;
     Transform.Add(Scene);
   end;
-
   Parent.Add(Transform);
+  UpdateVisual;
 end;
 
 destructor TQuakeProjectile.Destroy;
@@ -596,14 +618,27 @@ begin
   inherited Destroy;
 end;
 
-function TQuakeProjectile.Update(const SecondsPassed: Single): Boolean;
+procedure TQuakeProjectile.UpdateVisual;
+var
+  Yaw, Pitch: Single;
+  Q: TQuaternion;
 begin
-  Life := Life - SecondsPassed;
-  if Life <= 0 then
-    Exit(False);
-
-  Transform.Translation := Transform.Translation + Velocity * SecondsPassed;
-  Result := True;
+  Transform.Translation := QuakeToCge(Origin);
+  if Kind = pjGrenade then
+  begin
+    { Grenades tumble (avelocity '300 300 300') }
+    Q := QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Spin)) *
+      QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Spin));
+  end else
+  begin
+    { Models point along Quake +X: yaw around the up axis, then pitch }
+    if Velocity.IsPerfectlyZero then
+      Exit;
+    Yaw := ArcTan2(Velocity.Y, Velocity.X);
+    Pitch := ArcTan2(Velocity.Z, Sqrt(Sqr(Velocity.X) + Sqr(Velocity.Y)));
+    Q := QuatFromAxisAngle(Vector3(0, 1, 0), Yaw) * QuatFromAxisAngle(Vector3(0, 0, 1), Pitch);
+  end;
+  Transform.Rotation := Q.ToAxisAngle;
 end;
 
 { TQuakeTrigger }

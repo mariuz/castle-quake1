@@ -38,7 +38,6 @@ type
     FTime: Single;
     FOldOrigin: TVector3;
     FWishSpeed: Single;
-    function TraceBox(const BoxMins, BoxMaxs, Start, Stop: TVector3): TQuakeTrace;
     function TestPosition: Boolean;
     procedure CheckWater;
     procedure CheckWaterJump(const Forward: TVector3);
@@ -101,6 +100,13 @@ type
 
     function EyePosition: TVector3;
   end;
+
+{ Trace a point from Start to Stop against an axis aligned box (SV_HullForBox).
+  For a moving box, pass the box already expanded by the mover size. }
+function TraceSegmentBox(const BoxMins, BoxMaxs, Start, Stop: TVector3): TQuakeTrace;
+
+{ Slide a velocity along a plane (ClipVelocity); Overbounce 1.5 bounces }
+function ClipVelocity(const InVel, Normal: TVector3; const Overbounce: Single): TVector3;
 
 const
   { Server cvars with their Quake defaults }
@@ -178,7 +184,7 @@ begin
   InWaterJump := False;
 end;
 
-function TQuakePlayerPhysics.TraceBox(const BoxMins, BoxMaxs, Start, Stop: TVector3): TQuakeTrace;
+function TraceSegmentBox(const BoxMins, BoxMaxs, Start, Stop: TVector3): TQuakeTrace;
 var
   I: Integer;
   D1, D2, F, EnterFrac, LeaveFrac: Single;
@@ -310,7 +316,7 @@ begin
         BoxMins := SolidBoxes[I].Mins - Maxs;
         BoxMaxs := SolidBoxes[I].Maxs - Mins;
       end;
-      T := TraceBox(BoxMins, BoxMaxs, Start, Stop);
+      T := TraceSegmentBox(BoxMins, BoxMaxs, Start, Stop);
       Combine;
     end;
 end;
