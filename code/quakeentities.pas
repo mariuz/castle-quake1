@@ -109,7 +109,7 @@ type
   TQuakeTrigger = class
   public
     EntityClassName: String;
-    Mins, Maxs: TVector3;
+    Mins, Maxs: TVector3; { absolute bounds, Quake coordinates }
     Target: String;
     TargetName: String;
     MapName: String; { for changelevel }
@@ -118,7 +118,8 @@ type
     LastTriggerTime: Single;
     constructor Create(const ACName: String; const AMins, AMaxs: TVector3;
       const ATarget: String; const AMap: String = '');
-    function Intersects(const Pos: TVector3; const Radius: Single = 16.0): Boolean;
+    { Does a box (Quake coordinates) touch the trigger }
+    function Touches(const BoxMins, BoxMaxs: TVector3): Boolean;
   end;
 
   TQuakeTriggerList = specialize TObjectList<TQuakeTrigger>;
@@ -620,11 +621,11 @@ begin
   LastTriggerTime := -999.0;
 end;
 
-function TQuakeTrigger.Intersects(const Pos: TVector3; const Radius: Single): Boolean;
+function TQuakeTrigger.Touches(const BoxMins, BoxMaxs: TVector3): Boolean;
 begin
-  Result := (Pos.X + Radius >= Mins.X) and (Pos.X - Radius <= Maxs.X) and
-            (Pos.Y + Radius >= Mins.Y) and (Pos.Y - Radius <= Maxs.Y) and
-            (Pos.Z + Radius >= Mins.Z) and (Pos.Z - Radius <= Maxs.Z);
+  Result := (BoxMins.X <= Maxs.X) and (BoxMaxs.X >= Mins.X) and
+            (BoxMins.Y <= Maxs.Y) and (BoxMaxs.Y >= Mins.Y) and
+            (BoxMins.Z <= Maxs.Z) and (BoxMaxs.Z >= Mins.Z);
 end;
 
 end.

@@ -12,7 +12,8 @@ uses
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
-  QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu;
+  QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
+  QuakePhysics;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -43,6 +44,10 @@ type
     FWarpTime: Single;
     FDeathTimer: Single;
     FQuitRequested: Boolean;
+    { Autotest movement: forward / side / up fractions of full speed, and jump time left }
+    FDemoMove: TVector3;
+    FDemoJumpTime: Single;
+    procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
     procedure SetupNavigation;
     procedure CreateUnderwaterEffect;
     procedure UpdateViewContents(const SecondsPassed: Single);
@@ -177,12 +182,13 @@ begin
   if FNavigation = nil then
   begin
     FNavigation := TCastleWalkNavigation.Create(Self);
-    FNavigation.PreferredHeight := 40.0; { Quake player eye level }
-    FNavigation.ClimbHeight := 18.0;     { Quake step climbing height }
-    FNavigation.MoveSpeed := 320.0;      { Quake standard run speed }
-    FNavigation.JumpMaxHeight := 1.2;    { Quake jump height factor }
+    { The navigation only turns the view (mouse look, arrow keys).
+      Moving is done by Quake physics (TQuakeWorld.MovePlayer), except in
+      free-fly mode where the navigation flies the camera. }
+    FNavigation.MoveSpeed := 0;
+    FNavigation.Gravity := False;
+    FNavigation.HeadBobbing := 0;
     FNavigation.MouseLook := True;
-    FNavigation.HeadBobbing := 0.02;
     FViewport.InsertFront(FNavigation);
   end;
 end;
@@ -194,21 +200,21 @@ begin
     cmFirstPerson:
       begin
         FNavigation.MouseLook := True;
-        FNavigation.Gravity := True;
+        FNavigation.MoveSpeed := 0;
         FMenu.CameraModeName := 'First-Person';
         FHud.CrosshairVisible := True;
       end;
     cmThirdPerson:
       begin
         FNavigation.MouseLook := True;
-        FNavigation.Gravity := True;
+        FNavigation.MoveSpeed := 0;
         FMenu.CameraModeName := 'Third-Person';
         FHud.CrosshairVisible := True;
       end;
     cmFreeFly:
       begin
         FNavigation.MouseLook := True;
-        FNavigation.Gravity := False;
+        FNavigation.MoveSpeed := 320.0;
         FMenu.CameraModeName := 'Free-Fly';
         FHud.CrosshairVisible := False;
       end;
@@ -303,7 +309,7 @@ begin
   if FWorld.LoadMap(FMapName) then
   begin
     { Place player at map spawn point }
-    FViewport.Camera.Translation := FWorld.SpawnPoint;
+    FViewport.Camera.Translation := FWorld.PlayerEyePosition;
 
     Rad := DegToRad(FWorld.SpawnAngle);
     FViewport.Camera.Direction := Vector3(Cos(Rad), 0, -Sin(Rad));
@@ -359,6 +365,7 @@ var
   Val: Single;
   Rad: Single;
   HorizDir: TVector3;
+  Parts: TStringArray;
 begin
   if FDemoIndex >= FDemoCommands.Count then
   begin
@@ -441,6 +448,31 @@ begin
   begin
     Val := StrToFloatDef(Param, 50.0);
     FViewport.Camera.Translation := FViewport.Camera.Translation + FViewport.Camera.Direction * Val;
+    FWorld.SetPlayerEyePosition(FViewport.Camera.Translation);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'G' then { Teleport the player's eyes to x;y;z (CGE coordinates) }
+  begin
+    Parts := Param.Split([';']);
+    if Length(Parts) = 3 then
+    begin
+      FViewport.Camera.Translation := Vector3(StrToFloatDef(Parts[0], 0),
+        StrToFloatDef(Parts[1], 0), StrToFloatDef(Parts[2], 0));
+      FWorld.SetPlayerEyePosition(FViewport.Camera.Translation);
+    end;
+    Inc(FDemoIndex);
+  end else
+  if Action = 'V' then { Hold movement: forward;side;up fractions of full speed }
+  begin
+    Parts := Param.Split([';']);
+    FDemoMove := TVector3.Zero;
+    for P := 0 to Min(High(Parts), 2) do
+      FDemoMove.Data[P] := StrToFloatDef(Parts[P], 0);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'J' then { Jump }
+  begin
+    FDemoJumpTime := 0.1;
     Inc(FDemoIndex);
   end else
   if Action = 'C' then { Change weapon }
@@ -466,17 +498,61 @@ begin
     Inc(FDemoIndex);
 end;
 
+procedure TViewPlay.BuildUserCmd(out Cmd: TQuakeUserCmd);
+begin
+  FillChar(Cmd, SizeOf(Cmd), 0);
+  if (not FConsole.IsOpen) and (not FMenu.Exists) then
+  begin
+    if FNavigation.Input_Forward.IsPressed(Container) then
+      Cmd.ForwardMove := Cmd.ForwardMove + ClForwardSpeed;
+    if FNavigation.Input_Backward.IsPressed(Container) then
+      Cmd.ForwardMove := Cmd.ForwardMove - ClBackSpeed;
+    if FNavigation.Input_RightStrafe.IsPressed(Container) then
+      Cmd.SideMove := Cmd.SideMove + ClSideSpeed;
+    if FNavigation.Input_LeftStrafe.IsPressed(Container) then
+      Cmd.SideMove := Cmd.SideMove - ClSideSpeed;
+    { Movement is "always run"; holding the run key walks instead }
+    if FNavigation.Input_Run.IsPressed(Container) then
+    begin
+      Cmd.ForwardMove := Cmd.ForwardMove * 0.5;
+      Cmd.SideMove := Cmd.SideMove * 0.5;
+    end;
+    Cmd.Jump := FNavigation.Input_Jump.IsPressed(Container);
+  end;
+
+  { Autotest input }
+  Cmd.ForwardMove := Cmd.ForwardMove + FDemoMove.X * ClForwardSpeed;
+  Cmd.SideMove := Cmd.SideMove + FDemoMove.Y * ClSideSpeed;
+  Cmd.UpMove := Cmd.UpMove + FDemoMove.Z * ClUpSpeed;
+  if FDemoJumpTime > 0 then
+    Cmd.Jump := True;
+end;
+
 procedure TViewPlay.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 var
   CamDir: TVector3;
   Yaw, Pitch: Single;
   RayOrigin, RayDir: TVector3;
+  Cmd: TQuakeUserCmd;
+  NewYaw: Single;
 begin
   inherited Update(SecondsPassed, HandleInput);
 
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
     RunDemoStep(SecondsPassed);
+
+  { Quake player physics moves the player; the camera follows the eyes }
+  if (FWorld <> nil) and (FCameraMode <> cmFreeFly) then
+  begin
+    BuildUserCmd(Cmd);
+    FDemoJumpTime := Max(0, FDemoJumpTime - SecondsPassed);
+    FWorld.MovePlayer(Cmd, FViewport.Camera.Direction, SecondsPassed, FHud);
+    if FWorld.TakePendingYaw(NewYaw) then
+      FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
+        QuakeToCge(Vector3(Cos(DegToRad(NewYaw)), Sin(DegToRad(NewYaw)), 0)), Vector3(0, 1, 0));
+    FViewport.Camera.Translation := FWorld.PlayerEyePosition;
+  end;
 
   { Compute player facing angle from camera }
   CamDir := FViewport.Camera.Direction;

@@ -16,7 +16,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | `V_CalcBlend` color shifts (damage, pickup, water/slime/lava, biosuit) and `D_WarpScreen`-style underwater warp | Matches original. |
 | **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser, per-state animation sequences with keyframe interpolation | Matches original (plus lerping, like later Quake engines). |
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | PAK WAVs played through OpenAL (`TCastleSoundSource`), static ambient emitters and BSP leaf ambients, OGG background music | Matches original. |
-| **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | `TCastleWalkNavigation` with Quake height (40), step climbing (18), gravity | Implement authentic Quake air-acceleration, friction, and swimming physics. |
+| **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | Port of the NetQuake player physics (`QuakePhysics`) tracing the BSP clipping hulls, doors and monster boxes | Matches original. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | Axe, Shotgun, Super Shotgun, basic Rocket launcher projectile | Full ballistics (grenade bounce/fuse, spike trails, rocket jumping, lightning discharge). |
 | **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | Grunt, Dog, Ogre, Knight spawners and tracking | Add Fiend, Scrag, Hell Knight, Shambler, Vore, Tarbaby, Rotfish, and Bosses. |
 | **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | Monster removal / death state | Spawn physical 3D gib entities with velocities and blood particles. |
@@ -44,10 +44,11 @@ This document outlines the architectural comparison between **Castle Quake** and
   - Fixed the `quakepak:` protocol to report MIME types, without which no PAK sound could be decoded.
 
 ### Phase 2: Authentic Physics & Combat
-- [ ] **Quake Movement Physics**:
-  - Replicate Quake's original ground friction, acceleration, and air-acceleration enabling classic bunny-hopping and strafe-jumping.
-  - Implement swimming state in `CONTENTS_WATER` with water friction, swimming up/down controls, air meter, and drowning damage.
-  - Implement damaging hazard volumes for `CONTENTS_LAVA` and `CONTENTS_SLIME`.
+- [x] **Quake Movement Physics**:
+  - `SV_UserFriction` / `SV_Accelerate` / `SV_AirAccelerate` (30 u/s air wish speed: bunny-hopping and strafe-jumping), gravity 800, jump 270, stair stepping (`SV_WalkMove`) and plane sliding (`SV_FlyMove`) against the BSP clipping hulls (`SV_RecursiveHullCheck`), brush entities and monster boxes.
+  - Swimming (`SV_WaterMove`: 0.7× speed, water friction, sink when idle, swim up with jump, look down to dive), water jumps out of pools, air supply with HUD meter, drowning, gasps and splash sounds.
+  - Lava (10 × waterlevel every 0.2 s) and slime (4 × waterlevel per second) damage, reduced/blocked by the biosuit; falling damage and landing sounds.
+  - Needed along the way: plats rest at the bottom and rise when stood on, doors open from their touch field, buttons fire their targets, triggers use their brush bounds and teleporters move the player.
 - [ ] **Complete Weapons Arsenal**:
   - **Nailgun & Super Nailgun**: high-velocity spike projectiles with purple/blue contrails.
   - **Grenade Launcher**: bouncing physics with elasticity, floor rolling, 2.5-second fuse timer, and direct-hit detonation.

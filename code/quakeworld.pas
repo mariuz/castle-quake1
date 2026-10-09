@@ -10,7 +10,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
-  QuakeParticles, QuakeEntities, QuakeAmbient;
+  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics;
 
 type
   { World simulation manager }
@@ -41,6 +41,24 @@ type
     FSpawnAngle: Single;
     FGodMode: Boolean;
     FPlayerDead: Boolean;
+    FPhys: TQuakePlayerPhysics;
+    FSpawnOrigin: TVector3;     { Quake coordinates }
+    FLastSubOffsets: array of TVector3;
+    FTime: Single;
+    FPendingYaw: Single;
+    FHasPendingYaw: Boolean;
+    { QuakeC WaterMove state }
+    FAirFinished, FDmgTime, FPainFinished: Single;
+    FDrownDamage: Integer;
+    FInWater: Boolean;
+    procedure UpdateSolids;
+    procedure CarryPlayerWithMovers;
+    procedure TouchMovers;
+    procedure PlayerWaterRules(const Hud: TQuakeHud);
+    function SubmodelBounds(const Sub: TQuakeSubmodel; out AMins, AMaxs: TVector3): Boolean;
+    procedure PlayerBox(out AMins, AMaxs: TVector3);
+    procedure UseTargets(const Target: String);
+    procedure PressButton(const Sub: TQuakeSubmodel);
     procedure SpawnEntities;
     procedure UpdateWeaponModel;
     procedure ResetPlayerStats;
@@ -77,6 +95,20 @@ type
     { Hurt the player (T_Damage): armor absorbs part of the damage }
     procedure DamagePlayer(const Damage: Integer; const Hud: TQuakeHud);
 
+    { Run Quake player physics for one frame. ViewDir is the camera direction
+      (CGE coordinates). Afterwards PlayerEyePosition is the new camera position. }
+    procedure MovePlayer(const Cmd: TQuakeUserCmd; const ViewDir: TVector3;
+      const SecondsPassed: Single; const Hud: TQuakeHud);
+
+    { Move the player so that the eyes are at a CGE position (debug / autotest) }
+    procedure SetPlayerEyePosition(const Eye: TVector3);
+
+    { Camera position for the player's eyes (CGE coordinates) }
+    function PlayerEyePosition: TVector3;
+
+    { The view should turn to this yaw (after a teleport); returns False if not }
+    function TakePendingYaw(out Yaw: Single): Boolean;
+
     { Restore starting health, weapons and ammo (after death) }
     procedure RespawnPlayer;
 
@@ -91,6 +123,7 @@ type
     property SpawnAngle: Single read FSpawnAngle;
     property LevelExited: Boolean read FLevelExited;
     property PlayerDead: Boolean read FPlayerDead;
+    property Physics: TQuakePlayerPhysics read FPhys;
     property GodMode: Boolean read FGodMode;
     property NextMap: String read FNextMap;
     property Monsters: TQuakeMonsterList read FMonsters;
@@ -112,6 +145,7 @@ begin
   FProjectiles := TQuakeProjectileList.Create(True);
   FTriggers := TQuakeTriggerList.Create(True);
   FAmbient := TQuakeAmbientSounds.Create;
+  FPhys := TQuakePlayerPhysics.Create;
 
   FWeaponTransform := TCastleTransform.Create(nil);
   FWeaponScene := nil;
@@ -192,6 +226,311 @@ begin
     Result := EnsureRange(1.0 - 0.75 * (M.Transform.Translation - FPlayerPos).Length / M.AttackRange, 0.25, 1.0);
 end;
 
+function SubmodelIsSolid(const Sub: TQuakeSubmodel): Boolean;
+begin
+  { Triggers and illusionary walls are SOLID_NOT }
+  Result := (Pos('trigger_', Sub.EntityClassName) <> 1) and
+    (Sub.EntityClassName <> 'func_illusionary');
+end;
+
+function TQuakeWorld.SubmodelBounds(const Sub: TQuakeSubmodel; out AMins, AMaxs: TVector3): Boolean;
+var
+  Offset: TVector3;
+begin
+  Result := (FBsp <> nil) and (Sub.ModelIndex > 0) and (Sub.ModelIndex < FBsp.ModelCount);
+  if not Result then
+    Exit;
+  Offset := CgeToQuake(Sub.Transform.Translation);
+  AMins := FBsp.Models[Sub.ModelIndex].Mins + Offset;
+  AMaxs := FBsp.Models[Sub.ModelIndex].Maxs + Offset;
+end;
+
+procedure TQuakeWorld.PlayerBox(out AMins, AMaxs: TVector3);
+begin
+  AMins := FPhys.Origin + FPhys.Mins;
+  AMaxs := FPhys.Origin + FPhys.Maxs;
+end;
+
+procedure TQuakeWorld.UseTargets(const Target: String);
+var
+  Sub: TQuakeSubmodel;
+begin
+  { SUB_UseTargets: activate every brush entity with this targetname }
+  if (Target = '') or (FGeometry = nil) then
+    Exit;
+  for Sub in FGeometry.Submodels do
+    if SameText(Sub.TargetName, Target) and (Sub.State = smsClosed) then
+    begin
+      Sub.Trigger;
+      Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
+    end;
+end;
+
+procedure TQuakeWorld.PressButton(const Sub: TQuakeSubmodel);
+begin
+  { button_fire }
+  if Sub.State <> smsClosed then
+    Exit;
+  Sub.Trigger;
+  Sounds.PlayAt('sound/buttons/switch21.wav', Sub.Transform);
+  UseTargets(Sub.Target);
+end;
+
+procedure TQuakeWorld.UpdateSolids;
+var
+  Sub: TQuakeSubmodel;
+  M: TQuakeMonster;
+  N: Integer;
+  Org, BoxMins, BoxMaxs: TVector3;
+begin
+  N := 0;
+  SetLength(FPhys.SolidModels, FGeometry.Submodels.Count);
+  for Sub in FGeometry.Submodels do
+    if SubmodelIsSolid(Sub) then
+    begin
+      FPhys.SolidModels[N].ModelIndex := Sub.ModelIndex;
+      FPhys.SolidModels[N].Offset := CgeToQuake(Sub.Transform.Translation);
+      Inc(N);
+    end;
+  SetLength(FPhys.SolidModels, N);
+
+  { Living monsters block the player with their Quake bounding boxes }
+  N := 0;
+  SetLength(FPhys.SolidBoxes, FMonsters.Count);
+  for M in FMonsters do
+  begin
+    if M.State in [msDeath, msDead] then
+      Continue;
+    if (M.EntityClassName = 'monster_dog') then
+    begin
+      BoxMins := Vector3(-32, -32, -24);
+      BoxMaxs := Vector3(32, 32, 40);
+    end else
+    if M.EntityClassName = 'monster_ogre' then
+    begin
+      BoxMins := Vector3(-32, -32, -24);
+      BoxMaxs := Vector3(32, 32, 64);
+    end else
+    begin
+      BoxMins := Vector3(-16, -16, -24);
+      BoxMaxs := Vector3(16, 16, 40);
+    end;
+    Org := CgeToQuake(M.Transform.Translation);
+    FPhys.SolidBoxes[N].Mins := Org + BoxMins;
+    FPhys.SolidBoxes[N].Maxs := Org + BoxMaxs;
+    Inc(N);
+  end;
+  SetLength(FPhys.SolidBoxes, N);
+end;
+
+procedure TQuakeWorld.CarryPlayerWithMovers;
+var
+  I: Integer;
+  Sub: TQuakeSubmodel;
+  Offset, Delta: TVector3;
+  Ride: Boolean;
+begin
+  { SV_PushMove, simplified: brush entities that moved since the last frame
+    carry the player standing on them, and push the player out of their way }
+  if Length(FLastSubOffsets) <> FGeometry.Submodels.Count then
+    Exit;
+  for I := 0 to FGeometry.Submodels.Count - 1 do
+  begin
+    Sub := FGeometry.Submodels[I];
+    Offset := CgeToQuake(Sub.Transform.Translation);
+    Delta := Offset - FLastSubOffsets[I];
+    FLastSubOffsets[I] := Offset;
+    if Delta.IsPerfectlyZero or not SubmodelIsSolid(Sub) then
+      Continue;
+    Ride := FPhys.OnGround and (FPhys.GroundEntity = Sub.ModelIndex);
+    if Ride or FBsp.TraceHull(1, Sub.ModelIndex, Offset, FPhys.Origin, FPhys.Origin).StartSolid then
+      FPhys.Origin := FPhys.Origin + Delta;
+  end;
+end;
+
+procedure TQuakeWorld.TouchMovers;
+var
+  Sub: TQuakeSubmodel;
+  BoxMins, BoxMaxs, AMins, AMaxs: TVector3;
+
+  function WasTouched(const ModelIndex: Integer): Boolean;
+  var
+    E: Integer;
+  begin
+    for E in FPhys.Touched do
+      if E = ModelIndex then
+        Exit(True);
+    Result := False;
+  end;
+
+begin
+  PlayerBox(BoxMins, BoxMaxs);
+  for Sub in FGeometry.Submodels do
+  begin
+    { plat_center_touch }
+    if Sub.IsAutoPlat and FPhys.OnGround and (FPhys.GroundEntity = Sub.ModelIndex) then
+    begin
+      if Sub.State = smsOpen then
+        Sounds.PlayAt('sound/plats/plat1.wav', Sub.Transform);
+      Sub.PlatTouched;
+    end;
+
+    { button_touch: running into a button presses it }
+    if (Sub.EntityClassName = 'func_button') and WasTouched(Sub.ModelIndex) then
+      PressButton(Sub);
+
+    { door_touch through the trigger field spawned around doors
+      (60 units around the door horizontally, 8 vertically) }
+    if (Sub.EntityClassName = 'func_door') and (Sub.TargetName = '') and
+       (Sub.State = smsClosed) and SubmodelBounds(Sub, AMins, AMaxs) then
+    begin
+      if (BoxMins.X <= AMaxs.X + 60) and (BoxMaxs.X >= AMins.X - 60) and
+         (BoxMins.Y <= AMaxs.Y + 60) and (BoxMaxs.Y >= AMins.Y - 60) and
+         (BoxMins.Z <= AMaxs.Z + 8) and (BoxMaxs.Z >= AMins.Z - 8) then
+      begin
+        Sub.Trigger;
+        Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
+      end;
+    end;
+  end;
+end;
+
+procedure TQuakeWorld.PlayerWaterRules(const Hud: TQuakeHud);
+begin
+  { WaterMove (client.qc): air supply, drowning, lava and slime }
+  if FPlayerDead then
+    Exit;
+  if FPlayerStats.BiosuitTime > 0 then
+    FAirFinished := FTime + 12; { CheckPowerups: the suit gives air }
+
+  if FPhys.WaterLevel <> 3 then
+  begin
+    if FAirFinished < FTime then
+      Sounds.Play('sound/player/gasp2.wav') { was drowning }
+    else if FAirFinished < FTime + 9 then
+      Sounds.Play('sound/player/gasp1.wav');
+    FAirFinished := FTime + 12;
+    FDrownDamage := 2;
+  end else
+  if FAirFinished < FTime then
+  begin
+    { Drown }
+    if FPainFinished < FTime then
+    begin
+      FDrownDamage := FDrownDamage + 2;
+      if FDrownDamage > 15 then
+        FDrownDamage := 10;
+      DamagePlayer(FDrownDamage, Hud);
+      FPainFinished := FTime + 1;
+    end;
+  end;
+
+  FPlayerStats.Underwater := FPhys.WaterLevel = 3;
+  FPlayerStats.AirLeft := Max(0, FAirFinished - FTime);
+
+  if FPhys.WaterLevel = 0 then
+  begin
+    if FInWater then
+    begin
+      Sounds.Play('sound/misc/outwater.wav');
+      FInWater := False;
+    end;
+    Exit;
+  end;
+
+  if FPhys.WaterType = CONTENTS_LAVA then
+  begin
+    if FDmgTime < FTime then
+    begin
+      if FPlayerStats.BiosuitTime > 0 then
+        FDmgTime := FTime + 1
+      else
+        FDmgTime := FTime + 0.2;
+      DamagePlayer(10 * FPhys.WaterLevel, Hud);
+    end;
+  end else
+  if FPhys.WaterType = CONTENTS_SLIME then
+  begin
+    if (FDmgTime < FTime) and (FPlayerStats.BiosuitTime <= 0) then
+    begin
+      FDmgTime := FTime + 1;
+      DamagePlayer(4 * FPhys.WaterLevel, Hud);
+    end;
+  end;
+
+  if not FInWater then
+  begin
+    case FPhys.WaterType of
+      CONTENTS_LAVA: Sounds.Play('sound/player/inlava.wav');
+      CONTENTS_SLIME: Sounds.Play('sound/player/slimbrn2.wav');
+      else Sounds.Play('sound/player/inh2o.wav');
+    end;
+    FInWater := True;
+    FDmgTime := 0;
+  end;
+end;
+
+procedure TQuakeWorld.MovePlayer(const Cmd: TQuakeUserCmd; const ViewDir: TVector3;
+  const SecondsPassed: Single; const Hud: TQuakeHud);
+var
+  Q: TVector3;
+  Yaw, Pitch: Single;
+  UseCmd: TQuakeUserCmd;
+begin
+  if (FBsp = nil) or (FGeometry = nil) then
+    Exit;
+  FTime := FTime + SecondsPassed;
+
+  { View angles in the Quake convention (pitch > 0 looks down) }
+  Q := CgeToQuake(ViewDir);
+  Yaw := RadToDeg(ArcTan2(Q.Y, Q.X));
+  Pitch := -RadToDeg(ArcSin(EnsureRange(Q.Z, -1, 1)));
+
+  UseCmd := Cmd;
+  if FPlayerDead then
+    FillChar(UseCmd, SizeOf(UseCmd), 0);
+
+  CarryPlayerWithMovers;
+  UpdateSolids;
+  FPhys.Move(UseCmd, Yaw, Pitch, SecondsPassed);
+
+  if FPhys.Jumped then
+    Sounds.Play('sound/player/plyrjmp8.wav');
+
+  { PlayerPostThink: landing sounds and falling damage }
+  if (FPhys.LandingSpeed < -300) and not FPlayerDead then
+  begin
+    if FPhys.WaterType = CONTENTS_WATER then
+      Sounds.Play('sound/player/h2ojump.wav')
+    else if FPhys.LandingSpeed < -650 then
+    begin
+      DamagePlayer(5, Hud);
+      Sounds.Play('sound/player/land2.wav');
+    end else
+      Sounds.Play('sound/player/land.wav');
+  end;
+
+  TouchMovers;
+  PlayerWaterRules(Hud);
+end;
+
+procedure TQuakeWorld.SetPlayerEyePosition(const Eye: TVector3);
+begin
+  FPhys.Teleport(CgeToQuake(Eye) - Vector3(0, 0, FPhys.ViewHeight));
+end;
+
+function TQuakeWorld.TakePendingYaw(out Yaw: Single): Boolean;
+begin
+  Result := FHasPendingYaw;
+  Yaw := FPendingYaw;
+  FHasPendingYaw := False;
+end;
+
+function TQuakeWorld.PlayerEyePosition: TVector3;
+begin
+  Result := QuakeToCge(FPhys.EyePosition);
+end;
+
 procedure TQuakeWorld.DamagePlayer(const Damage: Integer; const Hud: TQuakeHud);
 const
   ArmorAbsorb: array[0..3] of Single = (0, 0.3, 0.6, 0.8);
@@ -240,6 +579,7 @@ begin
   FProjectiles.Free;
   FTriggers.Free;
   FreeAndNil(FAmbient);
+  FreeAndNil(FPhys);
   FreeAndNil(FGeometry);
   FreeAndNil(FBsp);
   inherited Destroy;
@@ -308,6 +648,7 @@ var
   Monster: TQuakeMonster;
   Trig: TQuakeTrigger;
   Mins, Maxs: TVector3;
+  MdlIdx: Integer;
 begin
   FPickups.Clear;
   FMonsters.Clear;
@@ -323,7 +664,8 @@ begin
     { Player start }
     if CName = 'info_player_start' then
     begin
-      FSpawnPoint := Pos + Vector3(0, 24, 0);
+      FSpawnOrigin := Ent.Origin;
+      FSpawnPoint := QuakeToCge(Ent.Origin + Vector3(0, 0, FPhys.ViewHeight));
       FSpawnAngle := Yaw;
     end else
 
@@ -462,9 +804,21 @@ begin
     if (CName = 'trigger_teleport') or (CName = 'trigger_changelevel') or
        (CName = 'trigger_multiple') or (CName = 'trigger_once') then
     begin
-      Mins := Pos - Vector3(32, 32, 32);
-      Maxs := Pos + Vector3(32, 32, 32);
+      { Brush triggers use the bounds of their BSP model; point ones a small box }
+      MdlIdx := -1;
+      if (Length(Ent.Model) > 1) and (Ent.Model[1] = '*') then
+        MdlIdx := StrToIntDef(Copy(Ent.Model, 2, MaxInt), -1);
+      if (MdlIdx > 0) and (MdlIdx < FBsp.ModelCount) then
+      begin
+        Mins := FBsp.Models[MdlIdx].Mins;
+        Maxs := FBsp.Models[MdlIdx].Maxs;
+      end else
+      begin
+        Mins := Ent.Origin - Vector3(32, 32, 32);
+        Maxs := Ent.Origin + Vector3(32, 32, 32);
+      end;
       Trig := TQuakeTrigger.Create(CName, Mins, Maxs, Ent.Target, Ent.GetField('map'));
+      Trig.TargetName := Ent.TargetName;
       FTriggers.Add(Trig);
     end;
   end;
@@ -476,6 +830,7 @@ end;
 function TQuakeWorld.LoadMap(const AMapName: String): Boolean;
 var
   MapPath: String;
+  I: Integer;
 begin
   Result := False;
   FLevelExited := False;
@@ -512,6 +867,19 @@ begin
   { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
   FAmbient.Setup(FBsp, FRootTransform);
 
+  { Player physics on the new map }
+  FPhys.Bsp := FBsp;
+  FPhys.Teleport(FSpawnOrigin);
+  FHasPendingYaw := False;
+  SetLength(FLastSubOffsets, FGeometry.Submodels.Count);
+  for I := 0 to FGeometry.Submodels.Count - 1 do
+    FLastSubOffsets[I] := CgeToQuake(FGeometry.Submodels[I].Transform.Translation);
+  FAirFinished := FTime + 12;
+  FDmgTime := 0;
+  FPainFinished := 0;
+  FDrownDamage := 2;
+  FInWater := False;
+
   { Setup first-person weapon model }
   UpdateWeaponModel;
 
@@ -526,16 +894,21 @@ procedure TQuakeWorld.CheckPickups(const Hud: TQuakeHud);
 var
   I: Integer;
   P: TQuakePickup;
-  Dist: Single;
+  BoxMins, BoxMaxs, ItemOrg: TVector3;
 begin
+  PlayerBox(BoxMins, BoxMaxs);
   for I := 0 to FPickups.Count - 1 do
   begin
     P := FPickups[I];
     if P.Collected then
       Continue;
 
-    Dist := (P.Transform.Translation - FPlayerPos).Length;
-    if Dist < 40.0 then
+    { Items touch the player box with their Quake size ('-16 -16 0' '16 16 56') }
+    ItemOrg := CgeToQuake(P.Origin);
+    if (BoxMins.X <= ItemOrg.X + 16) and (BoxMaxs.X >= ItemOrg.X - 16) and
+       (BoxMins.Y <= ItemOrg.Y + 16) and (BoxMaxs.Y >= ItemOrg.Y - 16) and
+       (BoxMins.Z <= ItemOrg.Z + 56) and (BoxMaxs.Z >= ItemOrg.Z) and
+       not FPlayerDead then
     begin
       P.Collected := True;
       Sounds.Play(P.PickupSound);
@@ -625,37 +998,54 @@ end;
 procedure TQuakeWorld.CheckTriggers;
 var
   Trig: TQuakeTrigger;
-  Ent: TQuakeEntity;
-  DestPos: TVector3;
-  Sub: TQuakeSubmodel;
+  Ent, Dest: TQuakeEntity;
+  BoxMins, BoxMaxs, Forward: TVector3;
+  DestYaw: Single;
 begin
+  if FBsp = nil then
+    Exit;
+  PlayerBox(BoxMins, BoxMaxs);
   for Trig in FTriggers do
   begin
-    if Trig.Intersects(FPlayerPos, 20.0) then
+    if not Trig.Touches(BoxMins, BoxMaxs) then
+      Continue;
+
+    if Trig.EntityClassName = 'trigger_changelevel' then
     begin
-      if Trig.EntityClassName = 'trigger_changelevel' then
-      begin
-        FLevelExited := True;
-        FNextMap := Trig.MapName;
-      end else
-      if Trig.EntityClassName = 'trigger_teleport' then
-      begin
-        { Teleport destination lookup }
-        Ent := FBsp.FindEntity('info_teleport_destination');
-        if (Ent <> nil) and (Ent.TargetName = Trig.Target) then
+      FLevelExited := True;
+      FNextMap := Trig.MapName;
+    end else
+    if Trig.EntityClassName = 'trigger_teleport' then
+    begin
+      { teleport_touch: find the destination with the matching targetname }
+      Dest := nil;
+      for Ent in FBsp.Entities do
+        if (LowerCase(Ent.ClassName) = 'info_teleport_destination') and
+           (Ent.TargetName = Trig.Target) then
         begin
-          DestPos := QuakeToCge(Ent.Origin) + Vector3(0, 24, 0);
-          Particles.SpawnTeleport(DestPos);
-          Sounds.Play('sound/misc/r_tele1.wav');
+          Dest := Ent;
+          Break;
         end;
-      end else
-      if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') then
-      begin
-        Sub := FGeometry.FindSubmodel(Trig.Target);
-        if Sub <> nil then
-          Sub.Trigger;
-      end;
-    end;
+      if Dest = nil then
+        Continue;
+
+      Particles.SpawnTeleport(QuakeToCge(FPhys.Origin));
+      DestYaw := Dest.Angles.Y;
+      if DestYaw = 0 then
+        DestYaw := Dest.Angle;
+      SinCos(DegToRad(DestYaw), Forward.Y, Forward.X);
+      Forward.Z := 0;
+      { info_teleport_destination is raised 27 units above its map origin }
+      FPhys.Teleport(Dest.Origin + Vector3(0, 0, 27));
+      FPhys.Velocity := Forward * 300;
+      FPhys.TeleportTime := FPhys.Time + 0.7;
+      FPendingYaw := DestYaw;
+      FHasPendingYaw := True;
+      Particles.SpawnTeleport(QuakeToCge(Dest.Origin + Forward * 32));
+      Sounds.Play('sound/misc/r_tele1.wav');
+    end else
+    if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') then
+      UseTargets(Trig.Target);
   end;
 end;
 
@@ -665,8 +1055,6 @@ var
   I: Integer;
   M: TQuakeMonster;
   Proj: TQuakeProjectile;
-  Sub: TQuakeSubmodel;
-  Dist: Single;
 begin
   FPlayerPos := PlayerPos;
   FPlayerFacing := PlayerFacing;
@@ -733,23 +1121,6 @@ begin
     Proj := FProjectiles[I];
     if not Proj.Update(SecondsPassed) then
       FProjectiles.Delete(I);
-  end;
-
-  { Proximity trigger for automatic doors }
-  if FGeometry <> nil then
-  begin
-    for Sub in FGeometry.Submodels do
-    begin
-      if (Sub.EntityClassName = 'func_door') or (Sub.EntityClassName = 'func_plat') then
-      begin
-        Dist := (Sub.Transform.Translation - FPlayerPos).Length;
-        if (Dist < 80.0) and (Sub.State = smsClosed) then
-        begin
-          Sub.Trigger;
-          Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
-        end;
-      end;
-    end;
   end;
 
   { Advance particles }
@@ -978,18 +1349,33 @@ end;
 procedure TQuakeWorld.ActivateUse(const RayOrigin, RayDir: TVector3; const Hud: TQuakeHud);
 var
   Sub: TQuakeSubmodel;
-  Dist: Single;
+  AMins, AMaxs, P: TVector3;
+  I: Integer;
 begin
+  { Quake has no use key, this is a convenience: activate the door or button
+    whose bounds are close to the point in front of the player }
   if FGeometry = nil then
     Exit;
-
+  P := CgeToQuake(RayOrigin + RayDir * 48);
   for Sub in FGeometry.Submodels do
   begin
-    Dist := (Sub.Transform.Translation - RayOrigin).Length;
-    if Dist < 100.0 then
+    if not SubmodelBounds(Sub, AMins, AMaxs) then
+      Continue;
+    for I := 0 to 2 do
     begin
-      Sub.Trigger;
-      Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
+      AMins.Data[I] := AMins.Data[I] - 32;
+      AMaxs.Data[I] := AMaxs.Data[I] + 32;
+    end;
+    if (P.X >= AMins.X) and (P.X <= AMaxs.X) and (P.Y >= AMins.Y) and (P.Y <= AMaxs.Y) and
+       (P.Z >= AMins.Z) and (P.Z <= AMaxs.Z) then
+    begin
+      if Sub.EntityClassName = 'func_button' then
+        PressButton(Sub)
+      else
+      begin
+        Sub.Trigger;
+        Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
+      end;
       Break;
     end;
   end;

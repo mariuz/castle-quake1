@@ -140,6 +140,8 @@ Player dimensions:
 - Monster AI: Grunt (`monster_army`), Dog (`monster_dog`), Ogre (`monster_ogre`), Knight (`monster_knight`).
 - Projectiles: Nails, rockets with collision, splash damage, and explosion particles.
 
+- Player physics: `QuakePhysics` ports the NetQuake server movement (`sv_user.c`, `sv_phys.c`) and the QuakeC player rules. The player is a 32×32×56 box traced through the BSP clipping hulls (`TQuakeBsp.TraceHull`, a port of `SV_RecursiveHullCheck`), brush entities at their current offsets, and monster boxes. `TQuakeWorld.MovePlayer` runs it each frame; the camera follows the eyes (origin + 22). `TCastleWalkNavigation` is only used for mouse look, and for flying in free-fly mode.
+
 ---
 
 ## 10. Automated Headless Testing
@@ -152,6 +154,7 @@ Command line parameters:
   - `X` fire weapon
   - `U` use/activate
   - `C:slot` change weapon
+  - `V:f;s;u` hold movement input, `J` jump, `G:x;y;z` teleport
   - `K` give all
   - `Y` god mode
   - `Q` quit
