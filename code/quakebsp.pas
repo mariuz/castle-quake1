@@ -28,6 +28,10 @@ const
   LUMP_EDGES        = 12;
   LUMP_SURFEDGES    = 13;
   LUMP_MODELS       = 14;
+
+  { Suffixes of the cached images holding the two layers of a sky miptex }
+  SKY_FRONT_SUFFIX = '_front';
+  SKY_BACK_SUFFIX  = '_back';
   LUMP_COUNT        = 15;
 
   SURF_DRAW_SKY   = $0004; { sky surface }
@@ -155,6 +159,7 @@ type
     function GetModelCount: Integer; inline;
     function ParseEntities(const Text: String): TQuakeEntityList;
     procedure ParseMiptexLump(const Data: PByte; const Size: Cardinal);
+    procedure CacheSkyLayers(const Mip: TQuakeMiptex);
   public
     constructor Create;
     destructor Destroy; override;
@@ -440,6 +445,51 @@ begin
   end;
 end;
 
+procedure TQuakeBsp.CacheSkyLayers(const Mip: TQuakeMiptex);
+var
+  HalfW, Y, I, Count: Integer;
+  Front, Back: array of Byte;
+  FrontImg: TRGBAlphaImage;
+  Sum: TVector3;
+  Avg, C: TVector4Byte;
+begin
+  { Quake sky textures are 256x128: the left half is the front (cloud) layer,
+    where palette index 0 is transparent, the right half is the solid back layer
+    (see R_InitSky in the original engine). }
+  if (Mip.Width <> 2 * Mip.Height) or (Mip.Height <= 0) then
+    Exit;
+  HalfW := Mip.Width div 2;
+  SetLength(Front, HalfW * Mip.Height);
+  SetLength(Back, HalfW * Mip.Height);
+  for Y := 0 to Mip.Height - 1 do
+  begin
+    Move((Mip.Pixels + Y * Mip.Width)^, Front[Y * HalfW], HalfW);
+    Move((Mip.Pixels + Y * Mip.Width + HalfW)^, Back[Y * HalfW], HalfW);
+  end;
+  { Like GLQuake, give transparent texels the average color of the layer,
+    so texture filtering does not darken the cloud edges. }
+  FrontImg := Palette.DecodeIndexed(@Front[0], HalfW, Mip.Height, 0);
+  Sum := TVector3.Zero;
+  Count := 0;
+  for I := 0 to HalfW * Mip.Height - 1 do
+    if Front[I] <> 0 then
+    begin
+      C := Palette.Color(Front[I]);
+      Sum := Sum + Vector3(C.X, C.Y, C.Z);
+      Inc(Count);
+    end;
+  if Count > 0 then
+  begin
+    Avg := Vector4Byte(Round(Sum.X / Count), Round(Sum.Y / Count), Round(Sum.Z / Count), 0);
+    for I := 0 to HalfW * Mip.Height - 1 do
+      if Front[I] = 0 then
+        PVector4Byte(FrontImg.PixelPtr(I mod HalfW, I div HalfW))^ := Avg;
+  end;
+  Palette.CacheImage(Mip.ImageId + SKY_FRONT_SUFFIX, FrontImg);
+  Palette.CacheImage(Mip.ImageId + SKY_BACK_SUFFIX,
+    Palette.DecodeIndexed(@Back[0], HalfW, Mip.Height, -1));
+end;
+
 procedure TQuakeBsp.ParseMiptexLump(const Data: PByte; const Size: Cardinal);
 type
   TMiptexRaw = packed record
@@ -489,6 +539,8 @@ begin
     begin
       Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1);
       Palette.CacheImage(ImageId, Img);
+      if Pos('sky', NameStr) = 1 then
+        CacheSkyLayers(Mip);
     end;
 
     FMiptexes.Add(Mip);

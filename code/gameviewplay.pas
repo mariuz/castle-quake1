@@ -268,6 +268,7 @@ var
   P: Integer;
   Val: Single;
   Rad: Single;
+  HorizDir: TVector3;
 begin
   if FDemoIndex >= FDemoCommands.Count then
   begin
@@ -337,6 +338,19 @@ begin
     FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
       RotatePointAroundAxisRad(Rad, FViewport.Camera.Direction, Vector3(0, 1, 0)),
       Vector3(0, 1, 0));
+    Inc(FDemoIndex);
+  end else
+  if Action = 'P' then { Absolute pitch (positive looks up), keeps current yaw }
+  begin
+    Val := StrToFloatDef(Param, 0);
+    Rad := DegToRad(Val);
+    HorizDir := FViewport.Camera.Direction;
+    HorizDir.Y := 0;
+    if HorizDir.IsPerfectlyZero then
+      HorizDir := Vector3(1, 0, 0);
+    HorizDir := HorizDir.Normalize;
+    FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
+      HorizDir * Cos(Rad) + Vector3(0, Sin(Rad), 0), Vector3(0, 1, 0));
     Inc(FDemoIndex);
   end else
   if Action = 'M' then { Move along camera direction }

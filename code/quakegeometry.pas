@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
-  CastleImages, CastleUtils, CastleRenderOptions,
+  CastleImages, CastleUtils, CastleRenderOptions, X3DFields,
   QuakeBsp, QuakePalette, QuakeLight;
 
 type
@@ -31,6 +31,9 @@ type
     Material: TMaterialNode;
     IsSky: Boolean;
     IsLiquid: Boolean;
+    { Shader uniforms of the sky effect (only when IsSky), owned by the X3D graph }
+    SkyTimeField: TSFFloat;
+    SkyEyeField: TSFVec3f;
     constructor Create(const ATexName: String);
     destructor Destroy; override;
     procedure AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
@@ -105,6 +108,9 @@ type
 
   TQuakeAnimTexList = specialize TObjectList<TQuakeAnimTex>;
 
+  TSFFloatList = specialize TList<TSFFloat>;
+  TSFVec3fList = specialize TList<TSFVec3f>;
+
   { World geometry builder and manager }
   TQuakeGeometry = class
   private
@@ -113,6 +119,9 @@ type
     FWorldTransform: TCastleTransform;
     FSubmodels: TQuakeSubmodelList;
     FAnimTextures: TQuakeAnimTexList;
+    FSkyTimeFields: TSFFloatList;
+    FSkyEyeFields: TSFVec3fList;
+    FSkyTime: Single;
     procedure BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
       var OutBatches: TQuakeGeomBatchDict);
     procedure SetupSubmodels(const Parent: TCastleTransform);
@@ -124,8 +133,9 @@ type
     { Build all geometry and add to parent transform (viewport.Items) }
     procedure AddToWorld(const Parent: TCastleTransform);
 
-    { Advance animated textures and submodels }
-    procedure Update(const SecondsPassed: Single);
+    { Advance animated textures, submodels and the scrolling sky.
+      EyePos is the viewer position, used to project the sky layers. }
+    procedure Update(const SecondsPassed: Single; const EyePos: TVector3);
 
     { Find submodel by targetname or model string like "*1" }
     function FindSubmodel(const AName: String): TQuakeSubmodel;
@@ -136,6 +146,49 @@ type
   end;
 
 implementation
+
+const
+  { Quake sky (R_DrawSkyChain / EmitSkyPolys in GLQuake), evaluated per fragment.
+    The view direction is flattened vertically (z * 3) and scaled to a fixed length,
+    which projects both layers onto a low dome above the player.
+    The back layer scrolls at 8 texels/s, the front (clouds) layer at 16 texels/s. }
+  SkyVertexShader =
+    'varying highp vec3 quake_sky_position;' + LineEnding +
+    'void PLUG_vertex_object_space(const in vec4 vertex_object, const in vec3 normal_object)' + LineEnding +
+    '{' + LineEnding +
+    '  quake_sky_position = vec3(vertex_object);' + LineEnding +
+    '}' + LineEnding;
+
+  SkyFragmentShader =
+    'uniform sampler2D sky_back;' + LineEnding +
+    'uniform sampler2D sky_front;' + LineEnding +
+    'uniform float sky_time;' + LineEnding +
+    'uniform vec3 sky_eye;' + LineEnding +
+    'varying highp vec3 quake_sky_position;' + LineEnding +
+    'void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)' + LineEnding +
+    '{' + LineEnding +
+    '  /* CGE -> Quake axes: Quake.X = X, Quake.Y = -Z, Quake.Z = Y */' + LineEnding +
+    '  highp vec3 d = quake_sky_position - sky_eye;' + LineEnding +
+    '  highp vec2 dir = vec2(d.x, -d.z);' + LineEnding +
+    '  highp float len = length(vec3(dir, d.y * 3.0));' + LineEnding +
+    '  dir *= 378.0 / max(len, 0.001);' + LineEnding +
+    '  vec4 back = texture2D(sky_back, (vec2(sky_time * 8.0) + dir) / 128.0);' + LineEnding +
+    '  vec4 front = texture2D(sky_front, (vec2(sky_time * 16.0) + dir) / 128.0);' + LineEnding +
+    '  fragment_color = vec4(mix(back.rgb, front.rgb, front.a), 1.0);' + LineEnding +
+    '}' + LineEnding;
+
+  { Both layers repeat after 128 texels: 16 s for the back one, 8 s for the front one.
+    Wrapping keeps the shader time small (float precision). }
+  SkyTimePeriod = 16.0;
+
+function CreateSkyLayerTexture(const Url: String; const TexProps: TTexturePropertiesNode): TImageTextureNode;
+begin
+  Result := TImageTextureNode.Create;
+  Result.SetUrl([Url]);
+  Result.RepeatS := True;
+  Result.RepeatT := True;
+  Result.TextureProperties := TexProps;
+end;
 
 { TQuakeGeomBatch }
 
@@ -195,7 +248,9 @@ var
   MultiTex: TMultiTextureNode;
   MultiCoord: TMultiTextureCoordinateNode;
   LMCoordNode: TTextureCoordinateNode;
-  UseLightmap: Boolean;
+  UseLightmap, UseSkyShader: Boolean;
+  SkyEffect: TEffectNode;
+  VertexPart, FragmentPart: TEffectPartNode;
 begin
   if Coords.Count = 0 then
     Exit;
@@ -228,11 +283,18 @@ begin
   TexProps.MinificationFilter := minNearestMipmapLinear;
   TexProps.AnisotropicDegree := 4;
 
-  TexNode := TImageTextureNode.Create;
-  TexNode.SetUrl(['quaketex:/map/' + MapName + '/' + TextureName]);
-  TexNode.RepeatS := True;
-  TexNode.RepeatT := True;
-  TexNode.TextureProperties := TexProps;
+  { Sky layers exist only for standard 256x128 sky miptexes (see TQuakeBsp.CacheSkyLayers) }
+  UseSkyShader := IsSky and
+    Palette.HasCachedImage('map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX);
+
+  if not UseSkyShader then
+  begin
+    TexNode := TImageTextureNode.Create;
+    TexNode.SetUrl(['quaketex:/map/' + MapName + '/' + TextureName]);
+    TexNode.RepeatS := True;
+    TexNode.RepeatT := True;
+    TexNode.TextureProperties := TexProps;
+  end;
 
   { Quake surfaces are not lit dynamically: the look comes from the baked
     lightmaps. Use an unlit material and modulate the surface texture by the
@@ -242,6 +304,31 @@ begin
   Appearance.Material := UnlitMat;
 
   UseLightmap := (LightmapTex <> nil) and (not IsSky) and (not IsLiquid);
+  if UseSkyShader then
+  begin
+    { No regular texture: the sky effect computes the color from both layers }
+    SkyEffect := TEffectNode.Create;
+    SkyEffect.Language := slGLSL;
+    SkyEffect.UniformMissing := umIgnore;
+    SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_back', [],
+      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
+    SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_front', [],
+      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_FRONT_SUFFIX, TexProps)));
+    SkyTimeField := TSFFloat.Create(SkyEffect, True, 'sky_time', 0);
+    SkyEffect.AddCustomField(SkyTimeField);
+    SkyEyeField := TSFVec3f.Create(SkyEffect, True, 'sky_eye', TVector3.Zero);
+    SkyEffect.AddCustomField(SkyEyeField);
+
+    VertexPart := TEffectPartNode.Create;
+    VertexPart.ShaderType := stVertex;
+    VertexPart.Contents := SkyVertexShader;
+    FragmentPart := TEffectPartNode.Create;
+    FragmentPart.ShaderType := stFragment;
+    FragmentPart.Contents := SkyFragmentShader;
+    SkyEffect.SetParts([VertexPart, FragmentPart]);
+    Appearance.SetEffects([SkyEffect]);
+    Geometry.TexCoord := TexCoordNode;
+  end else
   if UseLightmap then
   begin
     MultiTex := TMultiTextureNode.Create;
@@ -497,6 +584,8 @@ begin
   FWorldTransform.Add(FSceneWorld);
   FSubmodels := TQuakeSubmodelList.Create(True);
   FAnimTextures := TQuakeAnimTexList.Create(True);
+  FSkyTimeFields := TSFFloatList.Create;
+  FSkyEyeFields := TSFVec3fList.Create;
 end;
 
 destructor TQuakeGeometry.Destroy;
@@ -504,6 +593,8 @@ begin
   FWorldTransform.Free;
   FSubmodels.Free;
   FAnimTextures.Free;
+  FSkyTimeFields.Free;
+  FSkyEyeFields.Free;
   inherited Destroy;
 end;
 
@@ -716,6 +807,11 @@ begin
         RootNode.AddChildren(Batch.Shape);
         if Batch.TexNode <> nil then
           RegisterAnimNode(Batch.TextureName, Batch.TexNode);
+        if Batch.SkyTimeField <> nil then
+        begin
+          FSkyTimeFields.Add(Batch.SkyTimeField);
+          FSkyEyeFields.Add(Batch.SkyEyeField);
+        end;
       end;
     end;
   finally
@@ -855,16 +951,24 @@ begin
   SetupSubmodels(Parent);
 end;
 
-procedure TQuakeGeometry.Update(const SecondsPassed: Single);
+procedure TQuakeGeometry.Update(const SecondsPassed: Single; const EyePos: TVector3);
 var
   Sub: TQuakeSubmodel;
   Anim: TQuakeAnimTex;
+  I: Integer;
 begin
   for Sub in FSubmodels do
     Sub.Update(SecondsPassed);
 
   for Anim in FAnimTextures do
     Anim.Update(SecondsPassed);
+
+  FSkyTime := FloatModulo(FSkyTime + SecondsPassed, SkyTimePeriod);
+  for I := 0 to FSkyTimeFields.Count - 1 do
+  begin
+    FSkyTimeFields[I].Send(FSkyTime);
+    FSkyEyeFields[I].Send(EyePos);
+  end;
 end;
 
 function TQuakeGeometry.FindSubmodel(const AName: String): TQuakeSubmodel;

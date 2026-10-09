@@ -19,3 +19,6 @@ castle-auto-generated-resources.res
 *.log
 run_log.txt
 test_output/
+
+# Linux / macOS executable
+/castle-quake1
