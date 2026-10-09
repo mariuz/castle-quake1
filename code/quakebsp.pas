@@ -210,6 +210,10 @@ type
     { Get face plane normal }
     function GetFaceNormal(const FaceIdx: Integer): TVector3;
 
+    { Index of the world leaf containing a point in Quake coordinates (Mod_PointInLeaf),
+      -1 when the map has no BSP tree }
+    function PointLeaf(const QuakePoint: TVector3): Integer;
+
     { Contents (CONTENTS_xxx) of the world leaf containing a point in Quake coordinates }
     function PointContents(const QuakePoint: TVector3): Integer;
 
@@ -232,6 +236,7 @@ type
     property Lightmaps: PByte read FLightmaps;
     property LightmapsSize: Cardinal read FLightmapsSize;
     property TexInfos: TBSPTexInfoArray read FTexInfos;
+    property Leaves: TBSPLeafArray read FLeaves;
   end;
 
 implementation
@@ -734,18 +739,18 @@ begin
   end;
 end;
 
-function TQuakeBsp.PointContents(const QuakePoint: TVector3): Integer;
+function TQuakeBsp.PointLeaf(const QuakePoint: TVector3): Integer;
 var
-  NodeIdx, Child: Integer;
+  NodeIdx: Integer;
   Plane: TBSPPlane;
   D: Single;
 begin
-  Result := CONTENTS_EMPTY;
+  Result := -1;
   if (Length(FModels) = 0) or (Length(FNodes) = 0) then
     Exit;
 
   NodeIdx := FModels[0].HeadNodes[0];
-  { Walk the BSP tree (SV_HullPointContents on hull 0 / Mod_PointInLeaf) }
+  { Walk the BSP tree (Mod_PointInLeaf / SV_HullPointContents on hull 0) }
   while NodeIdx >= 0 do
   begin
     if (NodeIdx >= Length(FNodes)) or (FNodes[NodeIdx].PlaneId < 0) or
@@ -754,15 +759,25 @@ begin
     Plane := FPlanes[FNodes[NodeIdx].PlaneId];
     D := TVector3.DotProduct(Plane.Normal, QuakePoint) - Plane.Dist;
     if D >= 0 then
-      Child := FNodes[NodeIdx].Children[0]
+      NodeIdx := FNodes[NodeIdx].Children[0]
     else
-      Child := FNodes[NodeIdx].Children[1];
-    NodeIdx := Child;
+      NodeIdx := FNodes[NodeIdx].Children[1];
   end;
 
   NodeIdx := -(NodeIdx + 1);
   if NodeIdx < Length(FLeaves) then
-    Result := FLeaves[NodeIdx].Contents;
+    Result := NodeIdx;
+end;
+
+function TQuakeBsp.PointContents(const QuakePoint: TVector3): Integer;
+var
+  Leaf: Integer;
+begin
+  Leaf := PointLeaf(QuakePoint);
+  if Leaf >= 0 then
+    Result := FLeaves[Leaf].Contents
+  else
+    Result := CONTENTS_EMPTY;
 end;
 
 function TQuakeBsp.PointContentsCge(const CgePoint: TVector3): Integer;

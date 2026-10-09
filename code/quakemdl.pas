@@ -401,20 +401,19 @@ begin
   Geom.Solid := False; { two-sided for weapons and cape ribbons }
 
   { Models are unlit, so normals are not used. Give a constant normal per
-    triangle: otherwise the engine regenerates smooth normals each time
+    vertex: otherwise the engine regenerates smooth normals each time
     the animation changes the vertices. }
   NormalNode := TNormalNode.Create;
   FlatNormals := TVector3List.Create;
   try
-    FlatNormals.Count := FNumTris;
-    for I := 0 to FNumTris - 1 do
+    FlatNormals.Count := FNumVerts;
+    for I := 0 to FNumVerts - 1 do
       FlatNormals.L[I] := Vector3(0, 1, 0);
     NormalNode.SetVector(FlatNormals);
   finally
     FlatNormals.Free;
   end;
   Geom.Normal := NormalNode;
-  Geom.NormalPerVertex := False;
 
   App := TAppearanceNode.Create;
   UnlitMat := TUnlitMaterialNode.Create;

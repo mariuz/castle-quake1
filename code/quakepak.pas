@@ -294,7 +294,9 @@ begin
   while (Path <> '') and (Path[1] = '/') do Delete(Path, 1, 1);
 
   Result := GetStream(Path);
-  MimeType := '';
+  { Loaders (e.g. sound files) pick the format from the MIME type,
+    so derive it from the file extension }
+  MimeType := UriMimeType(Path);
   if Result = nil then
   begin
     WritelnLog('QuakePak', 'Resource not found: ' + Url);
