@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes,
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
-  CastleUtils, CastleFilesUtils, CastleUriUtils,
+  CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeSound,
   GameViewMenu, GameViewPlay, GameViewDemo;
 
@@ -72,6 +72,9 @@ begin
   WritelnLog('GameInitialize', 'Parsed AutoTestMap="%s" Prefix="%s" Demo="%s"', [AutoTestMap, AutoTestPrefix, AutoTestDemo]);
 
   Window.Container.LoadSettings('castle-data:/CastleSettings.xml');
+  { Quake's textures and lightmaps are not linear: no gamma correction, even
+    for the physical materials of the dynamic world lighting }
+  ColorSpace := csSRGB;
 
   { Register URL protocols }
   Pak.RegisterProtocol;

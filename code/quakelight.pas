@@ -24,6 +24,17 @@ type
 
   TQuakeDynamicLightList = specialize TObjectList<TQuakeDynamicLight>;
 
+  { A short lived light added to the lightmaps (dlight_t) }
+  TQuakeDLight = record
+    Position: TVector3; { CGE coordinates }
+    Radius, Decay, TimeLeft: Single;
+  end;
+
+const
+  MaxDLights = 4;
+
+type
+
   { Lighting manager for Quake maps in Castle Game Engine }
   TQuakeLighting = class
   private
@@ -36,6 +47,8 @@ type
     FAmbientSun: TCastleDirectionalLight;
     FShadowsEnabled: Boolean;
     FLightMode: (lmDynamicOnly, lmClassicAmbient, lmFullPBR);
+    FDLights: array[0..MaxDLights - 1] of TQuakeDLight;
+    FDLightNext: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -48,6 +61,12 @@ type
 
     { Trigger a muzzle flash dynamic light at the given position }
     procedure TriggerMuzzleFlash(const Position: TVector3; const Intensity: Single = 3.0);
+
+    { CL_AllocDlight: a light that fades out, added to the lightmaps by the
+      world shader (muzzle flashes, explosions) }
+    procedure AddDLight(const Position: TVector3; const Radius, Duration, Decay: Single);
+    { Position and radius of dlight slot I for the shader; radius 0 when off }
+    function DLightUniform(const I: Integer): TVector4;
 
     { Toggle real-time shadow mapping for all dynamic lights }
     procedure SetShadows(const Enabled: Boolean);
@@ -206,7 +225,7 @@ begin
   FAmbientSun := TCastleDirectionalLight.Create(Parent);
   FAmbientSun.Direction := Vector3(-0.35, -1.0, -0.25);
   FAmbientSun.Color := Vector3(0.85, 0.85, 0.9);
-  FAmbientSun.Intensity := 0.65;
+  FAmbientSun.Intensity := 0.25;
   FAmbientSun.CastShadows := False;
   Parent.Add(FAmbientSun);
 
@@ -248,6 +267,9 @@ begin
       PtLight.Color := LightCol;
       PtLight.Radius := RadiusVal;
       PtLight.Intensity := (LightVal / 200.0) * 1.2;
+      { Falls off with the distance like Quake's "light - distance", so the
+        many lights of a map do not add up to white in the dynamic mode }
+      PtLight.Attenuation := Vector3(1, 4 / RadiusVal, 8 / Sqr(RadiusVal));
       PtLight.CastShadows := FShadowsEnabled;
       Parent.Add(PtLight);
 
@@ -291,6 +313,13 @@ begin
     end;
   end;
 
+  for I := 0 to MaxDLights - 1 do
+    if FDLights[I].TimeLeft > 0 then
+    begin
+      FDLights[I].TimeLeft := FDLights[I].TimeLeft - SecondsPassed;
+      FDLights[I].Radius := FDLights[I].Radius - FDLights[I].Decay * SecondsPassed;
+    end;
+
   { Update muzzle flash decay }
   if FMuzzleTimer > 0 then
   begin
@@ -314,6 +343,28 @@ begin
     FMuzzleLight.Intensity := Intensity;
     FMuzzleTimer := 0.12;
   end;
+  { Explosions light the walls longer and fade (R_ParseExplosion), shots
+    just flash (CL_MuzzleFlash) }
+  if Intensity >= 5 then
+    AddDLight(Position, 350, 0.5, 300)
+  else
+    AddDLight(Position, 200 + Random * 32, 0.1, 0);
+end;
+
+procedure TQuakeLighting.AddDLight(const Position: TVector3; const Radius, Duration, Decay: Single);
+begin
+  FDLights[FDLightNext].Position := Position;
+  FDLights[FDLightNext].Radius := Radius;
+  FDLights[FDLightNext].Decay := Decay;
+  FDLights[FDLightNext].TimeLeft := Duration;
+  FDLightNext := (FDLightNext + 1) mod MaxDLights;
+end;
+
+function TQuakeLighting.DLightUniform(const I: Integer): TVector4;
+begin
+  if (I < 0) or (I >= MaxDLights) or (FDLights[I].TimeLeft <= 0) or (FDLights[I].Radius <= 0) then
+    Exit(TVector4.Zero);
+  Result := Vector4(FDLights[I].Position, FDLights[I].Radius);
 end;
 
 procedure TQuakeLighting.SetShadows(const Enabled: Boolean);

@@ -513,6 +513,12 @@ begin
     FDemoFireTime := StrToFloatDef(Param, 1.0);
     Inc(FDemoIndex);
   end else
+  if Action = 'B' then { World lighting: B:1 Quake lightmaps, B:0 dynamic PBR (reloads the map) }
+  begin
+    WorldLightmaps := Param <> '0';
+    LoadLevel(FMapName);
+    Inc(FDemoIndex);
+  end else
   if Action = 'R' then { Record a demo (R:name), or stop it (R) }
   begin
     if Param = '' then
@@ -607,8 +613,8 @@ begin
   if (FWorld <> nil) and (FCameraMode <> cmFreeFly) then
   begin
     BuildUserCmd(Cmd);
-    FDemoJumpTime := Max(0, FDemoJumpTime - SecondsPassed);
-    FDemoFireTime := Max(0, FDemoFireTime - SecondsPassed);
+    FDemoJumpTime := Max(0.0, FDemoJumpTime - SecondsPassed);
+    FDemoFireTime := Max(0.0, FDemoFireTime - SecondsPassed);
     FWorld.MovePlayer(Cmd, FViewport.Camera.Direction, SecondsPassed, FHud);
     if FWorld.TakePendingYaw(NewYaw) then
       FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
@@ -809,6 +815,17 @@ begin
     else
       LoadGameSlot('quick');
   end else
+  if Cmd = 'lightmaps' then
+  begin
+    { 1 = Quake lightmaps blended in the shader, 0 = dynamic PBR lighting;
+      the current map is rebuilt }
+    if Args <> '' then
+    begin
+      WorldLightmaps := (Args = '1') or (Args = 'on');
+      LoadLevel(FMapName);
+    end;
+    FConsole.Print('Lightmaps: ' + BoolToStr(WorldLightmaps, True));
+  end else
   if Cmd = 'record' then
   begin
     if Args = '' then
@@ -865,6 +882,7 @@ begin
     FConsole.Print('  god            - God mode');
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
+    FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
     FConsole.Print('  quit           - Exit game');
   end else
     FConsole.Print('Unknown command: ' + Cmd);
@@ -892,6 +910,13 @@ begin
     maToggleShadows:
       begin
         Lighting.ShadowsEnabled := FMenu.ShadowsEnabled;
+      end;
+    maToggleLighting:
+      begin
+        if WorldLightmaps then
+          FHud.ShowMessage('World lighting: Quake lightmaps (from the next map)', 3)
+        else
+          FHud.ShowMessage('World lighting: dynamic PBR (from the next map)', 3);
       end;
     maToggleCamera:
       begin

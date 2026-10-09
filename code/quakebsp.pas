@@ -125,9 +125,7 @@ type
     FirstEdge: LongInt;
     NumEdges: SmallInt;
     TexInfoId: SmallInt;
-    LightType: Byte;
-    LightBase: Byte;
-    Light: array[0..1] of Byte;
+    Styles: array[0..3] of Byte; { lightstyles of the lightmaps, 255 = none }
     LightmapOffset: LongInt;
   end;
 

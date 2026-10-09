@@ -49,6 +49,7 @@ Demo script actions:
 - `Y` cheat: toggle god mode
 - `O:slot` save the game to a slot, `L:slot` load it (`castle-config:/save_<slot>.sav`)
 - `R:name` record a demo to `castle-config:/<name>.dem`, `R` stops it
+- `B:1` / `B:0` world lighting: Quake lightmaps or dynamic PBR (reloads the map)
 
 Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo (or a file / `castle-config:` URL) with only `W`, `S` and `Q` actions; `-playdemo <name>` plays one from the menu view.
 - `Q` quit application

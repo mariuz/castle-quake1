@@ -9,11 +9,12 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
   CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils,
-  QuakeSound, QuakePak;
+  QuakeSound, QuakePak, QuakeGeometry;
 
 type
   TMenuAction = (
-    maNone, maNewGame, maWarpMap, maPlayDemo, maToggleShadows, maToggleCamera, maToggleSound, maQuit
+    maNone, maNewGame, maWarpMap, maPlayDemo, maToggleShadows, maToggleLighting, maToggleCamera,
+    maToggleSound, maQuit
   );
 
   TOnMenuActionEvent = procedure(const Action: TMenuAction; const Param: String) of object;
@@ -140,6 +141,10 @@ begin
           FItems.Add('Dynamic Shadows: [ON]')
         else
           FItems.Add('Dynamic Shadows: [OFF]');
+        if WorldLightmaps then
+          FItems.Add('World Lighting: [Quake Lightmaps]')
+        else
+          FItems.Add('World Lighting: [Dynamic PBR]');
         FItems.Add('Camera View: [' + FCameraModeName + ']');
         FItems.Add('Sound Effects: [' + IntToStr(FVolume) + '%]');
         FItems.Add('Back to Main Menu');
@@ -218,15 +223,25 @@ begin
           end;
         1:
           begin
+            { Applied when the next map is loaded }
+            WorldLightmaps := not WorldLightmaps;
+            RebuildMenuItems;
+            FSelectedIdx := 1;
             if Assigned(FOnMenuAction) then
-              FOnMenuAction(maToggleCamera, '');
+              FOnMenuAction(maToggleLighting, BoolToStr(WorldLightmaps, True));
           end;
         2:
           begin
-            FVolume := (FVolume + 25) mod 125;
-            RebuildMenuItems;
+            if Assigned(FOnMenuAction) then
+              FOnMenuAction(maToggleCamera, '');
           end;
         3:
+          begin
+            FVolume := (FVolume + 25) mod 125;
+            RebuildMenuItems;
+            FSelectedIdx := 3;
+          end;
+        4:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;
