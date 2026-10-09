@@ -112,6 +112,8 @@ type
     procedure Update(const SecondsPassed: Single);
     { True when a non-looping sequence reached its last frame }
     function Finished: Boolean;
+    { Index of the current keyframe within the sequence (0 = first) }
+    function FrameIndex: Integer;
     property Sequence: TMdlSequence read FSequence;
   end;
 
@@ -561,6 +563,17 @@ end;
 function TMdlAnimator.Finished: Boolean;
 begin
   Result := (not FSequence.Loop) and (FTime * FramesPerSecond >= FSequence.Count - 1);
+end;
+
+function TMdlAnimator.FrameIndex: Integer;
+begin
+  if FSequence.Count <= 0 then
+    Exit(0);
+  Result := Trunc(FTime * FramesPerSecond);
+  if FSequence.Loop then
+    Result := Result mod FSequence.Count
+  else
+    Result := Min(Result, FSequence.Count - 1);
 end;
 
 procedure TMdlAnimator.Update(const SecondsPassed: Single);

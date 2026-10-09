@@ -29,7 +29,7 @@ Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom), Castle 
 - **3D Animated Alias Models (MDL)**:
   - Custom loader for Quake 1 Alias `.mdl` models.
   - Decodes skins into CGE textures, builds X3D meshes, and animates vertices across keyframe sequences.
-  - 3D models for weapons (`progs/v_*.mdl`, `g_*.mdl`), pickups (armor, health, ammo, keys), and monsters (`soldier`, `dog`, `ogre`, `knight`).
+  - 3D models for weapons (`progs/v_*.mdl`, `g_*.mdl`), pickups (armor, health, ammo, keys), and all Quake monsters (grunt, dog, ogre, knight, hell knight, enforcer, rotfish, vore, spawn, fiend, scrag, shambler, zombie, Chthon, Shub-Niggurath).
 
 - **Spatial 3D Audio**:
   - Sound effects streamed from PAK WAV files using `TCastleSound`.

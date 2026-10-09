@@ -928,6 +928,13 @@ begin
           Sub.ClosedPos := Vector3(0, 0, 0);
           Sub.OpenPos := MoveV * Dist;
           Sub.MoveDir := MoveV;
+          { DOOR_START_OPEN: spawns moved, and "opens" back to its map position }
+          if (CName = 'func_door') and ((Ent.SpawnFlags and 1) <> 0) then
+          begin
+            Sub.ClosedPos := MoveV * Dist;
+            Sub.OpenPos := Vector3(0, 0, 0);
+            Sub.Transform.Translation := Sub.ClosedPos;
+          end;
         end else
         if CName = 'func_plat' then
         begin

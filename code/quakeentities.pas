@@ -19,7 +19,7 @@ type
     ikHealthSmall, ikHealthNormal, ikHealthMega,
     ikShells, ikNails, ikRockets, ikCells,
     ikKeySilver, ikKeyGold,
-    ikQuadDamage, ikPentagram, ikRingShadows, ikBioSuit
+    ikQuadDamage, ikPentagram, ikRingShadows, ikBioSuit, ikSigil
   );
 
   { Single active 3D pickup entity in the world }
@@ -35,6 +35,7 @@ type
     RespawnTime: Single;
     MessageText: String;
     PickupSound: String;
+    Target: String; { fired on pickup (SUB_UseTargets) }
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeItemKind;
       const Pos: TVector3; const MdlPath: String; const SkinIdx: Integer = 0);
     destructor Destroy; override;
@@ -43,56 +44,9 @@ type
 
   TQuakePickupList = specialize TObjectList<TQuakePickup>;
 
-  { Monster state enum }
-  TMonsterState = (msIdle, msWalk, msAttack, msPain, msDeath, msDead);
-
-  { Active 3D monster in the world }
-  TQuakeMonster = class
-  public
-    EntityClassName: String;
-    Transform: TCastleTransform;
-    Scene: TCastleScene;
-    Mdl: TQuakeMdl;
-    State: TMonsterState;
-    Health: Integer;
-    MaxHealth: Integer;
-    Speed: Single;
-    AttackDamage: Integer;
-    AttackRange: Single;
-    AlertRange: Single;
-    Origin: TVector3;
-    FacingAngle: Single;
-    AnimTimer: Single; { time spent in the current pain / death state }
-    Animator: TMdlAnimator;
-    SeqStand, SeqRun, SeqAttack, SeqPain, SeqDeath: TMdlSequence;
-    AttackCooldown: Single;
-    TargetPos: TVector3;
-    SightAlerted: Boolean;
-    DropItem: TQuakeItemKind;
-    HasDrop: Boolean;
-    SightSound, PainSound, DeathSound, AttackSound: String;
-    { Set when the monster attacked during the last Update; the world decides
-      whether the attack reaches the player and clears it. }
-    AttackLaunched: Boolean;
-    { Gibbing (QuakeC *_die): below GibHealth the body bursts into gibs }
-    GibHealth: Integer;
-    HeadModel: String;
-    GibModels: array[0..2] of String;
-    { Set when the monster was gibbed; the world throws the gibs and clears it }
-    GibPending: Boolean;
-    KillCounted: Boolean;
-    constructor Create(const Parent: TCastleTransform; const ACName: String;
-      const Pos: TVector3; const Yaw: Single; const MdlPath: String;
-      const AHealth, ADamage: Integer; const ASpeed, ARange: Single);
-    destructor Destroy; override;
-    procedure Update(const SecondsPassed: Single; const PlayerPos: TVector3);
-    procedure TakeDamage(const Dmg: Integer; const AttackerPos: TVector3);
-    procedure SetupAnimations;
-  end;
-
-  TQuakeMonsterList = specialize TObjectList<TQuakeMonster>;
-
-  TQuakeProjectileKind = (pjNail, pjSuperNail, pjGrenade, pjRocket);
+  TQuakeProjectileKind = (pjNail, pjSuperNail, pjGrenade, pjRocket,
+    { monster missiles }
+    pjWizSpike, pjKnightSpike, pjLaser, pjVorePod, pjZombieGib, pjLavaBall, pjOgreGrenade);
 
   { Active player projectile. Origin and Velocity are in Quake coordinates;
     the world moves it with hull traces (see TQuakeWorld.UpdateProjectiles). }
@@ -107,6 +61,8 @@ type
     OnGround: Boolean;   { grenade resting on the floor }
     TrailTimer: Single;
     Spin: Single;        { grenade tumbling angle }
+    Owner: TObject;      { monster that fired it, nil for the player }
+    HomeTimer: Single;   { vore pods steer towards the player }
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeProjectileKind;
       const AOrigin, AVelocity: TVector3);
     destructor Destroy; override;
@@ -289,6 +245,11 @@ begin
         MessageText := 'You got the Biosuit';
         PickupSound := 'sound/items/suit.wav';
       end;
+    ikSigil:
+      begin
+        MessageText := 'You got the rune!';
+        PickupSound := 'sound/misc/runekey.wav';
+      end;
     else
       begin
         MessageText := 'Picked up an item';
@@ -328,304 +289,6 @@ begin
   Transform.Rotation := Vector4(0, 1, 0, DegToRad(RotationAngle));
 end;
 
-{ TQuakeMonster }
-
-constructor TQuakeMonster.Create(const Parent: TCastleTransform; const ACName: String;
-  const Pos: TVector3; const Yaw: Single; const MdlPath: String;
-  const AHealth, ADamage: Integer; const ASpeed, ARange: Single);
-begin
-  inherited Create;
-  EntityClassName := ACName;
-  Origin := Pos;
-  FacingAngle := Yaw;
-  Health := AHealth;
-  MaxHealth := AHealth;
-  AttackDamage := ADamage;
-  Speed := ASpeed;
-  AttackRange := ARange;
-  AlertRange := 800.0;
-  State := msIdle;
-  AnimTimer := 0;
-  AttackCooldown := 0;
-  SightAlerted := False;
-  HasDrop := False;
-
-  Transform := TCastleTransform.Create(nil);
-  Transform.Translation := Pos;
-  Transform.Rotation := Vector4(0, 1, 0, DegToRad(Yaw));
-
-  Mdl := MdlManager.GetModel(MdlPath);
-  if Mdl <> nil then
-  begin
-    Scene := Mdl.CreateScene(0);
-    Transform.Add(Scene);
-    Animator := TMdlAnimator.Create(Mdl, Scene);
-    SetupAnimations;
-  end;
-
-  { Gib thresholds and models from the QuakeC die functions }
-  GibHealth := -35;
-  HeadModel := 'progs/h_guard.mdl';
-  GibModels[0] := 'progs/gib1.mdl';
-  GibModels[1] := 'progs/gib2.mdl';
-  GibModels[2] := 'progs/gib3.mdl';
-  if ACName = 'monster_dog' then
-  begin
-    HeadModel := 'progs/h_dog.mdl';
-    GibModels[0] := 'progs/gib3.mdl';
-    GibModels[1] := 'progs/gib3.mdl';
-  end else
-  if ACName = 'monster_ogre' then
-  begin
-    GibHealth := -80;
-    HeadModel := 'progs/h_ogre.mdl';
-    GibModels[0] := 'progs/gib3.mdl';
-    GibModels[2] := 'progs/gib2.mdl';
-  end else
-  if ACName = 'monster_knight' then
-  begin
-    GibHealth := -40;
-    HeadModel := 'progs/h_knight.mdl';
-  end;
-
-  { Default sound assignments }
-  if ACName = 'monster_army' then
-  begin
-    SightSound := 'sound/soldier/sight1.wav';
-    PainSound := 'sound/soldier/pain1.wav';
-    DeathSound := 'sound/soldier/death1.wav';
-    AttackSound := 'sound/soldier/sattck1.wav';
-    DropItem := ikShells;
-    HasDrop := True;
-  end else
-  if ACName = 'monster_dog' then
-  begin
-    SightSound := 'sound/dog/dsight.wav';
-    PainSound := 'sound/dog/dpain1.wav';
-    DeathSound := 'sound/dog/ddeath.wav';
-    AttackSound := 'sound/dog/dattack1.wav';
-  end else
-  if ACName = 'monster_ogre' then
-  begin
-    SightSound := 'sound/ogre/ogwake.wav';
-    PainSound := 'sound/ogre/ogpain1.wav';
-    DeathSound := 'sound/ogre/ogdth.wav';
-    AttackSound := 'sound/weapons/grenade.wav';
-    DropItem := ikRockets;
-    HasDrop := True;
-  end else
-  if ACName = 'monster_knight' then
-  begin
-    SightSound := 'sound/knight/ksight.wav';
-    PainSound := 'sound/knight/kpain.wav';
-    DeathSound := 'sound/knight/kdeath.wav';
-    AttackSound := 'sound/knight/sword1.wav';
-  end else
-  begin
-    SightSound := 'sound/soldier/sight1.wav';
-    PainSound := 'sound/soldier/pain1.wav';
-    DeathSound := 'sound/soldier/death1.wav';
-    AttackSound := 'sound/weapons/ax1.wav';
-  end;
-
-  Parent.Add(Transform);
-end;
-
-procedure TQuakeMonster.SetupAnimations;
-begin
-  { Frame ranges follow the $frame order of the original QuakeC sources.
-    LibreQuake models keep the same order (with generic frame names). }
-  if EntityClassName = 'monster_army' then
-  begin
-    SeqStand := Mdl.Sequence(0, 8, True);
-    SeqDeath := Mdl.Sequence(8, 10, False);
-    SeqPain := Mdl.Sequence(40, 6, False);
-    SeqRun := Mdl.Sequence(73, 8, True);
-    SeqAttack := Mdl.Sequence(81, 9, False);
-  end else
-  if EntityClassName = 'monster_dog' then
-  begin
-    SeqAttack := Mdl.Sequence(0, 8, False);
-    SeqDeath := Mdl.Sequence(8, 9, False);
-    SeqPain := Mdl.Sequence(26, 6, False);
-    SeqRun := Mdl.Sequence(48, 12, True);
-    SeqStand := Mdl.Sequence(69, 9, True);
-  end else
-  if EntityClassName = 'monster_ogre' then
-  begin
-    SeqStand := Mdl.Sequence(0, 9, True);
-    SeqRun := Mdl.Sequence(25, 8, True);
-    SeqAttack := Mdl.Sequence(61, 6, False); { grenade throw }
-    SeqPain := Mdl.Sequence(67, 5, False);
-    SeqDeath := Mdl.Sequence(112, 14, False);
-  end else
-  if EntityClassName = 'monster_knight' then
-  begin
-    SeqStand := Mdl.Sequence(0, 9, True);
-    SeqRun := Mdl.Sequence(9, 8, True);
-    SeqPain := Mdl.Sequence(28, 3, False);
-    SeqAttack := Mdl.Sequence(42, 11, False);
-    SeqDeath := Mdl.Sequence(76, 10, False);
-  end else
-  begin
-    SeqStand := Mdl.Sequence(0, 1, True);
-    SeqRun := SeqStand;
-    SeqAttack := SeqStand;
-    SeqPain := SeqStand;
-    SeqDeath := SeqStand;
-  end;
-  Animator.Play(SeqStand);
-end;
-
-destructor TQuakeMonster.Destroy;
-begin
-  Animator.Free;
-  Transform.Free;
-  inherited Destroy;
-end;
-
-procedure TQuakeMonster.TakeDamage(const Dmg: Integer; const AttackerPos: TVector3);
-begin
-  if (State = msDeath) or (State = msDead) then
-    Exit;
-
-  Health := Health - Dmg;
-  SightAlerted := True;
-
-  if Health <= 0 then
-  begin
-    { Keep the negative health: how far below zero decides gibbing and how
-      fast the gibs fly (VelocityForDamage) }
-    if Health < GibHealth then
-    begin
-      State := msDead;
-      GibPending := True;
-      Scene.Collides := False;
-      Exit;
-    end;
-    State := msDeath;
-    AnimTimer := 0;
-    if Animator <> nil then
-      Animator.Play(SeqDeath, True);
-    Sounds.PlayAt(DeathSound, Transform);
-    Scene.Collides := False; { corpses don't block movement }
-  end else
-  begin
-    State := msPain;
-    AnimTimer := 0;
-    if Animator <> nil then
-      Animator.Play(SeqPain, True);
-    Sounds.PlayAt(PainSound, Transform);
-  end;
-end;
-
-procedure TQuakeMonster.Update(const SecondsPassed: Single; const PlayerPos: TVector3);
-
-  procedure AdvanceState;
-  var
-    Delta: TVector3;
-    Dist, Step: Single;
-    TargetYaw: Single;
-  begin
-    if State = msDead then
-      Exit;
-
-    { Death animation progression }
-    if State = msDeath then
-    begin
-      AnimTimer := AnimTimer + SecondsPassed;
-      if AnimTimer >= 0.8 then
-        State := msDead;
-      Exit;
-    end;
-
-    if State = msPain then
-    begin
-      AnimTimer := AnimTimer + SecondsPassed;
-      if AnimTimer >= 0.3 then
-        State := msWalk;
-      Exit;
-    end;
-
-    Delta := PlayerPos - Transform.Translation;
-    Dist := Delta.Length;
-
-    { Check wake up / alert }
-    if not SightAlerted and (Dist < AlertRange) then
-    begin
-      SightAlerted := True;
-      State := msWalk;
-      Sounds.PlayAt(SightSound, Transform);
-    end;
-
-    if not SightAlerted then
-      Exit;
-
-    { Turn toward player }
-    if Dist > 1.0 then
-    begin
-      TargetYaw := RadToDeg(ArcTan2(Delta[0], -Delta[2]));
-      FacingAngle := TargetYaw;
-      Transform.Rotation := Vector4(0, 1, 0, DegToRad(FacingAngle));
-    end;
-
-    { Chasing or attacking }
-    if AttackCooldown > 0 then
-      AttackCooldown := AttackCooldown - SecondsPassed;
-
-    if Dist <= AttackRange then
-    begin
-      { In melee / firing range }
-      if (AttackCooldown <= 0) then
-      begin
-        State := msAttack;
-        AttackCooldown := 1.2;
-        AttackLaunched := True;
-        if Animator <> nil then
-          Animator.Play(SeqAttack, True);
-        Sounds.PlayAt(AttackSound, Transform);
-        Lighting.TriggerMuzzleFlash(Transform.Translation + Vector3(0, 24, 0), 1.5);
-      end;
-    end else
-    begin
-      { Walk toward player }
-      State := msWalk;
-      Step := Speed * SecondsPassed;
-      Delta.Y := 0; { Stay on horizontal plane }
-      if Delta.Length > 0 then
-        Transform.Translation := Transform.Translation + Delta.Normalize * Step;
-    end;
-  end;
-
-const
-  { Beyond this distance the pose snaps to whole keyframes at 10 Hz like the
-    original renderer: smoothing is not visible there, and every pose change
-    costs a mesh update }
-  LerpDistance = 1024.0;
-begin
-  AdvanceState;
-
-  if Animator = nil then
-    Exit;
-  Animator.Interpolate :=
-    PointsDistanceSqr(Transform.Translation, PlayerPos) < Sqr(LerpDistance);
-
-  { Pick the animation for the current state. Pain and death were started
-    by TakeDamage; an attack plays once, then the monster waits standing. }
-  case State of
-    msIdle:
-      Animator.Play(SeqStand);
-    msWalk:
-      Animator.Play(SeqRun);
-    msAttack:
-      if Animator.Finished then
-        Animator.Play(SeqStand);
-    else ;
-  end;
-
-  Animator.Update(SecondsPassed);
-end;
-
 { TQuakeProjectile }
 
 constructor TQuakeProjectile.Create(const Parent: TCastleTransform;
@@ -639,10 +302,40 @@ begin
   Origin := AOrigin;
   Velocity := AVelocity;
   case Kind of
-    pjGrenade:
+    pjGrenade, pjOgreGrenade:
       begin
         MdlPath := 'progs/grenade.mdl';
         Life := 2.5; { fuse }
+      end;
+    pjWizSpike:
+      begin
+        MdlPath := 'progs/w_spike.mdl';
+        Life := 6.0;
+      end;
+    pjKnightSpike:
+      begin
+        MdlPath := 'progs/k_spike.mdl';
+        Life := 6.0;
+      end;
+    pjLaser:
+      begin
+        MdlPath := 'progs/laser.mdl';
+        Life := 5.0;
+      end;
+    pjVorePod:
+      begin
+        MdlPath := 'progs/v_spike.mdl';
+        Life := 10.0;
+      end;
+    pjZombieGib:
+      begin
+        MdlPath := 'progs/zom_gib.mdl';
+        Life := 6.0;
+      end;
+    pjLavaBall:
+      begin
+        MdlPath := 'progs/lavaball.mdl';
+        Life := 8.0;
       end;
     pjRocket:
       begin
@@ -685,9 +378,9 @@ var
   Q: TQuaternion;
 begin
   Transform.Translation := QuakeToCge(Origin);
-  if Kind = pjGrenade then
+  if Kind in [pjGrenade, pjOgreGrenade, pjZombieGib, pjLavaBall] then
   begin
-    { Grenades tumble (avelocity '300 300 300') }
+    { Grenades and gibs tumble (avelocity '300 300 300') }
     Q := QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Spin)) *
       QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Spin));
   end else

@@ -255,6 +255,9 @@ type
       1 for player sized boxes, 2 for larger ones }
     function HullForSize(const Mins, Maxs: TVector3): Integer;
 
+    { Box mins a hull was expanded for (hull_t.clip_mins) }
+    function HullClipMins(const HullIdx: Integer): TVector3;
+
     { Contents (CONTENTS_xxx) of the world leaf containing a point in Quake coordinates }
     function PointContents(const QuakePoint: TVector3): Integer;
 
@@ -886,6 +889,11 @@ begin
     Result := 1
   else
     Result := 2;
+end;
+
+function TQuakeBsp.HullClipMins(const HullIdx: Integer): TVector3;
+begin
+  Result := FHulls[HullIdx].ClipMins;
 end;
 
 function TQuakeBsp.HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;

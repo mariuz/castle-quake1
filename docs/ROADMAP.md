@@ -18,7 +18,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | PAK WAVs played through OpenAL (`TCastleSoundSource`), static ambient emitters and BSP leaf ambients, OGG background music | Matches original. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | Port of the NetQuake player physics (`QuakePhysics`) tracing the BSP clipping hulls, doors and monster boxes | Matches original. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | All 8 weapons from QuakeC `weapons.qc`: hull-traced hitscan, colliding nails, bouncing grenades, rockets with splash and knockback, lightning beam and discharge | Matches original. |
-| **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | Grunt, Dog, Ogre, Knight spawners and tracking | Add Fiend, Scrag, Hell Knight, Shambler, Vore, Tarbaby, Rotfish, and Bosses. |
+| **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | All 13 monster types and both bosses with QuakeC data, line-of-sight wake up, `SV_movestep` chasing and frame-timed attacks | Infighting and sound propagation. |
 | **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | `ThrowGib` / `ThrowHead` with QuakeC thresholds, bouncing gib models and blood trails | Matches original. |
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Keys tracked in HUD, warp console command, submodel doors | Interactive level transitions, locked door triggers, secret trigger announcements. |
 | **Intermission** | Intermission stats screen with animated tallies and sound effects | In-game status banner | Dedicated intermission view tallying kills, secrets, and time. |
@@ -60,7 +60,7 @@ This document outlines the architectural comparison between **Castle Quake** and
   - Overkill below each monster's QuakeC threshold (grunt and dog -35, knight -40, ogre -80) replaces the body with its head model and three meat gibs, thrown with `VelocityForDamage` (faster with more overkill), tumbling and bouncing on the BSP hulls, with blood trails, a blood fountain and `udeath.wav`. Gibs disappear after 10-20 seconds; heads stay.
 
 ### Phase 3: Monster Roster & AI Complete
-- [ ] **Full Monster Cast**:
+- [x] **Full Monster Cast**:
   - **Fiend (Demon)**: long-range leaping jump attacks and slash combos.
   - **Scrag (Wizard)**: 3D flying movement and spit projectile attacks.
   - **Hell Knight**: multi-slash projectiles and charging melee.
@@ -69,6 +69,7 @@ This document outlines the architectural comparison between **Castle Quake** and
   - **Tarbaby (Spawn)**: high-speed bouncing and explosive death.
   - **Rotfish**: aquatic swimming and biting.
   - **Chthon** (E1M7 boss) and **Shub-Niggurath** (End boss).
+  - Done with a data-driven `QuakeMonsters` unit: QuakeC sizes, health, frames and sounds for all classes (plus the existing grunt, dog, ogre, knight, and the enforcer and zombie); monsters wake on line of sight, chase with `SV_movestep` over the BSP hulls, attack on animation frames (traced grunt pellets replace the old hit chance), leap, flinch, die and gib. Zombies only die from gibbing and get knocked down by big hits; spawns explode; Chthon rises when the rune is taken and dies from three electrode shocks; Shub-Niggurath idles invulnerable (her telefrag ending is not done).
 - [ ] **Monster Infighting & Sound Propagation**:
   - Monsters retaliate against other monsters when damaged by friendly fire.
   - Weapon gunfire sound propagation alerting monsters across open doorways.
