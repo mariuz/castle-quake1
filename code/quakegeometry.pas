@@ -83,10 +83,15 @@ type
     Target: String;
     TargetName: String;
     Sounds: Integer;
+    { func_plat that rests at the bottom (ClosedPos = top, OpenPos = bottom) and
+      rises when stood on; returns down 3 seconds after reaching the top }
+    IsAutoPlat: Boolean;
     constructor Create;
     destructor Destroy; override;
     procedure Update(const SecondsPassed: Single);
     procedure Trigger;
+    { The player stands on an auto plat (plat_center_touch) }
+    procedure PlatTouched;
   end;
 
   TQuakeSubmodelList = specialize TObjectList<TQuakeSubmodel>;
@@ -512,11 +517,38 @@ begin
         begin
           Transform.Translation := TargetPos;
           State := smsClosed;
+          StateTimer := 3.0;
         end else
           Transform.Translation := Transform.Translation + Delta.Normalize * Step;
       end;
     smsClosed:
-      ;
+      if IsAutoPlat then
+      begin
+        { plat_hit_top: go back down after a while }
+        StateTimer := StateTimer - SecondsPassed;
+        if StateTimer <= 0 then
+        begin
+          State := smsOpening;
+          TargetPos := OpenPos;
+        end;
+      end;
+  end;
+end;
+
+procedure TQuakeSubmodel.PlatTouched;
+begin
+  if not IsAutoPlat then
+    Exit;
+  case State of
+    smsOpen:
+      begin
+        { At the bottom: go up }
+        State := smsClosing;
+        TargetPos := ClosedPos;
+      end;
+    smsClosed:
+      StateTimer := Max(StateTimer, 1.0); { delay going down while ridden }
+    else ;
   end;
 end;
 
@@ -900,10 +932,22 @@ begin
         if CName = 'func_plat' then
         begin
           { Elevators move down by height of the platform }
-          Dist := Ent.GetFloat('height', Abs(Sub.Maxs[1] - Sub.Mins[1]) + 64.0);
+          { func_plat default travel: its height minus 8 }
+          Dist := Ent.GetFloat('height', Abs(Sub.Maxs[1] - Sub.Mins[1]) - 8.0);
+          if Dist < 8 then
+            Dist := 8;
           Sub.ClosedPos := Vector3(0, 0, 0);
           Sub.OpenPos := Vector3(0, -Dist, 0);
           Sub.MoveDir := Vector3(0, -1, 0);
+          { Like Quake, plats without a targetname start at the bottom and
+            rise when the player steps on them }
+          if Sub.TargetName = '' then
+          begin
+            Sub.IsAutoPlat := True;
+            Sub.Transform.Translation := Sub.OpenPos;
+            Sub.State := smsOpen;
+            Sub.WaitTime := -1;
+          end;
         end else
         if CName = 'func_button' then
         begin
