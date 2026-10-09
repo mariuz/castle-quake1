@@ -74,6 +74,13 @@ type
     { Set when the monster attacked during the last Update; the world decides
       whether the attack reaches the player and clears it. }
     AttackLaunched: Boolean;
+    { Gibbing (QuakeC *_die): below GibHealth the body bursts into gibs }
+    GibHealth: Integer;
+    HeadModel: String;
+    GibModels: array[0..2] of String;
+    { Set when the monster was gibbed; the world throws the gibs and clears it }
+    GibPending: Boolean;
+    KillCounted: Boolean;
     constructor Create(const Parent: TCastleTransform; const ACName: String;
       const Pos: TVector3; const Yaw: Single; const MdlPath: String;
       const AHealth, ADamage: Integer; const ASpeed, ARange: Single);
@@ -108,6 +115,27 @@ type
   end;
 
   TQuakeProjectileList = specialize TObjectList<TQuakeProjectile>;
+
+  { Flying piece of a gibbed monster (ThrowGib / ThrowHead), MOVETYPE_BOUNCE.
+    Origin and Velocity are in Quake coordinates. }
+  TQuakeGib = class
+  public
+    Transform: TCastleTransform;
+    Scene: TCastleScene;
+    Origin: TVector3;
+    Velocity: TVector3;
+    AngularVelocity: TVector3; { degrees per second around X, Y, Z }
+    Angles: TVector3;
+    Life: Single;       { removed when it runs out; heads stay (Life < 0) }
+    OnGround: Boolean;
+    TrailTimer: Single;
+    constructor Create(const Parent: TCastleTransform; const MdlPath: String;
+      const AOrigin, AVelocity: TVector3; const ALife: Single);
+    destructor Destroy; override;
+    procedure UpdateVisual;
+  end;
+
+  TQuakeGibList = specialize TObjectList<TQuakeGib>;
 
   { Trigger zone (teleport, changelevel, trigger_multiple) }
   TQuakeTrigger = class
@@ -335,6 +363,31 @@ begin
     SetupAnimations;
   end;
 
+  { Gib thresholds and models from the QuakeC die functions }
+  GibHealth := -35;
+  HeadModel := 'progs/h_guard.mdl';
+  GibModels[0] := 'progs/gib1.mdl';
+  GibModels[1] := 'progs/gib2.mdl';
+  GibModels[2] := 'progs/gib3.mdl';
+  if ACName = 'monster_dog' then
+  begin
+    HeadModel := 'progs/h_dog.mdl';
+    GibModels[0] := 'progs/gib3.mdl';
+    GibModels[1] := 'progs/gib3.mdl';
+  end else
+  if ACName = 'monster_ogre' then
+  begin
+    GibHealth := -80;
+    HeadModel := 'progs/h_ogre.mdl';
+    GibModels[0] := 'progs/gib3.mdl';
+    GibModels[2] := 'progs/gib2.mdl';
+  end else
+  if ACName = 'monster_knight' then
+  begin
+    GibHealth := -40;
+    HeadModel := 'progs/h_knight.mdl';
+  end;
+
   { Default sound assignments }
   if ACName = 'monster_army' then
   begin
@@ -441,7 +494,15 @@ begin
 
   if Health <= 0 then
   begin
-    Health := 0;
+    { Keep the negative health: how far below zero decides gibbing and how
+      fast the gibs fly (VelocityForDamage) }
+    if Health < GibHealth then
+    begin
+      State := msDead;
+      GibPending := True;
+      Scene.Collides := False;
+      Exit;
+    end;
     State := msDeath;
     AnimTimer := 0;
     if Animator <> nil then
@@ -638,6 +699,46 @@ begin
     Pitch := ArcTan2(Velocity.Z, Sqrt(Sqr(Velocity.X) + Sqr(Velocity.Y)));
     Q := QuatFromAxisAngle(Vector3(0, 1, 0), Yaw) * QuatFromAxisAngle(Vector3(0, 0, 1), Pitch);
   end;
+  Transform.Rotation := Q.ToAxisAngle;
+end;
+
+{ TQuakeGib }
+
+constructor TQuakeGib.Create(const Parent: TCastleTransform; const MdlPath: String;
+  const AOrigin, AVelocity: TVector3; const ALife: Single);
+var
+  Mdl: TQuakeMdl;
+begin
+  inherited Create;
+  Origin := AOrigin;
+  Velocity := AVelocity;
+  Life := ALife;
+  Transform := TCastleTransform.Create(nil);
+  Mdl := MdlManager.GetModel(MdlPath);
+  if Mdl <> nil then
+  begin
+    Scene := Mdl.CreateScene(0);
+    Scene.Collides := False;
+    Transform.Add(Scene);
+  end;
+  Parent.Add(Transform);
+  UpdateVisual;
+end;
+
+destructor TQuakeGib.Destroy;
+begin
+  Transform.Free;
+  inherited Destroy;
+end;
+
+procedure TQuakeGib.UpdateVisual;
+var
+  Q: TQuaternion;
+begin
+  Transform.Translation := QuakeToCge(Origin);
+  Q := QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Angles.Y)) *
+    QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(Angles.X)) *
+    QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Angles.Z));
   Transform.Rotation := Q.ToAxisAngle;
 end;
 
