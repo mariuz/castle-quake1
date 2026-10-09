@@ -103,6 +103,8 @@ type
     NetHost: String;
     NetPort: Word;
     HostMap: String;
+    HostCoop: Boolean;
+    HostSkill: Integer;
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -223,7 +225,7 @@ begin
     FreeAndNil(ListenServer);
     if HostMap <> '' then
     begin
-      ListenServer := TQuakeServer.Create(NetPort, HostMap, MaxNetClients);
+      ListenServer := TQuakeServer.Create(NetPort, HostMap, MaxNetClients, HostCoop, HostSkill);
       if not ListenServer.Valid then
       begin
         FHud.ShowMessage('Cannot host ' + HostMap + ' on port ' + IntToStr(NetPort), 3);

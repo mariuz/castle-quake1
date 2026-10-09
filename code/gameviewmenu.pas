@@ -84,7 +84,12 @@ begin
         ViewDemo.DemoName := '';
         ViewDemo.NetHost := '';
         ViewDemo.NetPort := 0;
-        ViewDemo.HostMap := Param;
+        ViewDemo.HostCoop := Pos('coop:', Param) = 1;
+        ViewDemo.HostSkill := 1;
+        if ViewDemo.HostCoop then
+          ViewDemo.HostMap := Copy(Param, 6, MaxInt)
+        else
+          ViewDemo.HostMap := Param;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';
         Container.View := ViewDemo;

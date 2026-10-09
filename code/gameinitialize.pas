@@ -26,6 +26,8 @@ var
   CmdHost: String;
   CmdConnect: String;
   CmdPort: Integer;
+  CmdCoop: Boolean;
+  CmdSkill: Integer;
 
 procedure ApplicationInitialize;
 
@@ -98,6 +100,7 @@ var
   LoadedAny: Boolean;
 begin
   { Command line options }
+  CmdSkill := 1;
   I := 1;
   while I <= Parameters.High do
   begin
@@ -135,6 +138,14 @@ begin
     if ((Parameters[I] = '-connect') or (Parameters[I] = '--connect')) and (I + 1 <= Parameters.High) then
     begin
       CmdConnect := Parameters[I + 1];
+      Inc(I);
+    end else
+    if (Parameters[I] = '-coop') or (Parameters[I] = '--coop') then
+      CmdCoop := True
+    else
+    if ((Parameters[I] = '-skill') or (Parameters[I] = '--skill')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdSkill := StrToIntDef(Parameters[I + 1], 1);
       Inc(I);
     end else
     if ((Parameters[I] = '-port') or (Parameters[I] = '--port')) and (I + 1 <= Parameters.High) then
@@ -239,6 +250,8 @@ begin
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 5)) = 'host:') then
   begin
     ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
+    ViewDemo.HostCoop := CmdCoop;
+    ViewDemo.HostSkill := CmdSkill;
     ViewDemo.NetPort := CmdPort;
     ViewDemo.AutoTestPrefix := AutoTestPrefix;
     ViewDemo.AutoTestScript := AutoTestDemo;
@@ -254,6 +267,8 @@ begin
   if CmdHost <> '' then
   begin
     ViewDemo.HostMap := CmdHost;
+    ViewDemo.HostCoop := CmdCoop;
+    ViewDemo.HostSkill := CmdSkill;
     ViewDemo.NetPort := CmdPort;
     Window.Container.View := ViewDemo;
   end else
