@@ -17,7 +17,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser, per-state animation sequences with keyframe interpolation | Matches original (plus lerping, like later Quake engines). |
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | PAK WAVs played through OpenAL (`TCastleSoundSource`), static ambient emitters and BSP leaf ambients, OGG background music | Matches original. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | Port of the NetQuake player physics (`QuakePhysics`) tracing the BSP clipping hulls, doors and monster boxes | Matches original. |
-| **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | Axe, Shotgun, Super Shotgun, basic Rocket launcher projectile | Full ballistics (grenade bounce/fuse, spike trails, rocket jumping, lightning discharge). |
+| **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | All 8 weapons from QuakeC `weapons.qc`: hull-traced hitscan, colliding nails, bouncing grenades, rockets with splash and knockback, lightning beam and discharge | Matches original. |
 | **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | Grunt, Dog, Ogre, Knight spawners and tracking | Add Fiend, Scrag, Hell Knight, Shambler, Vore, Tarbaby, Rotfish, and Bosses. |
 | **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | Monster removal / death state | Spawn physical 3D gib entities with velocities and blood particles. |
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Keys tracked in HUD, warp console command, submodel doors | Interactive level transitions, locked door triggers, secret trigger announcements. |
@@ -49,11 +49,13 @@ This document outlines the architectural comparison between **Castle Quake** and
   - Swimming (`SV_WaterMove`: 0.7× speed, water friction, sink when idle, swim up with jump, look down to dive), water jumps out of pools, air supply with HUD meter, drowning, gasps and splash sounds.
   - Lava (10 × waterlevel every 0.2 s) and slime (4 × waterlevel per second) damage, reduced/blocked by the biosuit; falling damage and landing sounds.
   - Needed along the way: plats rest at the bottom and rise when stood on, doors open from their touch field, buttons fire their targets, triggers use their brush bounds and teleporters move the player.
-- [ ] **Complete Weapons Arsenal**:
-  - **Nailgun & Super Nailgun**: high-velocity spike projectiles with purple/blue contrails.
-  - **Grenade Launcher**: bouncing physics with elasticity, floor rolling, 2.5-second fuse timer, and direct-hit detonation.
-  - **Rocket Launcher**: smoke particle contrails, radius splash damage falloff, and physics knockback (enabling rocket jumping).
-  - **Lightning Gun (Thunderbolt)**: continuous electric hitscan beam with water discharge catastrophe (instant suicide + area wipe if fired underwater).
+- [x] **Complete Weapons Arsenal**:
+  - Shots and projectiles trace the BSP hulls, brush entities and monster boxes (no more hitting the nearest monster through walls).
+  - **Axe / Shotguns**: 64-unit melee trace; `FireBullets` with 6 pellets (spread 0.04) or 14 (0.14 x 0.08), 4 damage each, summed per target.
+  - **Nailgun & Super Nailgun**: 10 nails per second at 1000 u/s from alternating barrels, 9 / 18 damage, ricochet sounds, blue-purple contrails.
+  - **Grenade Launcher**: bouncing physics (1.5 overbounce, rests on floors), 2.5-second fuse, explodes on monsters, 120 radius damage.
+  - **Rocket Launcher**: smoke trails, 100-120 direct damage plus `T_RadiusDamage` falloff, knockback (rocket jumping); missiles vanish into the sky.
+  - **Lightning Gun (Thunderbolt)**: 600-unit beam drawn with `bolt2` segments, 30 damage per 0.1 s, underwater discharge that empties the cells and kills.
 - [ ] **Gib System**:
   - Monsters taking damage below -40 HP burst into 3D polygon meat and head gibs with scattering velocities and blood particle fountains.
 

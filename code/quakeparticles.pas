@@ -59,6 +59,14 @@ type
 
     { Spawn teleport particle fountain }
     procedure SpawnTeleport(const Pos: TVector3);
+
+    { One puff of a projectile trail (CGE coordinates) }
+    procedure SpawnRocketTrail(const Pos: TVector3);
+    procedure SpawnGrenadeTrail(const Pos: TVector3);
+    procedure SpawnNailTrail(const Pos: TVector3);
+
+    { Small puff where a bullet or nail hits a wall (TE_GUNSHOT / TE_SPIKE) }
+    procedure SpawnPuff(const Pos, Normal: TVector3);
   end;
 
 var
@@ -293,6 +301,49 @@ begin
       Vector3(0.2, 0.9, 0.95));
     FParticles.Add(P);
   end;
+end;
+
+procedure TQuakeParticleManager.SpawnRocketTrail(const Pos: TVector3);
+begin
+  if FParent = nil then
+    Exit;
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos,
+    Vector3((Random - 0.5) * 10, 10, (Random - 0.5) * 10), pkSmoke, 0.6, 2.0, 7.0,
+    Vector3(0.45, 0.42, 0.4)));
+  { Hot core right behind the rocket }
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos, TVector3.Zero, pkFireball, 0.12, 2.5, 1.0,
+    Vector3(1.0, 0.7, 0.2)));
+end;
+
+procedure TQuakeParticleManager.SpawnGrenadeTrail(const Pos: TVector3);
+begin
+  if FParent = nil then
+    Exit;
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos,
+    Vector3((Random - 0.5) * 6, 6, (Random - 0.5) * 6), pkSmoke, 0.45, 1.5, 4.0,
+    Vector3(0.35, 0.35, 0.35)));
+end;
+
+procedure TQuakeParticleManager.SpawnNailTrail(const Pos: TVector3);
+begin
+  if FParent = nil then
+    Exit;
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos, TVector3.Zero, pkTeleport, 0.15, 0.8, 0.2,
+    Vector3(0.55, 0.45, 1.0)));
+end;
+
+procedure TQuakeParticleManager.SpawnPuff(const Pos, Normal: TVector3);
+var
+  I: Integer;
+begin
+  if FParent = nil then
+    Exit;
+  for I := 1 to 3 do
+    FParticles.Add(TQuakeParticle.Create(FParent, Pos,
+      Normal * (60 + Random * 60) + Vector3((Random - 0.5) * 60, (Random - 0.5) * 60, (Random - 0.5) * 60),
+      pkSparks, 0.25 + Random * 0.15, 1.0, 0.3, Vector3(0.9, 0.8, 0.5)));
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos, Normal * 15 + Vector3(0, 15, 0), pkSmoke,
+    0.35, 1.5, 4.0, Vector3(0.45, 0.45, 0.45)));
 end;
 
 initialization

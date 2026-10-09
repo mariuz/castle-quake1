@@ -34,6 +34,7 @@ Demo script actions:
 - `W:sec` wait seconds
 - `S` take screenshot
 - `X` fire equipped weapon
+- `F:sec` hold fire (nailguns, lightning gun)
 - `U` use / activate door or button
 - `C:slot` switch weapon (1: Axe, 2: Shotgun, 3: SSG, 4: Nailgun, 5: SNG, 6: GL, 7: RL, 8: LG)
 - `A:deg` absolute yaw angle

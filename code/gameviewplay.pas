@@ -47,6 +47,7 @@ type
     { Autotest movement: forward / side / up fractions of full speed, and jump time left }
     FDemoMove: TVector3;
     FDemoJumpTime: Single;
+    FDemoFireTime: Single;
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
     procedure SetupNavigation;
     procedure CreateUnderwaterEffect;
@@ -470,6 +471,11 @@ begin
       FDemoMove.Data[P] := StrToFloatDef(Parts[P], 0);
     Inc(FDemoIndex);
   end else
+  if Action = 'F' then { Hold fire for some seconds }
+  begin
+    FDemoFireTime := StrToFloatDef(Param, 1.0);
+    Inc(FDemoIndex);
+  end else
   if Action = 'J' then { Jump }
   begin
     FDemoJumpTime := 0.1;
@@ -547,6 +553,7 @@ begin
   begin
     BuildUserCmd(Cmd);
     FDemoJumpTime := Max(0, FDemoJumpTime - SecondsPassed);
+    FDemoFireTime := Max(0, FDemoFireTime - SecondsPassed);
     FWorld.MovePlayer(Cmd, FViewport.Camera.Direction, SecondsPassed, FHud);
     if FWorld.TakePendingYaw(NewYaw) then
       FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
@@ -600,7 +607,8 @@ begin
   { Attack trigger while fire key is held }
   if not FConsole.IsOpen and not FMenu.Exists and not FWorld.PlayerDead then
   begin
-    if Container.Pressed[keyCtrl] then
+    if Container.Pressed[keyCtrl] or (buttonLeft in Container.MousePressed) or
+       (FDemoFireTime > 0) then
     begin
       RayOrigin := FViewport.Camera.Translation;
       RayDir := FViewport.Camera.Direction;
