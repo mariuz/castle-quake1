@@ -19,7 +19,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | Port of the NetQuake player physics (`QuakePhysics`) tracing the BSP clipping hulls, doors and monster boxes | Matches original. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | All 8 weapons from QuakeC `weapons.qc`: hull-traced hitscan, colliding nails, bouncing grenades, rockets with splash and knockback, lightning beam and discharge | Matches original. |
 | **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | Grunt, Dog, Ogre, Knight spawners and tracking | Add Fiend, Scrag, Hell Knight, Shambler, Vore, Tarbaby, Rotfish, and Bosses. |
-| **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | Monster removal / death state | Spawn physical 3D gib entities with velocities and blood particles. |
+| **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | `ThrowGib` / `ThrowHead` with QuakeC thresholds, bouncing gib models and blood trails | Matches original. |
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Keys tracked in HUD, warp console command, submodel doors | Interactive level transitions, locked door triggers, secret trigger announcements. |
 | **Intermission** | Intermission stats screen with animated tallies and sound effects | In-game status banner | Dedicated intermission view tallying kills, secrets, and time. |
 | **Save / Load** | Quake binary savegame format (`.sav`) | Not yet implemented | JSON / binary serializer for player inventory, camera, and map state. |
@@ -56,8 +56,8 @@ This document outlines the architectural comparison between **Castle Quake** and
   - **Grenade Launcher**: bouncing physics (1.5 overbounce, rests on floors), 2.5-second fuse, explodes on monsters, 120 radius damage.
   - **Rocket Launcher**: smoke trails, 100-120 direct damage plus `T_RadiusDamage` falloff, knockback (rocket jumping); missiles vanish into the sky.
   - **Lightning Gun (Thunderbolt)**: 600-unit beam drawn with `bolt2` segments, 30 damage per 0.1 s, underwater discharge that empties the cells and kills.
-- [ ] **Gib System**:
-  - Monsters taking damage below -40 HP burst into 3D polygon meat and head gibs with scattering velocities and blood particle fountains.
+- [x] **Gib System**:
+  - Overkill below each monster's QuakeC threshold (grunt and dog -35, knight -40, ogre -80) replaces the body with its head model and three meat gibs, thrown with `VelocityForDamage` (faster with more overkill), tumbling and bouncing on the BSP hulls, with blood trails, a blood fountain and `udeath.wav`. Gibs disappear after 10-20 seconds; heads stay.
 
 ### Phase 3: Monster Roster & AI Complete
 - [ ] **Full Monster Cast**:

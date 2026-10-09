@@ -22,6 +22,7 @@ type
     FPickups: TQuakePickupList;
     FMonsters: TQuakeMonsterList;
     FProjectiles: TQuakeProjectileList;
+    FGibs: TQuakeGibList;
     FTriggers: TQuakeTriggerList;
     FAmbient: TQuakeAmbientSounds;
     FPlayerStats: TQuakePlayerStats;
@@ -83,6 +84,9 @@ type
     procedure ExplodeProjectile(const P: TQuakeProjectile; const Direct: TQuakeMonster;
       const Hud: TQuakeHud);
     procedure UpdateProjectiles(const SecondsPassed: Single; const Hud: TQuakeHud);
+    { Burst a monster into head and gibs (ThrowHead / ThrowGib) }
+    procedure GibMonster(const M: TQuakeMonster);
+    procedure UpdateGibs(const SecondsPassed: Single);
     procedure PressButton(const Sub: TQuakeSubmodel);
     procedure SpawnEntities;
     procedure UpdateWeaponModel;
@@ -168,6 +172,7 @@ begin
   FPickups := TQuakePickupList.Create(True);
   FMonsters := TQuakeMonsterList.Create(True);
   FProjectiles := TQuakeProjectileList.Create(True);
+  FGibs := TQuakeGibList.Create(True);
   FTriggers := TQuakeTriggerList.Create(True);
   FAmbient := TQuakeAmbientSounds.Create;
   FPhys := TQuakePlayerPhysics.Create;
@@ -590,6 +595,7 @@ begin
   FPickups.Free;
   FMonsters.Free;
   FProjectiles.Free;
+  FGibs.Free;
   FTriggers.Free;
   FreeAndNil(FAmbient);
   FreeAndNil(FPhys);
@@ -857,6 +863,8 @@ begin
     MapPath := 'maps/' + MapPath + '.bsp';
 
   FAmbient.Clear;
+  FGibs.Clear;
+  FProjectiles.Clear;
   FreeAndNil(FGeometry);
   FreeAndNil(FBsp);
 
@@ -1120,15 +1128,18 @@ begin
       if MonsterSeesPlayer(M) and (Random < MonsterHitChance(M)) then
         DamagePlayer(M.AttackDamage, Hud);
     end;
-    if (M.State = msDead) and (M.Health = 0) then
+    if M.GibPending then
+      GibMonster(M);
+    if (M.State = msDead) and not M.KillCounted then
     begin
       Inc(FPlayerStats.Kills);
-      M.Health := -1; { count kill once }
+      M.KillCounted := True;
     end;
   end;
 
   { Advance projectiles }
   UpdateProjectiles(SecondsPassed, Hud);
+  UpdateGibs(SecondsPassed);
   { The lightning hum restarts with lstart.wav after the trigger is released }
   if FTime - FLastLightningTime > 0.2 then
     FLightningFiring := False;
@@ -1604,6 +1615,98 @@ begin
   Particles.SpawnExplosion(QuakeToCge(Center));
   Lighting.TriggerMuzzleFlash(QuakeToCge(Center), 6.0);
   Sounds.PlayAt('sound/weapons/r_exp3.wav', P.Transform);
+end;
+
+function VelocityForDamage(const Damage: Single): TVector3;
+begin
+  { VelocityForDamage (player.qc): the more overkill, the faster the gibs }
+  Result := Vector3(100 * (Random * 2 - 1), 100 * (Random * 2 - 1), 200 + 100 * Random);
+  if Damage > -50 then
+    Result := Result * 0.7
+  else if Damage > -200 then
+    Result := Result * 2
+  else
+    Result := Result * 10;
+end;
+
+procedure TQuakeWorld.GibMonster(const M: TQuakeMonster);
+var
+  Org: TVector3;
+  Gib: TQuakeGib;
+  I: Integer;
+begin
+  M.GibPending := False;
+  Org := CgeToQuake(M.Transform.Translation);
+  { The body is replaced by its head }
+  M.Transform.Exists := False;
+  Sounds.PlayAt('sound/player/udeath.wav', M.Transform);
+
+  for I := 0 to High(M.GibModels) do
+  begin
+    { ThrowGib: removed after 10 to 20 seconds }
+    Gib := TQuakeGib.Create(FRootTransform, M.GibModels[I], Org, VelocityForDamage(M.Health),
+      10 + Random * 10);
+    Gib.AngularVelocity := Vector3(Random * 600, Random * 600, Random * 600);
+    FGibs.Add(Gib);
+  end;
+
+  { ThrowHead: the head stays, 24 units lower, spinning around its up axis }
+  Gib := TQuakeGib.Create(FRootTransform, M.HeadModel, Org - Vector3(0, 0, 24),
+    VelocityForDamage(M.Health), -1);
+  Gib.AngularVelocity := Vector3(0, (Random * 2 - 1) * 600, 0);
+  FGibs.Add(Gib);
+
+  { Blood fountain }
+  for I := 1 to 3 do
+    Particles.SpawnBlood(QuakeToCge(Org + Vector3(0, 0, 8 * I)), Vector3(0, 1, 0));
+end;
+
+procedure TQuakeWorld.UpdateGibs(const SecondsPassed: Single);
+var
+  I: Integer;
+  G: TQuakeGib;
+  T: TQuakeTrace;
+begin
+  for I := FGibs.Count - 1 downto 0 do
+  begin
+    G := FGibs[I];
+    if G.Life >= 0 then
+    begin
+      G.Life := G.Life - SecondsPassed;
+      if G.Life <= 0 then
+      begin
+        FGibs.Delete(I);
+        Continue;
+      end;
+    end;
+    if G.OnGround or (FBsp = nil) then
+      Continue;
+
+    { SV_Physics_Toss with MOVETYPE_BOUNCE, against the world and brush entities }
+    G.Velocity.Z := G.Velocity.Z - SvGravity * SecondsPassed;
+    G.Angles := G.Angles + G.AngularVelocity * SecondsPassed;
+    T := FPhys.Trace(G.Origin, G.Origin + G.Velocity * SecondsPassed, True, True);
+    G.Origin := T.EndPos;
+    if T.Fraction < 1 then
+    begin
+      G.Velocity := ClipVelocity(G.Velocity, T.PlaneNormal, 1.5);
+      if (T.PlaneNormal.Z > 0.7) and (G.Velocity.Z < 60) then
+      begin
+        G.OnGround := True;
+        G.Velocity := TVector3.Zero;
+        G.AngularVelocity := TVector3.Zero;
+      end;
+    end;
+
+    { EF_GIB blood trail while flying }
+    G.TrailTimer := G.TrailTimer - SecondsPassed;
+    if G.TrailTimer <= 0 then
+    begin
+      Particles.SpawnBloodTrail(QuakeToCge(G.Origin));
+      G.TrailTimer := 0.05;
+    end;
+    G.UpdateVisual;
+  end;
 end;
 
 procedure TQuakeWorld.UpdateProjectiles(const SecondsPassed: Single; const Hud: TQuakeHud);
