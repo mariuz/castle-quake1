@@ -457,7 +457,7 @@ end;
 
 procedure TViewDemo.HandleIntermission;
 begin
-  FHud.StartIntermission(FDemo.LevelName, Max(0.0, FDemo.Time - FLevelStart),
+  FHud.StartIntermission(FDemo.LevelName, Math.Max(0.0, FDemo.Time - FLevelStart),
     FDemo.Stats[STAT_MONSTERS], FDemo.Stats[STAT_TOTALMONSTERS],
     FDemo.Stats[STAT_SECRETS], FDemo.Stats[STAT_TOTALSECRETS]);
   Sounds.PlayMusic('track03.ogg');
@@ -654,7 +654,7 @@ begin
   S.TotalKills := FDemo.Stats[STAT_TOTALMONSTERS];
   S.Secrets := FDemo.Stats[STAT_SECRETS];
   S.TotalSecrets := FDemo.Stats[STAT_TOTALSECRETS];
-  S.LevelTime := Max(0.0, FDemo.Time - FLevelStart);
+  S.LevelTime := Math.Max(0.0, FDemo.Time - FLevelStart);
   S.AirLeft := 12;
   if FBsp <> nil then
   begin
