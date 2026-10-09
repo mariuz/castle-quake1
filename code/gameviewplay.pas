@@ -147,7 +147,13 @@ begin
 
   { Create world simulation }
   if FWorld = nil then
+  begin
     FWorld := TQuakeWorld.Create(FViewport.Items);
+    FWorld.AttachWeaponToCamera(FViewport.Camera);
+    FViewport.Camera.ProjectionNear := 1.0;
+    FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
+    FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
+  end;
 
   { Setup particles parent }
   Particles.SetParent(FViewport.Items);
@@ -321,14 +327,22 @@ begin
   begin
     Val := StrToFloatDef(Param, 0);
     Rad := DegToRad(Val);
-    FViewport.Camera.Direction := Vector3(Cos(Rad), 0, -Sin(Rad));
+    FViewport.Camera.SetWorldView(FViewport.Camera.Translation, Vector3(Cos(Rad), 0, -Sin(Rad)), Vector3(0, 1, 0));
     Inc(FDemoIndex);
   end else
   if Action = 'T' then { Turn }
   begin
     Val := StrToFloatDef(Param, 0);
     Rad := DegToRad(Val);
-    FViewport.Camera.Direction := FViewport.Camera.Direction + Vector3(Cos(Rad), 0, -Sin(Rad));
+    FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
+      RotatePointAroundAxisRad(Rad, FViewport.Camera.Direction, Vector3(0, 1, 0)),
+      Vector3(0, 1, 0));
+    Inc(FDemoIndex);
+  end else
+  if Action = 'M' then { Move along camera direction }
+  begin
+    Val := StrToFloatDef(Param, 50.0);
+    FViewport.Camera.Translation := FViewport.Camera.Translation + FViewport.Camera.Direction * Val;
     Inc(FDemoIndex);
   end else
   if Action = 'C' then { Change weapon }
@@ -385,6 +399,10 @@ begin
   if FWorld <> nil then
   begin
     FWorld.Update(SecondsPassed, FViewport.Camera.Translation, Yaw, Pitch, FHud);
+
+    { Toggle weapon visibility depending on camera mode }
+    if FWorld.WeaponTransform <> nil then
+      FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson);
 
     { Handle level transition }
     if FWorld.LevelExited and (FWorld.NextMap <> '') then

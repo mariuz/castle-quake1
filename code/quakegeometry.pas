@@ -18,6 +18,7 @@ type
     TextureName: String;
     Coords: TVector3List;
     TexCoords: TVector2List;
+    LMTexCoords: TVector2List;
     Normals: TVector3List;
     Indices: TInt32List;
     TexNode: TImageTextureNode;
@@ -32,9 +33,28 @@ type
     IsLiquid: Boolean;
     constructor Create(const ATexName: String);
     destructor Destroy; override;
-    procedure AddPolygon(const Verts: array of TVector3; const UVs: array of TVector2;
+    procedure AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
       const Normal: TVector3);
-    procedure CreateNodes(const MapName: String);
+    { Build X3D nodes. LightmapTex may be nil (then the batch is fullbright). }
+    procedure CreateNodes(const MapName: String; const LightmapTex: TPixelTextureNode);
+  end;
+
+  { Packs per-face Quake lightmaps (style-summed, 8-bit luminance) into one atlas. }
+  TQuakeLightmapAtlas = class
+  private
+    FWidth, FHeight: Integer;
+    FData: array of Byte;
+    FShelfX, FShelfY, FShelfH: Integer;
+    FUsedHeight: Integer;
+  public
+    constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096);
+    { Reserve a W x H block. Returns False if the atlas is full. }
+    function Allocate(const W, H: Integer; out X, Y: Integer): Boolean;
+    procedure SetTexel(const X, Y: Integer; const Value: Byte);
+    { Create final texture node (power-of-two height). Returns nil if nothing was packed. }
+    function CreateTextureNode: TPixelTextureNode;
+    property Width: Integer read FWidth;
+    property Height: Integer read FHeight;
   end;
 
   TQuakeGeomBatchDict = specialize TObjectDictionary<String, TQuakeGeomBatch>;
@@ -125,6 +145,7 @@ begin
   TextureName := ATexName;
   Coords := TVector3List.Create;
   TexCoords := TVector2List.Create;
+  LMTexCoords := TVector2List.Create;
   Normals := TVector3List.Create;
   Indices := TInt32List.Create;
   IsSky := (Pos('sky', LowerCase(ATexName)) = 1);
@@ -135,12 +156,13 @@ destructor TQuakeGeomBatch.Destroy;
 begin
   Coords.Free;
   TexCoords.Free;
+  LMTexCoords.Free;
   Normals.Free;
   Indices.Free;
   inherited Destroy;
 end;
 
-procedure TQuakeGeomBatch.AddPolygon(const Verts: array of TVector3; const UVs: array of TVector2;
+procedure TQuakeGeomBatch.AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
   const Normal: TVector3);
 var
   BaseIdx, I: Integer;
@@ -153,10 +175,11 @@ begin
   begin
     Coords.Add(Verts[I]);
     TexCoords.Add(UVs[I]);
+    LMTexCoords.Add(LMUVs[I]);
     Normals.Add(Normal);
   end;
 
-  { Triangle fan: 0, i, i+1 }
+  { Triangle fan: 0, i, i+1 (Quake winding is clockwise, see Geometry.Ccw) }
   for I := 1 to High(Verts) - 1 do
   begin
     Indices.Add(BaseIdx);
@@ -165,10 +188,14 @@ begin
   end;
 end;
 
-procedure TQuakeGeomBatch.CreateNodes(const MapName: String);
+procedure TQuakeGeomBatch.CreateNodes(const MapName: String; const LightmapTex: TPixelTextureNode);
 var
   TexProps: TTexturePropertiesNode;
   UnlitMat: TUnlitMaterialNode;
+  MultiTex: TMultiTextureNode;
+  MultiCoord: TMultiTextureCoordinateNode;
+  LMCoordNode: TTextureCoordinateNode;
+  UseLightmap: Boolean;
 begin
   if Coords.Count = 0 then
     Exit;
@@ -184,9 +211,12 @@ begin
 
   Geometry := TIndexedTriangleSetNode.Create;
   Geometry.Coord := CoordNode;
-  Geometry.TexCoord := TexCoordNode;
   Geometry.Normal := NormalNode;
   Geometry.SetIndex(Indices);
+  { Quake BSP polygons are wound clockwise when seen from the front.
+    X3D assumes counter-clockwise, so without this the renderer culls the
+    visible side of every wall and you see the map "inside out". }
+  Geometry.Ccw := False;
   Geometry.Solid := not IsLiquid;
   Geometry.NormalPerVertex := False;
 
@@ -203,32 +233,128 @@ begin
   TexNode.RepeatS := True;
   TexNode.RepeatT := True;
   TexNode.TextureProperties := TexProps;
-  Appearance.Texture := TexNode;
 
-  if IsSky then
+  { Quake surfaces are not lit dynamically: the look comes from the baked
+    lightmaps. Use an unlit material and modulate the surface texture by the
+    lightmap (x2 "overbright", like Quake's colormap where mid-light = 100%). }
+  UnlitMat := TUnlitMaterialNode.Create;
+  UnlitMat.EmissiveColor := Vector3(1, 1, 1);
+  Appearance.Material := UnlitMat;
+
+  UseLightmap := (LightmapTex <> nil) and (not IsSky) and (not IsLiquid);
+  if UseLightmap then
   begin
-    { Sky is self-illuminated }
-    UnlitMat := TUnlitMaterialNode.Create;
-    Appearance.Material := UnlitMat;
-    Appearance.AlphaMode := amOpaque;
+    MultiTex := TMultiTextureNode.Create;
+    MultiTex.FdTexture.Add(TexNode);
+    MultiTex.FdTexture.Add(LightmapTex);
+    MultiTex.FdMode.Items.Clear;
+    MultiTex.FdMode.Items.Add('MODULATE');
+    MultiTex.FdMode.Items.Add('MODULATE2X');
+    Appearance.Texture := MultiTex;
+
+    LMCoordNode := TTextureCoordinateNode.Create;
+    LMCoordNode.SetPoint(LMTexCoords);
+    MultiCoord := TMultiTextureCoordinateNode.Create;
+    MultiCoord.FdTexCoord.Add(TexCoordNode);
+    MultiCoord.FdTexCoord.Add(LMCoordNode);
+    Geometry.TexCoord := MultiCoord;
   end else
   begin
-    Material := TMaterialNode.Create;
-    Material.DiffuseColor := Vector3(1, 1, 1);
-    Material.EmissiveColor := Vector3(0.2, 0.2, 0.2);
-    Material.AmbientIntensity := 0.4;
-    Appearance.Material := Material;
-    if IsLiquid then
-    begin
-      Material.Transparency := 0.35;
-      Appearance.AlphaMode := amBlend;
-    end else
-      Appearance.AlphaMode := amOpaque;
+    Appearance.Texture := TexNode;
+    Geometry.TexCoord := TexCoordNode;
   end;
+
+  if IsLiquid then
+  begin
+    UnlitMat.Transparency := 0.35;
+    Appearance.AlphaMode := amBlend;
+  end else
+    Appearance.AlphaMode := amOpaque;
 
   Shape := TShapeNode.Create;
   Shape.Geometry := Geometry;
   Shape.Appearance := Appearance;
+end;
+
+{ TQuakeLightmapAtlas }
+
+constructor TQuakeLightmapAtlas.Create(const AWidth, AMaxHeight: Integer);
+var
+  X, Y: Integer;
+begin
+  inherited Create;
+  FWidth := AWidth;
+  FHeight := AMaxHeight;
+  SetLength(FData, FWidth * FHeight);
+  FillChar(FData[0], Length(FData), 0);
+  { Reserve a 4x4 block at (0,0) filled with 128 (mid-gray = 1.0 with MODULATE2X)
+    so unlit surfaces (sky/liquids/unlit) can safely sample (2,2) without border bleeding. }
+  for Y := 0 to 3 do
+    for X := 0 to 3 do
+      FData[Y * FWidth + X] := 128;
+  FShelfX := 5; { 1 texel padding after the 4x4 block }
+  FShelfY := 0;
+  FShelfH := 4;
+  FUsedHeight := 4;
+end;
+
+function TQuakeLightmapAtlas.Allocate(const W, H: Integer; out X, Y: Integer): Boolean;
+begin
+  Result := False;
+  X := 0;
+  Y := 0;
+  if (W > FWidth) or (W <= 0) or (H <= 0) then
+    Exit;
+  { 1 texel padding to avoid bleeding with linear filtering }
+  if FShelfX + W + 1 > FWidth then
+  begin
+    FShelfY := FShelfY + FShelfH + 1;
+    FShelfX := 0;
+    FShelfH := 0;
+  end;
+  if FShelfY + H > FHeight then
+    Exit;
+  X := FShelfX;
+  Y := FShelfY;
+  FShelfX := FShelfX + W + 1;
+  if H > FShelfH then
+    FShelfH := H;
+  if Y + H > FUsedHeight then
+    FUsedHeight := Y + H;
+  Result := True;
+end;
+
+procedure TQuakeLightmapAtlas.SetTexel(const X, Y: Integer; const Value: Byte);
+begin
+  if (X >= 0) and (X < FWidth) and (Y >= 0) and (Y < FHeight) then
+    FData[Y * FWidth + X] := Value;
+end;
+
+function TQuakeLightmapAtlas.CreateTextureNode: TPixelTextureNode;
+var
+  Img: TGrayscaleImage;
+  Y: Integer;
+  TexProps: TTexturePropertiesNode;
+begin
+  Result := nil;
+  if FUsedHeight = 0 then
+    Exit;
+
+  Img := TGrayscaleImage.Create(FWidth, FHeight);
+  for Y := 0 to FHeight - 1 do
+    Move(FData[Y * FWidth], Img.PixelPtr(0, Y)^, FWidth);
+
+  TexProps := TTexturePropertiesNode.Create;
+  TexProps.MagnificationFilter := magLinear;
+  TexProps.MinificationFilter := minLinear;
+  TexProps.BoundaryModeS := bmClampToEdge;
+  TexProps.BoundaryModeT := bmClampToEdge;
+
+  Result := TPixelTextureNode.Create;
+  Result.FdImage.Value := Img;
+  Result.RepeatS := False;
+  Result.RepeatT := False;
+  Result.TextureProperties := TexProps;
 end;
 
 { TQuakeSubmodel }
@@ -416,6 +542,17 @@ begin
   end;
 end;
 
+function IsInvisibleToolTexture(const AName: String): Boolean;
+var
+  LName: String;
+begin
+  LName := LowerCase(AName);
+  Result := (LName = 'skip') or (LName = 'hint') or (LName = 'hintskip') or
+            (LName = 'trigger') or (LName = 'clip') or (LName = 'origin') or
+            (LName = 'null') or (LName = 'invisible') or
+            (Pos('skip', LName) > 0) or (Pos('hint', LName) > 0);
+end;
+
 procedure TQuakeGeometry.BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
   var OutBatches: TQuakeGeomBatchDict);
 var
@@ -428,63 +565,161 @@ var
   VertCount, V: Integer;
   PolyVerts: array of TVector3;
   PolyUVs: array of TVector2;
+  PolyLMUVs: array of TVector2;
+  FaceS, FaceT: array of Single;
   PolyNormal: TVector3;
   RawVert: TVector3;
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
+  Atlas: TQuakeLightmapAtlas;
+  LightmapTex: TPixelTextureNode;
+  MinS, MaxS, MinT, MaxT: Single;
+  BMinS, BMinT, BMaxS, BMaxT: Integer;
+  SurfW, SurfH, SurfSize: Integer;
+  HasLightmap, AllocOk: Boolean;
+  AtlasX, AtlasY: Integer;
+  SrcPtr: PByte;
+  Row, Col: Integer;
+  SLux, TLux: Single;
+  AtlasW, AtlasH: Integer;
 begin
   if (ModelIdx < 0) or (ModelIdx >= FBsp.ModelCount) then
     Exit;
 
-  Mdl := FBsp.Models[ModelIdx];
-  EndFace := Mdl.FirstFace + Mdl.NumFaces;
-
-  for FaceIdx := Mdl.FirstFace to EndFace - 1 do
+  if ModelIdx = 0 then
   begin
-    Face := FBsp.Faces[FaceIdx];
-    VertCount := Face.NumEdges;
-    if VertCount < 3 then
-      Continue;
-
-    if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
-    begin
-      TexInfo := FBsp.TexInfos[Face.TexInfoId];
-      if (TexInfo.Miptex >= 0) and (TexInfo.Miptex < FBsp.Miptexes.Count) then
-        MipName := FBsp.Miptexes[TexInfo.Miptex].Name
-      else
-        MipName := 'default';
-    end else
-      MipName := 'default';
-
-    if not OutBatches.TryGetValue(MipName, Batch) then
-    begin
-      Batch := TQuakeGeomBatch.Create(MipName);
-      OutBatches.Add(MipName, Batch);
-    end;
-
-    SetLength(PolyVerts, VertCount);
-    SetLength(PolyUVs, VertCount);
-    PolyNormal := QuakeToCge(FBsp.GetFaceNormal(FaceIdx));
-
-    for V := 0 to VertCount - 1 do
-    begin
-      RawVert := FBsp.GetFaceVertex(FaceIdx, V);
-      PolyVerts[V] := QuakeToCge(RawVert);
-      PolyUVs[V] := FBsp.GetFaceTexCoord(RawVert, Face.TexInfoId);
-    end;
-
-    Batch.AddPolygon(PolyVerts, PolyUVs, PolyNormal);
+    AtlasW := 2048;
+    AtlasH := 2048;
+  end else
+  begin
+    AtlasW := 512;
+    AtlasH := 512;
   end;
 
-  for BatchPair in OutBatches do
-  begin
-    Batch := BatchPair.Value;
-    Batch.CreateNodes(FBsp.MapName);
-    if Batch.Shape <> nil then
+  Atlas := TQuakeLightmapAtlas.Create(AtlasW, AtlasH);
+  try
+    Mdl := FBsp.Models[ModelIdx];
+    EndFace := Mdl.FirstFace + Mdl.NumFaces;
+
+    for FaceIdx := Mdl.FirstFace to EndFace - 1 do
     begin
-      RootNode.AddChildren(Batch.Shape);
-      if Batch.TexNode <> nil then
-        RegisterAnimNode(Batch.TextureName, Batch.TexNode);
+      Face := FBsp.Faces[FaceIdx];
+      VertCount := Face.NumEdges;
+      if VertCount < 3 then
+        Continue;
+
+      if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
+      begin
+        TexInfo := FBsp.TexInfos[Face.TexInfoId];
+        if (TexInfo.Miptex >= 0) and (TexInfo.Miptex < FBsp.Miptexes.Count) then
+          MipName := FBsp.Miptexes[TexInfo.Miptex].Name
+        else
+          MipName := 'default';
+      end else
+        MipName := 'default';
+
+      if IsInvisibleToolTexture(MipName) then
+        Continue;
+
+      if not OutBatches.TryGetValue(MipName, Batch) then
+      begin
+        Batch := TQuakeGeomBatch.Create(MipName);
+        OutBatches.Add(MipName, Batch);
+      end;
+
+      SetLength(PolyVerts, VertCount);
+      SetLength(PolyUVs, VertCount);
+      SetLength(PolyLMUVs, VertCount);
+      SetLength(FaceS, VertCount);
+      SetLength(FaceT, VertCount);
+
+      PolyNormal := QuakeToCge(FBsp.GetFaceNormal(FaceIdx));
+
+      MinS := 1e30; MaxS := -1e30;
+      MinT := 1e30; MaxT := -1e30;
+
+      for V := 0 to VertCount - 1 do
+      begin
+        RawVert := FBsp.GetFaceVertex(FaceIdx, V);
+        PolyVerts[V] := QuakeToCge(RawVert);
+        PolyUVs[V] := FBsp.GetFaceTexCoord(RawVert, Face.TexInfoId);
+
+        if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
+        begin
+          FaceS[V] := RawVert[0] * TexInfo.VecS[0] + RawVert[1] * TexInfo.VecS[1] +
+                      RawVert[2] * TexInfo.VecS[2] + TexInfo.VecS[3];
+          FaceT[V] := RawVert[0] * TexInfo.VecT[0] + RawVert[1] * TexInfo.VecT[1] +
+                      RawVert[2] * TexInfo.VecT[2] + TexInfo.VecT[3];
+        end else
+        begin
+          FaceS[V] := 0;
+          FaceT[V] := 0;
+        end;
+
+        if FaceS[V] < MinS then MinS := FaceS[V];
+        if FaceS[V] > MaxS then MaxS := FaceS[V];
+        if FaceT[V] < MinT then MinT := FaceT[V];
+        if FaceT[V] > MaxT then MaxT := FaceT[V];
+      end;
+
+      BMinS := Floor(MinS / 16.0);
+      BMinT := Floor(MinT / 16.0);
+      BMaxS := Ceil(MaxS / 16.0);
+      BMaxT := Ceil(MaxT / 16.0);
+      SurfW := (BMaxS - BMinS) + 1;
+      SurfH := (BMaxT - BMinT) + 1;
+      SurfSize := SurfW * SurfH;
+
+      HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and
+                     (SurfW > 0) and (SurfH > 0) and (SurfW <= 256) and (SurfH <= 256) and
+                     (Face.LightmapOffset + SurfSize <= LongInt(FBsp.LightmapsSize)) and
+                     (not Batch.IsSky) and (not Batch.IsLiquid);
+
+      AllocOk := False;
+      if HasLightmap then
+      begin
+        AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
+        if AllocOk then
+        begin
+          SrcPtr := FBsp.Lightmaps + Face.LightmapOffset;
+          for Row := 0 to SurfH - 1 do
+            for Col := 0 to SurfW - 1 do
+              Atlas.SetTexel(AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
+
+          for V := 0 to VertCount - 1 do
+          begin
+            SLux := (FaceS[V] - BMinS * 16.0) / 16.0;
+            TLux := (FaceT[V] - BMinT * 16.0) / 16.0;
+            PolyLMUVs[V] := Vector2(
+              (AtlasX + SLux + 0.5) / Atlas.Width,
+              (AtlasY + TLux + 0.5) / Atlas.Height
+            );
+          end;
+        end;
+      end;
+
+      if not AllocOk then
+      begin
+        for V := 0 to VertCount - 1 do
+          PolyLMUVs[V] := Vector2(2.0 / Atlas.Width, 2.0 / Atlas.Height);
+      end;
+
+      Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal);
     end;
+
+    LightmapTex := Atlas.CreateTextureNode;
+    for BatchPair in OutBatches do
+    begin
+      Batch := BatchPair.Value;
+      Batch.CreateNodes(FBsp.MapName, LightmapTex);
+      if Batch.Shape <> nil then
+      begin
+        RootNode.AddChildren(Batch.Shape);
+        if Batch.TexNode <> nil then
+          RegisterAnimNode(Batch.TextureName, Batch.TexNode);
+      end;
+    end;
+  finally
+    Atlas.Free;
   end;
 end;
 

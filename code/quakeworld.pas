@@ -66,6 +66,9 @@ type
     { Cheat: toggle god mode }
     procedure CheatGodMode(const Hud: TQuakeHud);
 
+    { Attach viewmodel weapon directly to camera }
+    procedure AttachWeaponToCamera(const Camera: TCastleTransform);
+
     property Stats: TQuakePlayerStats read FPlayerStats write FPlayerStats;
     property SpawnPoint: TVector3 read FSpawnPoint;
     property SpawnAngle: Single read FSpawnAngle;
@@ -92,7 +95,6 @@ begin
 
   FWeaponTransform := TCastleTransform.Create(nil);
   FWeaponScene := nil;
-  FRootTransform.Add(FWeaponTransform);
 
   { Default starting player stats }
   FillChar(FPlayerStats, SizeOf(FPlayerStats), 0);
@@ -120,6 +122,12 @@ end;
 
 destructor TQuakeWorld.Destroy;
 begin
+  if FWeaponTransform <> nil then
+  begin
+    if FWeaponTransform.Parent <> nil then
+      FWeaponTransform.Parent.Remove(FWeaponTransform);
+    FreeAndNil(FWeaponTransform);
+  end;
   FPickups.Free;
   FMonsters.Free;
   FProjectiles.Free;
@@ -127,6 +135,18 @@ begin
   FreeAndNil(FGeometry);
   FreeAndNil(FBsp);
   inherited Destroy;
+end;
+
+procedure TQuakeWorld.AttachWeaponToCamera(const Camera: TCastleTransform);
+begin
+  if (FWeaponTransform <> nil) and (Camera <> nil) then
+  begin
+    if FWeaponTransform.Parent <> nil then
+      FWeaponTransform.Parent.Remove(FWeaponTransform);
+    Camera.Add(FWeaponTransform);
+    FWeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
+    FWeaponTransform.Translation := Vector3(0, 0, 0);
+  end;
 end;
 
 procedure TQuakeWorld.UpdateWeaponModel;
@@ -598,8 +618,16 @@ begin
   { Update first-person weapon model position }
   if FWeaponTransform <> nil then
   begin
-    FWeaponTransform.Translation := FPlayerPos + Vector3(0, -6 - FWeaponRecoil * 3.0, 0);
-    FWeaponTransform.Rotation := Vector4(0, 1, 0, DegToRad(FPlayerFacing));
+    if FWeaponTransform.Parent <> nil then
+    begin
+      { In camera space: apply firing recoil kickback along +Z and downward along -Y }
+      FWeaponTransform.Translation := Vector3(0, -FWeaponRecoil * 1.5, FWeaponRecoil * 2.5);
+      FWeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
+    end else
+    begin
+      FWeaponTransform.Translation := FPlayerPos + Vector3(0, -6 - FWeaponRecoil * 3.0, 0);
+      FWeaponTransform.Rotation := Vector4(0, 1, 0, DegToRad(FPlayerFacing));
+    end;
   end;
 
   { Update HUD }

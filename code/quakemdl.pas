@@ -332,7 +332,7 @@ var
   CoordNode: TCoordinateNode;
   TexCoordNode: TTextureCoordinateNode;
   App: TAppearanceNode;
-  Mat: TMaterialNode;
+  UnlitMat: TUnlitMaterialNode;
   TexNode: TImageTextureNode;
   TexProps: TTexturePropertiesNode;
   SkinId: String;
@@ -357,10 +357,9 @@ begin
   Geom.Solid := False; { two-sided for weapons and cape ribbons }
 
   App := TAppearanceNode.Create;
-  Mat := TMaterialNode.Create;
-  Mat.DiffuseColor := Vector3(1, 1, 1);
-  Mat.AmbientIntensity := 0.3;
-  App.Material := Mat;
+  UnlitMat := TUnlitMaterialNode.Create;
+  UnlitMat.EmissiveColor := Vector3(1, 1, 1);
+  App.Material := UnlitMat;
 
   if (SkinIndex >= 0) and (SkinIndex < FSkinImageIds.Count) then
     SkinId := FSkinImageIds[SkinIndex]
