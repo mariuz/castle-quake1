@@ -37,6 +37,7 @@ type
     PickupSound: String;
     Target: String; { fired on pickup (SUB_UseTargets) }
     SpawnFlags: Integer; { item_sigil: episode rune bit }
+    ModelPath: String;
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeItemKind;
       const Pos: TVector3; const MdlPath: String; const SkinIdx: Integer = 0);
     destructor Destroy; override;
@@ -62,6 +63,7 @@ type
     OnGround: Boolean;   { grenade resting on the floor }
     TrailTimer: Single;
     Spin: Single;        { grenade tumbling angle }
+    ModelPath: String;
     Owner: TObject;      { monster that fired it, nil for the player }
     HomeTimer: Single;   { vore pods steer towards the player }
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeProjectileKind;
@@ -86,6 +88,7 @@ type
     Life: Single;       { removed when it runs out; heads stay (Life < 0) }
     OnGround: Boolean;
     TrailTimer: Single;
+    ModelPath: String;
     constructor Create(const Parent: TCastleTransform; const MdlPath: String;
       const AOrigin, AVelocity: TVector3; const ALife: Single);
     destructor Destroy; override;
@@ -127,6 +130,7 @@ var
   Mdl: TQuakeMdl;
 begin
   inherited Create;
+  ModelPath := MdlPath;
   Kind := AKind;
   Origin := Pos;
   RotationAngle := Random * 360.0;
@@ -360,6 +364,7 @@ begin
   end;
 
   Transform := TCastleTransform.Create(nil);
+  ModelPath := MdlPath;
   Mdl := MdlManager.GetModel(MdlPath);
   if Mdl <> nil then
   begin
@@ -408,6 +413,7 @@ var
   Mdl: TQuakeMdl;
 begin
   inherited Create;
+  ModelPath := MdlPath;
   Origin := AOrigin;
   Velocity := AVelocity;
   Life := ALife;

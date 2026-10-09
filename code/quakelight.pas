@@ -54,6 +54,10 @@ type
 
     { Get current intensity multiplier for a lightstyle (0.0 .. 2.0) }
     function GetStyleMultiplier(const Style: Integer): Single;
+    { Replace a lightstyle pattern (svc_lightstyle); '' restores the default }
+    procedure SetStyle(const Style: Integer; const Pattern: String);
+    { The standard patterns again (after a demo changed them) }
+    procedure ResetStyles;
 
     { Clear all dynamic lights }
     procedure Clear;
@@ -151,6 +155,35 @@ begin
   Ch := Pat[Frame + 1];
   { 'a' is 0.0, 'm' is 1.0, 'z' is 2.0 }
   Result := (Ord(Ch) - Ord('a')) / (Ord('m') - Ord('a'));
+end;
+
+procedure TQuakeLighting.SetStyle(const Style: Integer; const Pattern: String);
+begin
+  if (Style < 0) or (Style > High(FStylePatterns)) then
+    Exit;
+  if Pattern = '' then
+    FStylePatterns[Style] := 'm'
+  else
+    FStylePatterns[Style] := Pattern;
+  FStyleFrames[Style] := 0;
+end;
+
+procedure TQuakeLighting.ResetStyles;
+const
+  Standard: array[0..12] of String = ('m', 'mmnmmommommnonmmonqnmmo',
+    'abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba', 'mmmmmaaaaammmmmaaaaaabcdefgabcdefg',
+    'mamamamamama', 'jklmnopqrstuvwxyzyxwvutsrqponmlkj', 'nmonqnmomnmomomno',
+    'mmmaaaabcdefgmmmmaaaammmaamm', 'mmmaaammmaaammmabcdefaaaammmmabcdefmmmaaaa',
+    'aaaaacdefgabcdefg', 'mmamammmmammamamaaamamm', 'abcdefghijklmnopqrsrqponmlkjihgfedcba', 'a');
+var
+  I: Integer;
+begin
+  for I := 0 to High(FStylePatterns) do
+    if I <= High(Standard) then
+      FStylePatterns[I] := Standard[I]
+    else
+      FStylePatterns[I] := '';
+  FillChar(FStyleFrames, SizeOf(FStyleFrames), 0);
 end;
 
 procedure TQuakeLighting.CreateLightsFromBsp(const Bsp: TQuakeBsp; const Parent: TCastleTransform);

@@ -41,6 +41,9 @@ type
     FParticles: TQuakeParticleList;
     FParent: TCastleTransform;
   public
+    { Demo recording: effects worth a temp entity (Kind: 'explosion',
+      'teleport', 'puff', 'blood'); Pos and Normal are CGE coordinates }
+    OnEffect: procedure(const Kind: String; const Pos, Normal: TVector3) of object;
     constructor Create;
     destructor Destroy; override;
 
@@ -251,6 +254,8 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  if Assigned(OnEffect) then
+    OnEffect('blood', Pos, Normal);
   if FParent = nil then
     Exit;
 
@@ -270,6 +275,8 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  if Assigned(OnEffect) then
+    OnEffect('explosion', Pos, TVector3.Zero);
   if FParent = nil then
     Exit;
 
@@ -294,6 +301,8 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  if Assigned(OnEffect) then
+    OnEffect('teleport', Pos, TVector3.Zero);
   if FParent = nil then
     Exit;
 
@@ -355,6 +364,8 @@ procedure TQuakeParticleManager.SpawnPuff(const Pos, Normal: TVector3);
 var
   I: Integer;
 begin
+  if Assigned(OnEffect) then
+    OnEffect('puff', Pos, Normal);
   if FParent = nil then
     Exit;
   for I := 1 to 3 do

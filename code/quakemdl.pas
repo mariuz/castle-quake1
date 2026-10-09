@@ -48,6 +48,7 @@ type
   private
     FModelName: String;
     FNumSkins: Integer;
+    FFlags: Cardinal;
     FSkinWidth: Integer;
     FSkinHeight: Integer;
     FNumVerts: Integer;
@@ -87,6 +88,8 @@ type
     property FrameCount: Integer read GetFrameCount;
     property Frames: TMdlFrameList read FFrames;
     property SkinCount: Integer read FNumSkins;
+    { EF_ROCKET, EF_GRENADE, EF_GIB, EF_ROTATE... from the header }
+    property Flags: Cardinal read FFlags;
   end;
 
   { Plays a TMdlSequence on one scene, interpolating between keyframes
@@ -238,6 +241,7 @@ begin
   end;
 
   FNumSkins := Hdr.NumSkins;
+  FFlags := Hdr.Flags;
   FSkinWidth := Hdr.SkinWidth;
   FSkinHeight := Hdr.SkinHeight;
   FNumVerts := Hdr.NumVerts;

@@ -513,6 +513,14 @@ begin
     FDemoFireTime := StrToFloatDef(Param, 1.0);
     Inc(FDemoIndex);
   end else
+  if Action = 'R' then { Record a demo (R:name), or stop it (R) }
+  begin
+    if Param = '' then
+      FWorld.StopRecording
+    else
+      FWorld.StartRecording('castle-config:/' + Param + '.dem');
+    Inc(FDemoIndex);
+  end else
   if Action = 'O' then { Save game to a slot }
   begin
     SaveGameSlot(Param);
@@ -801,6 +809,24 @@ begin
     else
       LoadGameSlot('quick');
   end else
+  if Cmd = 'record' then
+  begin
+    if Args = '' then
+      FConsole.Print('Usage: record <name>')
+    else if FWorld.StartRecording('castle-config:/' + Args + '.dem') then
+      FConsole.Print('Recording to ' + Args + '.dem')
+    else
+      FConsole.Print('Cannot record now');
+  end else
+  if Cmd = 'stop' then
+  begin
+    if FWorld.Recording then
+    begin
+      FWorld.StopRecording;
+      FConsole.Print('Recording stopped');
+    end else
+      FConsole.Print('Not recording');
+  end else
   if Cmd = 'skill' then
   begin
     { Like Quake: takes effect on the next map }
@@ -833,6 +859,7 @@ begin
     FConsole.Print('Commands:');
     FConsole.Print('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)');
     FConsole.Print('  skill <0..3>   - Skill for the next map');
+    FConsole.Print('  record <name>  - Record a demo to <name>.dem, stop ends it');
     FConsole.Print('  save [slot]    - Save the game (F6 = quick)');
     FConsole.Print('  load [slot]    - Load a saved game (F9 = quick)');
     FConsole.Print('  god            - God mode');
