@@ -101,6 +101,7 @@ castle-engine compile --mode=release
 .\castle-quake1.exe -warp e1m1                     # Jump directly to E1M1
 .\castle-quake1.exe -warp start                    # Jump to hub map
 .\castle-quake1.exe -pak custom.pak                # Load additional PAK file
+.\castle-quake1.exe -game quake -warp start        # Original Quake hub with episode portals
 .\castle-quake1.exe --autotest start test_shot     # Headless test and screenshot
 ```
 

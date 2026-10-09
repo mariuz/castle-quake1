@@ -27,14 +27,22 @@ type
     FStreams: specialize TList<TMemoryStream>;
     FFilenames: TStringList;
     FEntries: TQuakePakEntryList;
+    { Entries replaced by a later pak, kept so original maps stay reachable }
+    FShadowed: TQuakePakEntryList;
+    FOriginal: specialize TList<Boolean>;
     FProtocolRegistered: Boolean;
+    FPreferOriginalMaps: Boolean;
     function FindEntryIndex(const APath: String): Integer;
+    function FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
 
     { Add a PAK archive from file or castle-data URL. Returns true if successful. }
-    function AddFile(const AUrlOrFilename: String): Boolean;
+    function AddFile(const AUrlOrFilename: String; const Original: Boolean = False): Boolean;
+
+    { An original Quake pak (id1, shareware) provides this file }
+    function OriginalFileExists(const APath: String): Boolean;
 
     { Check if a file exists in any loaded PAK. }
     function FileExists(const APath: String): Boolean;
@@ -55,6 +63,9 @@ type
 
     property Entries: TQuakePakEntryList read FEntries;
     property FileCount: Integer read GetFileCount;
+    { Load maps/ from the original Quake paks even when a later pak (the
+      bundled LibreQuake start map) replaces them: the id1 episode hub }
+    property PreferOriginalMaps: Boolean read FPreferOriginalMaps write FPreferOriginalMaps;
   end;
 
 var
@@ -95,6 +106,8 @@ begin
   FStreams := specialize TList<TMemoryStream>.Create;
   FFilenames := TStringList.Create;
   FEntries := TQuakePakEntryList.Create;
+  FShadowed := TQuakePakEntryList.Create;
+  FOriginal := specialize TList<Boolean>.Create;
   FProtocolRegistered := False;
 end;
 
@@ -109,6 +122,8 @@ begin
   FStreams.Free;
   FFilenames.Free;
   FEntries.Free;
+  FShadowed.Free;
+  FOriginal.Free;
   inherited Destroy;
 end;
 
@@ -117,7 +132,7 @@ begin
   Result := FEntries.Count;
 end;
 
-function TQuakePak.AddFile(const AUrlOrFilename: String): Boolean;
+function TQuakePak.AddFile(const AUrlOrFilename: String; const Original: Boolean): Boolean;
 var
   InStream: TStream;
   MemStream: TMemoryStream;
@@ -175,6 +190,7 @@ begin
   PakIdx := FStreams.Count;
   FStreams.Add(MemStream);
   FFilenames.Add(AUrlOrFilename);
+  FOriginal.Add(Original);
 
   MemStream.Position := Header.DirOffset;
   for I := 0 to Count - 1 do
@@ -189,8 +205,10 @@ begin
     Entry.PakIndex := PakIdx;
 
     if ExistingIndex >= 0 then
-      FEntries[ExistingIndex] := Entry
-    else
+    begin
+      FShadowed.Add(FEntries[ExistingIndex]);
+      FEntries[ExistingIndex] := Entry;
+    end else
       FEntries.Add(Entry);
   end;
 
@@ -211,23 +229,58 @@ begin
   Result := -1;
 end;
 
+function TQuakePak.FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
+var
+  Idx, I: Integer;
+  Target: String;
+begin
+  Idx := FindEntryIndex(APath);
+  Result := Idx >= 0;
+  if not Result then
+    Exit;
+  Entry := FEntries[Idx];
+  if not FPreferOriginalMaps or FOriginal[Entry.PakIndex] or (Pos('maps/', Entry.Path) <> 1) then
+    Exit;
+  Target := Entry.Path;
+  for I := FShadowed.Count - 1 downto 0 do
+    if (FShadowed[I].Path = Target) and FOriginal[FShadowed[I].PakIndex] then
+    begin
+      Entry := FShadowed[I];
+      Exit;
+    end;
+end;
+
 function TQuakePak.FileExists(const APath: String): Boolean;
 begin
   Result := FindEntryIndex(APath) >= 0;
 end;
 
+function TQuakePak.OriginalFileExists(const APath: String): Boolean;
+var
+  Idx, I: Integer;
+  Target: String;
+begin
+  Idx := FindEntryIndex(APath);
+  if Idx < 0 then
+    Exit(False);
+  if FOriginal[FEntries[Idx].PakIndex] then
+    Exit(True);
+  Target := FEntries[Idx].Path;
+  for I := 0 to FShadowed.Count - 1 do
+    if (FShadowed[I].Path = Target) and FOriginal[FShadowed[I].PakIndex] then
+      Exit(True);
+  Result := False;
+end;
+
 function TQuakePak.GetStream(const APath: String): TMemoryStream;
 var
-  Idx: Integer;
   Entry: TQuakePakEntry;
   Src: TMemoryStream;
 begin
   Result := nil;
-  Idx := FindEntryIndex(APath);
-  if Idx < 0 then
+  if not FindEntry(APath, Entry) then
     Exit;
 
-  Entry := FEntries[Idx];
   Src := FStreams[Entry.PakIndex];
   if Entry.Offset + Entry.Size > Cardinal(Src.Size) then
   begin
@@ -243,17 +296,14 @@ end;
 
 function TQuakePak.GetData(const APath: String; out ASize: Cardinal): Pointer;
 var
-  Idx: Integer;
   Entry: TQuakePakEntry;
   Src: TMemoryStream;
 begin
   ASize := 0;
   Result := nil;
-  Idx := FindEntryIndex(APath);
-  if Idx < 0 then
+  if not FindEntry(APath, Entry) then
     Exit;
 
-  Entry := FEntries[Idx];
   Src := FStreams[Entry.PakIndex];
   if Entry.Offset + Entry.Size > Cardinal(Src.Size) then
     Exit;

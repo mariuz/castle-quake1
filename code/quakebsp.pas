@@ -182,6 +182,17 @@ type
 
   TQuakeEntityList = specialize TObjectList<TQuakeEntity>;
 
+const
+  SPAWNFLAG_NOT_EASY = 256;
+  SPAWNFLAG_NOT_MEDIUM = 512;
+  SPAWNFLAG_NOT_HARD = 1024;
+
+{ ED_LoadFromFile: the entity is removed in single player at this skill
+  (0 easy, 1 normal, 2 hard, 3 nightmare) }
+function EntityNotInSkill(const Ent: TQuakeEntity; const Skill: Integer): Boolean;
+
+type
+
   TBSPPlaneArray = array of TBSPPlane;
   TVector3Array = array of TVector3;
   TBSPEdgeArray = array of TBSPEdge;
@@ -289,6 +300,18 @@ type
   end;
 
 implementation
+
+function EntityNotInSkill(const Ent: TQuakeEntity; const Skill: Integer): Boolean;
+var
+  Flags: Integer;
+begin
+  Flags := Ent.SpawnFlags;
+  case Skill of
+    0: Result := (Flags and SPAWNFLAG_NOT_EASY) <> 0;
+    1: Result := (Flags and SPAWNFLAG_NOT_MEDIUM) <> 0;
+    else Result := (Flags and SPAWNFLAG_NOT_HARD) <> 0;
+  end;
+end;
 
 { TQuakeEntity }
 

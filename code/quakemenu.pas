@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
-  CastleRectangles, CastleGLUtils, CastleImages, QuakeSound;
+  CastleRectangles, CastleGLUtils, CastleImages, QuakeSound, QuakePak;
 
 type
   TMenuAction = (
@@ -74,6 +74,15 @@ begin
         FItems.Add('CGE Features Showcase');
         FItems.Add('Quit');
       end;
+    smEpisodes:
+      begin
+        { The id1 hub (episode and skill portals) when an original Quake pak
+          provides it, and the bundled LibreQuake hub }
+        if Pak.OriginalFileExists('maps/start.bsp') then
+          FItems.Add('Quake: Episode Hub');
+        FItems.Add('LibreQuake: Episode Hub');
+        FItems.Add('Back to Main Menu');
+      end;
     smMaps:
       begin
         FItems.Add('maps/start.bsp');
@@ -115,11 +124,26 @@ begin
   case FSubMenu of
     smMain:
       case FSelectedIdx of
-        0: if Assigned(FOnMenuAction) then FOnMenuAction(maNewGame, 'start');
+        0: begin FSubMenu := smEpisodes; RebuildMenuItems; end;
         1: begin FSubMenu := smMaps; RebuildMenuItems; end;
         2: begin FSubMenu := smOptions; RebuildMenuItems; end;
         3: begin FSubMenu := smShowcase; RebuildMenuItems; end;
         4: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+      end;
+    smEpisodes:
+      begin
+        if ItemText = 'Back to Main Menu' then
+        begin
+          FSubMenu := smMain;
+          RebuildMenuItems;
+        end else
+        if Assigned(FOnMenuAction) then
+        begin
+          if ItemText = 'Quake: Episode Hub' then
+            FOnMenuAction(maNewGame, 'quake')
+          else
+            FOnMenuAction(maNewGame, 'librequake');
+        end;
       end;
     smMaps:
       begin

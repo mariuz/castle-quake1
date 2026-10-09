@@ -19,6 +19,7 @@ var
   AutoTestDemo: String;
   CmdWarp: String;
   CmdPaks: TStringList;
+  CmdGame: String;
 
 procedure ApplicationInitialize;
 
@@ -49,6 +50,11 @@ begin
       CmdWarp := Parameters[I + 1];
       Inc(I);
     end else
+    if ((Parameters[I] = '-game') or (Parameters[I] = '--game')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdGame := LowerCase(Parameters[I + 1]);
+      Inc(I);
+    end else
     if ((Parameters[I] = '-pak') or (Parameters[I] = '--pak')) and (I + 1 <= Parameters.High) then
     begin
       CmdPaks.Add(Parameters[I + 1]);
@@ -70,19 +76,21 @@ begin
 
   { Load custom user paks if specified }
   for I := 0 to CmdPaks.Count - 1 do
-    if Pak.AddFile(CmdPaks[I]) then
+    if Pak.AddFile(CmdPaks[I], True) then
       LoadedAny := True;
 
   { Auto-detect bundled or local PAK files }
   if FileExists('id1/pak0.pak') then
   begin
-    Pak.AddFile('id1/pak0.pak');
+    Pak.AddFile('id1/pak0.pak', True);
     LoadedAny := True;
   end;
+  if FileExists('id1/pak1.pak') then
+    Pak.AddFile('id1/pak1.pak', True);
 
   if FileExists('data/paks/quake1_demo.pak') then
   begin
-    Pak.AddFile('castle-data:/paks/quake1_demo.pak');
+    Pak.AddFile('castle-data:/paks/quake1_demo.pak', True);
     LoadedAny := True;
   end;
 
@@ -97,6 +105,10 @@ begin
     Pak.AddFile('castle-data:/paks/pak1.pak');
     LoadedAny := True;
   end;
+
+  { -game quake: the id1 start map and its episode portals instead of the
+    bundled LibreQuake hub }
+  Pak.PreferOriginalMaps := (CmdGame = 'quake') or (CmdGame = 'id1');
 
   if not LoadedAny then
     WritelnWarning('GameInitialize', 'No PAK archives found! Check data/paks/ or pass -pak <file>');

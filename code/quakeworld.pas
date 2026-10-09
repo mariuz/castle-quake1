@@ -10,7 +10,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors, CastleQuaternions,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
-  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters;
+  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters, QuakePak;
 
 type
   { World simulation manager }
@@ -67,6 +67,14 @@ type
     FLightningEvents: TStringList; { targetnames of event_lightning entities }
     FLightningEnd: Single;
     FShowHostile: Single;       { monsters notice the player behind them until then }
+    { Game state kept across levels }
+    FSkill: Integer;            { 0 easy, 1 normal, 2 hard, 3 nightmare }
+    FServerFlags: Integer;      { episode runes collected (bits 1, 2, 4, 8) }
+    { parm1..parm16: the player as they entered the level, restored on death }
+    FLevelStartStats: TQuakePlayerStats;
+    FLevelStartServerFlags: Integer;
+    FLevelStartValid: Boolean;
+    FViewForward: TVector3;     { horizontal view direction, Quake coordinates }
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
@@ -128,6 +136,11 @@ type
     procedure ResetPlayerStats;
     procedure CheckPickups(const Hud: TQuakeHud);
     procedure CheckTriggers;
+    { SetChangeParms: what the player keeps when leaving a level }
+    procedure SetChangeParms;
+    { func_episodegate / func_bossgate follow the collected runes }
+    procedure ApplyEpisodeGates;
+    function IsStartMap: Boolean;
   public
     constructor Create(const ARoot: TCastleTransform);
     destructor Destroy; override;
@@ -174,6 +187,9 @@ type
     { Restore starting health, weapons and ammo (after death) }
     procedure RespawnPlayer;
 
+    { New game: starting inventory, normal skill, no runes }
+    procedure NewGame;
+
     { Contents (CONTENTS_xxx) at a point in CGE coordinates, CONTENTS_EMPTY without a map }
     function PointContents(const P: TVector3): Integer;
 
@@ -188,6 +204,8 @@ type
     property Physics: TQuakePlayerPhysics read FPhys;
     property GodMode: Boolean read FGodMode;
     property NextMap: String read FNextMap;
+    property Skill: Integer read FSkill write FSkill;
+    property ServerFlags: Integer read FServerFlags write FServerFlags;
     property Monsters: TQuakeMonsterList read FMonsters;
     property Pickups: TQuakePickupList read FPickups;
     property WeaponTransform: TCastleTransform read FWeaponTransform;
@@ -338,6 +356,7 @@ begin
   FNextMap := '';
   FSpawnPoint := Vector3(0, 40, 0);
   FSpawnAngle := 0;
+  FSkill := 1;
 end;
 
 procedure TQuakeWorld.ResetPlayerStats;
@@ -356,14 +375,62 @@ begin
   FPlayerStats.AmmoType := 0;
   FPlayerStats.WeaponMask := (1 shl 1) or (1 shl 2); { Axe and Shotgun }
   FPlayerStats.CurrentWeapon := 2;
-  FWeaponModelName := 'progs/v_shot.mdl';
   FPlayerDead := False;
 end;
 
 procedure TQuakeWorld.RespawnPlayer;
 begin
-  ResetPlayerStats;
+  { The single player "restart": the level starts over with the player as
+    they entered it }
+  if FLevelStartValid then
+  begin
+    FPlayerStats := FLevelStartStats;
+    FServerFlags := FLevelStartServerFlags;
+    FPlayerDead := False;
+  end else
+    ResetPlayerStats;
   UpdateWeaponModel;
+end;
+
+procedure TQuakeWorld.NewGame;
+begin
+  ResetPlayerStats;
+  FSkill := 1;
+  FServerFlags := 0;
+  FLevelStartValid := False;
+  UpdateWeaponModel;
+end;
+
+procedure TQuakeWorld.SetChangeParms;
+begin
+  if FPlayerStats.Health <= 0 then
+  begin
+    ResetPlayerStats;
+    Exit;
+  end;
+  { Keys and powerups stay behind; health is brought to 50 .. 100 }
+  FPlayerStats.Keys := 0;
+  FPlayerStats.BiosuitTime := 0;
+  FPlayerStats.Health := EnsureRange(FPlayerStats.Health, 50, 100);
+end;
+
+function TQuakeWorld.IsStartMap: Boolean;
+begin
+  Result := (FBsp <> nil) and SameText(FBsp.MapName, 'start');
+end;
+
+procedure TQuakeWorld.ApplyEpisodeGates;
+var
+  Sub: TQuakeSubmodel;
+begin
+  { func_episodegate closes the portal of a completed episode;
+    func_bossgate opens once all four runes are collected }
+  for Sub in FGeometry.Submodels do
+    if Sub.EntityClassName = 'func_episodegate' then
+      Sub.Transform.Exists := (FServerFlags and Sub.SpawnFlags and 15) <> 0
+    else
+    if Sub.EntityClassName = 'func_bossgate' then
+      Sub.Transform.Exists := (FServerFlags and 15) <> 15;
 end;
 
 function TQuakeWorld.PointContents(const P: TVector3): Integer;
@@ -809,7 +876,7 @@ function SubmodelIsSolid(const Sub: TQuakeSubmodel): Boolean;
 begin
   { Triggers and illusionary walls are SOLID_NOT }
   Result := (Pos('trigger_', Sub.EntityClassName) <> 1) and
-    (Sub.EntityClassName <> 'func_illusionary');
+    (Sub.EntityClassName <> 'func_illusionary') and Sub.Transform.Exists;
 end;
 
 function TQuakeWorld.SubmodelBounds(const Sub: TQuakeSubmodel; out AMins, AMaxs: TVector3): Boolean;
@@ -1055,6 +1122,10 @@ begin
   Yaw := RadToDeg(ArcTan2(Q.Y, Q.X));
   Pitch := -RadToDeg(ArcSin(EnsureRange(Q.Z, -1, 1)));
 
+  FViewForward := Vector3(Q.X, Q.Y, 0);
+  if not FViewForward.IsPerfectlyZero then
+    FViewForward := FViewForward.Normalize;
+
   UseCmd := Cmd;
   if FPlayerDead then
     FillChar(UseCmd, SizeOf(UseCmd), 0);
@@ -1214,9 +1285,6 @@ begin
   end;
 end;
 
-const
-  SpawnFlagNotMedium = 512;
-
 procedure TQuakeWorld.SpawnEntities;
 var
   I: Integer;
@@ -1231,7 +1299,13 @@ var
   MdlIdx: Integer;
   Def: TMonsterDef;
   PickupsBefore: Integer;
+  HasStart2: Boolean;
+  Start2Origin: TVector3;
+  Start2Angle: Single;
 begin
+  HasStart2 := False;
+  Start2Origin := TVector3.Zero;
+  Start2Angle := 0;
   FPickups.Clear;
   FMonsters.Clear;
   FLightningEvents.Clear;
@@ -1242,9 +1316,8 @@ begin
   begin
     Ent := FBsp.Entities[I];
     CName := LowerCase(Ent.ClassName);
-    { ED_LoadFromFile: skip entities not meant for the current skill
-      (skill 1, "normal": SPAWNFLAG_NOT_MEDIUM) }
-    if (Ent.SpawnFlags and SpawnFlagNotMedium) <> 0 then
+    { ED_LoadFromFile: skip entities not meant for the current skill }
+    if EntityNotInSkill(Ent, FSkill) then
       Continue;
     PickupsBefore := FPickups.Count;
     Pos := QuakeToCge(Ent.Origin);
@@ -1256,6 +1329,13 @@ begin
       FSpawnOrigin := Ent.Origin;
       FSpawnPoint := QuakeToCge(Ent.Origin + Vector3(0, 0, FPhys.ViewHeight));
       FSpawnAngle := Yaw;
+    end else
+    { Where the player returns to the start map after an episode }
+    if CName = 'info_player_start2' then
+    begin
+      HasStart2 := True;
+      Start2Origin := Ent.Origin;
+      Start2Angle := Yaw;
     end else
 
     { Weapons }
@@ -1351,7 +1431,15 @@ begin
     if CName = 'item_sigil' then
     begin
       { The episode rune; picking it up wakes Chthon in E1M7 }
-      Pickup := TQuakePickup.Create(FRootTransform, ikSigil, Pos, 'progs/end1.mdl');
+      { One rune per episode: spawnflags 1, 2, 4, 8 -> end1 .. end4 }
+      case Ent.SpawnFlags and 15 of
+        2: MdlName := 'progs/end2.mdl';
+        4: MdlName := 'progs/end3.mdl';
+        8: MdlName := 'progs/end4.mdl';
+        else MdlName := 'progs/end1.mdl';
+      end;
+      Pickup := TQuakePickup.Create(FRootTransform, ikSigil, Pos, MdlName);
+      Pickup.SpawnFlags := Ent.SpawnFlags;
       FPickups.Add(Pickup);
     end else
     if CName = 'item_key1' then
@@ -1381,6 +1469,7 @@ begin
         else
         begin
           Monster.Ambush := (Ent.SpawnFlags and 1) <> 0;
+          Monster.Nightmare := FSkill >= 3;
           if Def.Move = mmWalk then
             MonsterDropToFloor(Monster);
           Inc(FPlayerStats.TotalKills);
@@ -1393,7 +1482,8 @@ begin
 
     { Triggers }
     if (CName = 'trigger_teleport') or (CName = 'trigger_changelevel') or
-       (CName = 'trigger_multiple') or (CName = 'trigger_once') then
+       (CName = 'trigger_multiple') or (CName = 'trigger_once') or
+       (CName = 'trigger_setskill') then
     begin
       { Brush triggers use the bounds of their BSP model; point ones a small box }
       MdlIdx := -1;
@@ -1410,12 +1500,43 @@ begin
       end;
       Trig := TQuakeTrigger.Create(CName, Mins, Maxs, Ent.Target, Ent.GetField('map'));
       Trig.TargetName := Ent.TargetName;
+      Trig.SpawnFlags := Ent.SpawnFlags;
+      Trig.Message := StringReplace(Ent.MessageText, '\n', LineEnding, [rfReplaceAll]);
+      if (CName = 'trigger_multiple') or (CName = 'trigger_once') then
+      begin
+        { trigger_multiple waits 0.2 s by default, trigger_once fires once;
+          shootable (health) and SPAWNFLAG_NOTOUCH triggers ignore touches }
+        if CName = 'trigger_once' then
+          Trig.WaitTime := -1
+        else
+        begin
+          Trig.WaitTime := Ent.GetFloat('wait', 0);
+          if Trig.WaitTime = 0 then
+            Trig.WaitTime := 0.2;
+        end;
+        Trig.Touchable := (Ent.GetFloat('health', 0) = 0) and ((Ent.SpawnFlags and 1) = 0);
+        { InitTrigger / SetMovedir: an angle makes it one-way }
+        if Ent.Angle = -1 then
+          Trig.MoveDir := Vector3(0, 0, 1)
+        else if Ent.Angle = -2 then
+          Trig.MoveDir := Vector3(0, 0, -1)
+        else if Ent.Angle <> 0 then
+          Trig.MoveDir := Vector3(Cos(DegToRad(Ent.Angle)), Sin(DegToRad(Ent.Angle)), 0);
+      end;
       FTriggers.Add(Trig);
     end;
 
     { Items fire their targets when picked up }
     if FPickups.Count > PickupsBefore then
       FPickups.Last.Target := Ent.Target;
+  end;
+
+  { PutClientInServer: back on the start map after an episode }
+  if HasStart2 and (FServerFlags <> 0) and IsStartMap then
+  begin
+    FSpawnOrigin := Start2Origin;
+    FSpawnPoint := QuakeToCge(Start2Origin + Vector3(0, 0, FPhys.ViewHeight));
+    FSpawnAngle := Start2Angle;
   end;
 
   WritelnLog('QuakeWorld', 'Spawned %d pickups, %d monsters, %d triggers',
@@ -1451,8 +1572,17 @@ begin
     Exit;
   end;
 
+  { DecodeLevelParms: returning to the start map after an episode starts
+    over with a fresh inventory (the runes are kept) }
+  if IsStartMap and (FServerFlags <> 0) then
+  begin
+    ResetPlayerStats;
+    UpdateWeaponModel;
+  end;
+
   { Build 3D world scene }
   FGeometry := TQuakeGeometry.Create(FBsp);
+  FGeometry.Skill := FSkill;
   FGeometry.AddToWorld(FRootTransform);
 
   { Initialize dynamic lights from map entities }
@@ -1464,6 +1594,7 @@ begin
   SetLength(FPhys.SolidModels, 0);
   SetLength(FPhys.SolidBoxes, 0);
   SpawnEntities;
+  ApplyEpisodeGates;
 
   { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
   FAmbient.Setup(FBsp, FRootTransform);
@@ -1487,7 +1618,12 @@ begin
   { Start background music track }
   Sounds.PlayMusic('track02.ogg');
 
-  WritelnLog('QuakeWorld', 'Successfully initialized map "%s"', [MapPath]);
+  { Saved for the restart after death }
+  FLevelStartStats := FPlayerStats;
+  FLevelStartServerFlags := FServerFlags;
+  FLevelStartValid := True;
+
+  WritelnLog('QuakeWorld', 'Successfully initialized map "%s" (skill %d, runes %d)', [MapPath, FSkill, FServerFlags]);
   Result := True;
 end;
 
@@ -1521,6 +1657,9 @@ begin
       UseTargets(P.Target);
 
       case P.Kind of
+        ikSigil:
+          { sigil_touch: the episode is completed }
+          FServerFlags := FServerFlags or (P.SpawnFlags and 15);
         ikSuperShotgun:
           begin
             FPlayerStats.WeaponMask := FPlayerStats.WeaponMask or (1 shl 3);
@@ -1609,13 +1748,32 @@ begin
   PlayerBox(BoxMins, BoxMaxs);
   for Trig in FTriggers do
   begin
-    if not Trig.Touches(BoxMins, BoxMaxs) then
+    if Trig.Removed or not Trig.Touchable or not Trig.Touches(BoxMins, BoxMaxs) or FPlayerDead then
       Continue;
 
     if Trig.EntityClassName = 'trigger_changelevel' then
     begin
+      if not Pak.FileExists('maps/' + Trig.MapName + '.bsp') then
+      begin
+        { A portal to an episode these paks do not have (shareware) }
+        if FTime - Trig.LastTriggerTime > 3 then
+        begin
+          Trig.LastTriggerTime := FTime;
+          if FHud <> nil then
+            FHud.ShowMessage('This episode is not available:' + LineEnding +
+              'maps/' + Trig.MapName + '.bsp is missing', 3.0);
+        end;
+        Continue;
+      end;
+      if not FLevelExited then
+        SetChangeParms;
       FLevelExited := True;
       FNextMap := Trig.MapName;
+    end else
+    if Trig.EntityClassName = 'trigger_setskill' then
+    begin
+      { trigger_setskill: the skill the next maps are spawned with }
+      FSkill := EnsureRange(StrToIntDef(Trim(Trig.Message), FSkill), 0, 3);
     end else
     if Trig.EntityClassName = 'trigger_teleport' then
     begin
@@ -1647,7 +1805,24 @@ begin
       Sounds.Play('sound/misc/r_tele1.wav');
     end else
     if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') then
+    begin
+      { multi_touch / multi_trigger }
+      if (Trig.WaitTime > 0) and (FTime < Trig.LastTriggerTime + Trig.WaitTime) then
+        Continue;
+      if not Trig.MoveDir.IsPerfectlyZero and
+         (TVector3.DotProduct(FViewForward, Trig.MoveDir) < 0) then
+        Continue;
+      Trig.LastTriggerTime := FTime;
+      if Trig.WaitTime < 0 then
+        Trig.Removed := True;
+      if Trig.Message <> '' then
+      begin
+        if FHud <> nil then
+          FHud.ShowMessage(Trig.Message, 3.0);
+        Sounds.Play('sound/misc/talk.wav');
+      end;
       UseTargets(Trig.Target);
+    end;
   end;
 end;
 

@@ -276,6 +276,9 @@ begin
     InsertFront(FMenu);
   end;
 
+  { Every start from the main menu (or the command line) is a new game }
+  FWorld.NewGame;
+
   { Autotest or normal start }
   if FAutoTestMap <> '' then
   begin
@@ -724,6 +727,13 @@ begin
     else
       FConsole.Print('Usage: map <mapname>');
   end else
+  if Cmd = 'skill' then
+  begin
+    { Like Quake: takes effect on the next map }
+    if Args <> '' then
+      FWorld.Skill := EnsureRange(StrToIntDef(Args, FWorld.Skill), 0, 3);
+    FConsole.Print('Skill: ' + IntToStr(FWorld.Skill));
+  end else
   if Cmd = 'god' then
   begin
     FWorld.CheatGodMode(FHud);
@@ -748,6 +758,7 @@ begin
   begin
     FConsole.Print('Commands:');
     FConsole.Print('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)');
+    FConsole.Print('  skill <0..3>   - Skill for the next map');
     FConsole.Print('  god            - God mode');
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
@@ -763,12 +774,16 @@ begin
       begin
         FMenu.Exists := False;
         FNavigation.MouseLook := True;
+        Pak.PreferOriginalMaps := Param = 'quake';
+        FWorld.NewGame;
         LoadLevel('start');
       end;
     maWarpMap:
       begin
         FMenu.Exists := False;
         FNavigation.MouseLook := True;
+        Pak.PreferOriginalMaps := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
+        FWorld.NewGame;
         LoadLevel(Param);
       end;
     maToggleShadows:

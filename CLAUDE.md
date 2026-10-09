@@ -28,6 +28,7 @@ The autotest harness allows headless verification and screenshot generation:
 ```powershell
 .\castle-quake1.exe --autotest start C:\TMP\shot --demo "W:1.0,S,X,W:0.5,S,Q"
 .\castle-quake1.exe --autotest e1m1 C:\TMP\e1 --demo "W:0.5,C:3,X,W:0.5,S,Q"
+.\castle-quake1.exe --game quake --autotest start C:\TMP\hub --demo "W:1,S,Q"   # id1 hub (shareware start.bsp) instead of the LibreQuake one
 ```
 
 Demo script actions:
