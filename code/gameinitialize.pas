@@ -161,7 +161,7 @@ end;
 initialization
   CmdPaks := TStringList.Create;
   ApplicationProperties.ApplicationName := 'castle-quake1';
-  ApplicationProperties.Version := '0.1.0';
+  ApplicationProperties.Version := '0.2.0';
   LogFileName := 'castle-quake1.log';
   InitializeLog;
   Application.OnInitialize := @ApplicationInitialize;
