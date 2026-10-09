@@ -41,7 +41,7 @@ Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom), Castle 
   - `quaketex:`: decodes 8-bit palette-indexed textures and serves uncompressed 32-bit TGA streams into CGE's GPU texture cache.
 
 - **Multiple Camera Navigation Modes**:
-  - **First-Person View**: Quake-accurate eye height (40 units), jump velocity, step climbing, and head bobbing.
+  - **First-Person View**: port of Quake's player physics: ground friction and acceleration, air control (bunny-hopping, strafe-jumping), 18-unit stair stepping, swimming and water jumps, collision against the BSP clipping hulls.
   - **Third-Person View**: Over-the-shoulder chase camera.
   - **Free-Fly / Noclip**: Unconstrained exploration camera.
 
@@ -71,7 +71,8 @@ Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom), Castle 
 | **W, A, S, D** / Arrows | Move forward, strafe left/right, backward |
 | **Mouse Look** | Aim / Look around |
 | **Left Mouse / Ctrl** | Fire equipped weapon |
-| **Space** | Jump |
+| **Space** | Jump / swim up |
+| **Shift** | Walk (movement is always-run) |
 | **E** | Use / Open door / Press button |
 | **1 .. 8** | Select weapon (Axe, Shotgun, SSG, Nailgun, SNG, GL, RL, LG) |
 | **F1 / C** | Cycle Camera (First-Person, Third-Person, Free-Fly) |

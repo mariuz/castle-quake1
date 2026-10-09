@@ -6,7 +6,7 @@ unit QuakeBsp;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections,
+  SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleImages, CastleLog,
   QuakePak, QuakePalette;
 
@@ -81,6 +81,30 @@ type
     FirstMarkSurface: Word;
     NumMarkSurfaces: Word;
     AmbientLevel: array[0..3] of Byte;
+  end;
+
+  TBSPClipNode = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of SmallInt; { >= 0: clipnode index, < 0: CONTENTS_xxx }
+  end;
+
+  { Collision hull (hull_t): 0 = point, 1 = player-sized box, 2 = large box }
+  TQuakeHull = record
+    ClipNodes: array of TBSPClipNode;
+    FirstClipNode: Integer;
+    ClipMins, ClipMaxs: TVector3; { box size this hull is expanded for }
+  end;
+
+  { Result of a hull trace (trace_t), Quake coordinates }
+  TQuakeTrace = record
+    AllSolid: Boolean;   { the whole move was inside solid }
+    StartSolid: Boolean; { the start point was inside solid }
+    InOpen, InWater: Boolean;
+    Fraction: Single;    { 1.0 = moved the full distance }
+    EndPos: TVector3;
+    PlaneNormal: TVector3;
+    PlaneDist: Single;
+    Entity: Integer;     { set by callers: what was hit }
   end;
 
   TBSPEdge = packed record
@@ -181,6 +205,8 @@ type
     FModels: TBSPModelArray;
     FNodes: TBSPNodeArray;
     FLeaves: TBSPLeafArray;
+    FHulls: array[0..2] of TQuakeHull;
+    FTraceRoot: Integer;
     FMiptexes: specialize TObjectList<TQuakeMiptex>;
     FLightmaps: PByte;
     FLightmapsSize: Cardinal;
@@ -189,6 +215,9 @@ type
     function GetFaceCount: Integer; inline;
     function GetModelCount: Integer; inline;
     function ParseEntities(const Text: String): TQuakeEntityList;
+    procedure MakeHulls(const RawClipNodes: array of TBSPClipNode);
+    function RecursiveHullCheck(const HullIdx, Num: Integer; const P1F, P2F: Single;
+      const P1, P2: TVector3; var Trace: TQuakeTrace): Boolean;
     procedure ParseMiptexLump(const Data: PByte; const Size: Cardinal);
     procedure CacheSkyLayers(const Mip: TQuakeMiptex);
   public
@@ -213,6 +242,18 @@ type
     { Index of the world leaf containing a point in Quake coordinates (Mod_PointInLeaf),
       -1 when the map has no BSP tree }
     function PointLeaf(const QuakePoint: TVector3): Integer;
+
+    { Contents of a point in a collision hull, starting at clipnode Num (SV_HullPointContents) }
+    function HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;
+
+    { Trace a box (sized for the hull) from Start to Stop through the hull of
+      a BSP model (0 = world, others = brush entities), offset by Offset
+      (SV_ClipMoveToEntity). Quake coordinates. }
+    function TraceHull(const HullIdx, ModelIdx: Integer; const Offset, Start, Stop: TVector3): TQuakeTrace;
+
+    { Hull index matching a box size, like SV_HullForEntity: 0 for points,
+      1 for player sized boxes, 2 for larger ones }
+    function HullForSize(const Mins, Maxs: TVector3): Integer;
 
     { Contents (CONTENTS_xxx) of the world leaf containing a point in Quake coordinates }
     function PointContents(const QuakePoint: TVector3): Integer;
@@ -594,6 +635,7 @@ var
   Stream: TMemoryStream;
   Hdr: TBSPHeader;
   Count: Integer;
+  RawClipNodes: array of TBSPClipNode;
 begin
   Result := False;
   FMapName := ChangeFileExt(ExtractFileName(AMapPath), '');
@@ -708,6 +750,16 @@ begin
       Stream.ReadBuffer(FLeaves[0], Count * SizeOf(TBSPLeaf));
     end;
 
+    { 9: ClipNodes, and the collision hulls built from them }
+    Count := Hdr.Lumps[LUMP_CLIPNODES].Length div SizeOf(TBSPClipNode);
+    SetLength(RawClipNodes, Count);
+    if Count > 0 then
+    begin
+      Stream.Position := Hdr.Lumps[LUMP_CLIPNODES].Offset;
+      Stream.ReadBuffer(RawClipNodes[0], Count * SizeOf(TBSPClipNode));
+    end;
+    MakeHulls(RawClipNodes);
+
     { 8: Lightmaps }
     if FLightmaps <> nil then
     begin
@@ -778,6 +830,196 @@ begin
     Result := FLeaves[Leaf].Contents
   else
     Result := CONTENTS_EMPTY;
+end;
+
+const
+  { Keep traces this far from planes, against float precision (DIST_EPSILON) }
+  DistEpsilon = 0.03125;
+
+procedure TQuakeBsp.MakeHulls(const RawClipNodes: array of TBSPClipNode);
+var
+  I, J, Child: Integer;
+begin
+  { Hull 0 is made from the drawing nodes, with leaf contents as terminals (Mod_MakeHull0) }
+  SetLength(FHulls[0].ClipNodes, Length(FNodes));
+  for I := 0 to High(FNodes) do
+  begin
+    FHulls[0].ClipNodes[I].PlaneId := FNodes[I].PlaneId;
+    for J := 0 to 1 do
+    begin
+      Child := FNodes[I].Children[J];
+      if Child < 0 then
+      begin
+        Child := -(Child + 1);
+        if Child < Length(FLeaves) then
+          FHulls[0].ClipNodes[I].Children[J] := FLeaves[Child].Contents
+        else
+          FHulls[0].ClipNodes[I].Children[J] := CONTENTS_SOLID;
+      end else
+        FHulls[0].ClipNodes[I].Children[J] := Child;
+    end;
+  end;
+  FHulls[0].ClipMins := TVector3.Zero;
+  FHulls[0].ClipMaxs := TVector3.Zero;
+
+  { Hulls 1 and 2 share the clipnodes lump, each model has its own head node }
+  for I := 1 to 2 do
+  begin
+    SetLength(FHulls[I].ClipNodes, Length(RawClipNodes));
+    for J := 0 to High(RawClipNodes) do
+      FHulls[I].ClipNodes[J] := RawClipNodes[J];
+  end;
+  FHulls[1].ClipMins := Vector3(-16, -16, -24);
+  FHulls[1].ClipMaxs := Vector3(16, 16, 32);
+  FHulls[2].ClipMins := Vector3(-32, -32, -24);
+  FHulls[2].ClipMaxs := Vector3(32, 32, 64);
+end;
+
+function TQuakeBsp.HullForSize(const Mins, Maxs: TVector3): Integer;
+var
+  SizeX: Single;
+begin
+  SizeX := Maxs.X - Mins.X;
+  if SizeX < 3 then
+    Result := 0
+  else if SizeX <= 32 then
+    Result := 1
+  else
+    Result := 2;
+end;
+
+function TQuakeBsp.HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;
+var
+  N: Integer;
+  Node: TBSPClipNode;
+  Plane: TBSPPlane;
+begin
+  N := Num;
+  while N >= 0 do
+  begin
+    if N >= Length(FHulls[HullIdx].ClipNodes) then
+      Exit(CONTENTS_SOLID);
+    Node := FHulls[HullIdx].ClipNodes[N];
+    if (Node.PlaneId < 0) or (Node.PlaneId >= Length(FPlanes)) then
+      Exit(CONTENTS_SOLID);
+    Plane := FPlanes[Node.PlaneId];
+    if TVector3.DotProduct(Plane.Normal, P) - Plane.Dist < 0 then
+      N := Node.Children[1]
+    else
+      N := Node.Children[0];
+  end;
+  Result := N;
+end;
+
+function TQuakeBsp.RecursiveHullCheck(const HullIdx, Num: Integer; const P1F, P2F: Single;
+  const P1, P2: TVector3; var Trace: TQuakeTrace): Boolean;
+var
+  Node: TBSPClipNode;
+  Plane: TBSPPlane;
+  T1, T2, Frac, MidF: Single;
+  Mid: TVector3;
+  Side: Integer;
+begin
+  { Port of SV_RecursiveHullCheck. Returns False when the trace was stopped. }
+  if Num < 0 then
+  begin
+    if Num <> CONTENTS_SOLID then
+    begin
+      Trace.AllSolid := False;
+      if Num = CONTENTS_EMPTY then
+        Trace.InOpen := True
+      else
+        Trace.InWater := True;
+    end else
+      Trace.StartSolid := True;
+    Exit(True);
+  end;
+
+  if (Num >= Length(FHulls[HullIdx].ClipNodes)) then
+    Exit(True);
+  Node := FHulls[HullIdx].ClipNodes[Num];
+  Plane := FPlanes[Node.PlaneId];
+  T1 := TVector3.DotProduct(Plane.Normal, P1) - Plane.Dist;
+  T2 := TVector3.DotProduct(Plane.Normal, P2) - Plane.Dist;
+
+  if (T1 >= 0) and (T2 >= 0) then
+    Exit(RecursiveHullCheck(HullIdx, Node.Children[0], P1F, P2F, P1, P2, Trace));
+  if (T1 < 0) and (T2 < 0) then
+    Exit(RecursiveHullCheck(HullIdx, Node.Children[1], P1F, P2F, P1, P2, Trace));
+
+  { Put the crosspoint DistEpsilon units on the near side }
+  if T1 < 0 then
+    Frac := (T1 + DistEpsilon) / (T1 - T2)
+  else
+    Frac := (T1 - DistEpsilon) / (T1 - T2);
+  Frac := EnsureRange(Frac, 0, 1);
+  MidF := P1F + (P2F - P1F) * Frac;
+  Mid := P1 + (P2 - P1) * Frac;
+  if T1 < 0 then
+    Side := 1
+  else
+    Side := 0;
+
+  { Move up to the node }
+  if not RecursiveHullCheck(HullIdx, Node.Children[Side], P1F, MidF, P1, Mid, Trace) then
+    Exit(False);
+
+  { Go past the node }
+  if HullPointContents(HullIdx, Node.Children[1 - Side], Mid) <> CONTENTS_SOLID then
+    Exit(RecursiveHullCheck(HullIdx, Node.Children[1 - Side], MidF, P2F, Mid, P2, Trace));
+
+  if Trace.AllSolid then
+    Exit(False); { never got out of the solid area }
+
+  { The other side of the node is solid, this is the impact point }
+  if Side = 0 then
+  begin
+    Trace.PlaneNormal := Plane.Normal;
+    Trace.PlaneDist := Plane.Dist;
+  end else
+  begin
+    Trace.PlaneNormal := -Plane.Normal;
+    Trace.PlaneDist := -Plane.Dist;
+  end;
+
+  while HullPointContents(HullIdx, FTraceRoot, Mid) = CONTENTS_SOLID do
+  begin
+    { Shouldn't really happen, but does occasionally }
+    Frac := Frac - 0.1;
+    if Frac < 0 then
+    begin
+      Trace.Fraction := MidF;
+      Trace.EndPos := Mid;
+      Exit(False);
+    end;
+    MidF := P1F + (P2F - P1F) * Frac;
+    Mid := P1 + (P2 - P1) * Frac;
+  end;
+
+  Trace.Fraction := MidF;
+  Trace.EndPos := Mid;
+  Result := False;
+end;
+
+function TQuakeBsp.TraceHull(const HullIdx, ModelIdx: Integer;
+  const Offset, Start, Stop: TVector3): TQuakeTrace;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.Fraction := 1;
+  Result.AllSolid := True;
+  Result.EndPos := Stop;
+  Result.Entity := -1;
+  if (ModelIdx < 0) or (ModelIdx >= Length(FModels)) or
+     (Length(FHulls[HullIdx].ClipNodes) = 0) then
+  begin
+    Result.AllSolid := False;
+    Exit;
+  end;
+
+  FTraceRoot := FModels[ModelIdx].HeadNodes[HullIdx];
+  RecursiveHullCheck(HullIdx, FTraceRoot, 0, 1, Start - Offset, Stop - Offset, Result);
+  if Result.Fraction <> 1 then
+    Result.EndPos := Result.EndPos + Offset;
 end;
 
 function TQuakeBsp.PointContentsCge(const CgePoint: TVector3): Integer;

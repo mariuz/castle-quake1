@@ -28,6 +28,8 @@ type
     Secrets, TotalSecrets: Integer;
     LevelTime: Single;
     BiosuitTime: Single; { seconds of environment suit left }
+    Underwater: Boolean; { eyes below the surface }
+    AirLeft: Single;     { seconds of air before drowning (12 when full) }
   end;
 
   { Full-screen palette shift (cshift_t): Dest color in 0..255, Percent in 0..255 }
@@ -282,6 +284,14 @@ begin
   { Section 3: AMMO }
   UIFont.Print(BarX + ColW * 2 + 16, BarY + 28, Vector4(0.65, 0.65, 0.7, 0.9), 'AMMO');
   UIFont.Print(BarX + ColW * 2 + 16, BarY + 8, AmmoCol, IntToStr(Max(0, FStats.Ammo)));
+
+  { Air supply while the head is under water }
+  if FStats.Underwater then
+  begin
+    DrawRectangle(FloatRectangle(BarX, BarY + BarH + 8, BarW, 6), Vector4(0.1, 0.1, 0.15, 0.8));
+    DrawRectangle(FloatRectangle(BarX, BarY + BarH + 8, BarW * EnsureRange(FStats.AirLeft / 12.0, 0, 1), 6),
+      Vector4(0.45, 0.7, 1.0, 0.9));
+  end;
 
   { Keys indicator at far right if collected }
   KeyStr := '';

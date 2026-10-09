@@ -39,7 +39,10 @@ Demo script actions:
 - `A:deg` absolute yaw angle
 - `T:deg` relative yaw turn
 - `P:deg` absolute pitch (positive looks up), keeps current yaw
-- `M:units` move camera along view direction
+- `M:units` move the player along the view direction (teleport)
+- `G:x;y;z` teleport the player's eyes to CGE coordinates
+- `V:f;s;u` hold movement input: forward / side / up as fractions of full speed (`V:0;0;0` stops)
+- `J` jump (press briefly)
 - `K` cheat: give all weapons, ammo, keys
 - `Y` cheat: toggle god mode
 - `Q` quit application
