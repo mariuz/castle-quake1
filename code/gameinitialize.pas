@@ -9,7 +9,7 @@ uses
   SysUtils, Classes,
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions,
-  QuakePak, QuakePalette, QuakeSound,
+  QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs,
   GameViewMenu, GameViewPlay, GameViewDemo;
 
 var
@@ -21,10 +21,54 @@ var
   CmdPaks: TStringList;
   CmdGame: String;
   CmdPlayDemo: String;
+  CmdQcTest: String;
 
 procedure ApplicationInitialize;
 
 implementation
+
+procedure RunQcTest(const MapName: String);
+var
+  Progs: TQuakeProgs;
+  Bsp: TQuakeBsp;
+  Spawned, I, Monsters, E: Integer;
+  Classes: TStringList;
+  CName: String;
+begin
+  Progs := TQuakeProgs.Create;
+  Bsp := TQuakeBsp.Create;
+  Classes := TStringList.Create;
+  try
+    if not Progs.Load then
+      Exit;
+    if not Bsp.LoadFromPak('maps/' + MapName + '.bsp') then
+      Exit;
+    Progs.Global(Progs.GTime)^.F := 1.0;
+    Spawned := Progs.SpawnEntities(Bsp.Entities, 1);
+    WritelnLog('QcTest', 'Spawned %d entities (%d edicts): total_monsters %d, total_secrets %d, models %d, sounds %d',
+      [Spawned, Progs.NumEdicts, Round(Progs.Global(Progs.GTotalMonsters)^.F),
+       Round(Progs.Global(Progs.GTotalSecrets)^.F), Progs.PrecachedModels.Count, Progs.PrecachedSounds.Count]);
+    for I := 1 to 100 do
+      Progs.RunFrame(0.1);
+    Monsters := 0;
+    for E := 1 to Progs.NumEdicts - 1 do
+      if not Progs.EdictFree(E) then
+      begin
+        CName := Progs.FieldString(E, Progs.FClassName);
+        if Pos('monster_', CName) = 1 then
+          Inc(Monsters);
+        if Classes.IndexOf(CName) < 0 then
+          Classes.Add(CName);
+      end;
+    WritelnLog('QcTest', 'After 10 s: time %.1f, %d thinks, %d calls, %d monsters alive, %d classes',
+      [Progs.Global(Progs.GTime)^.F, Progs.Statistics.Thinks, Progs.Statistics.Calls, Monsters,
+       Classes.Count]);
+  finally
+    Classes.Free;
+    Bsp.Free;
+    Progs.Free;
+  end;
+end;
 
 procedure ApplicationInitialize;
 var
@@ -49,6 +93,11 @@ begin
     if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
     begin
       CmdWarp := Parameters[I + 1];
+      Inc(I);
+    end else
+    if (Parameters[I] = '--qctest') and (I + 1 <= Parameters.High) then
+    begin
+      CmdQcTest := Parameters[I + 1];
       Inc(I);
     end else
     if ((Parameters[I] = '-playdemo') or (Parameters[I] = '--playdemo')) and (I + 1 <= Parameters.High) then
@@ -127,6 +176,14 @@ begin
 
   { Warm up audio }
   Sounds.PreloadCommonSounds;
+
+  { Headless QuakeC test: spawn a map through progs.dat and run its thinks }
+  if CmdQcTest <> '' then
+  begin
+    RunQcTest(CmdQcTest);
+    Application.Terminate;
+    Exit;
+  end;
 
   { Create views }
   ViewMenu := TViewMenu.Create(Application);
