@@ -42,6 +42,7 @@ type
     FUnderwaterTime: TSFFloat;
     FWarpTime: Single;
     FDeathTimer: Single;
+    FQuitRequested: Boolean;
     procedure SetupNavigation;
     procedure CreateUnderwaterEffect;
     procedure UpdateViewContents(const SecondsPassed: Single);
@@ -50,6 +51,9 @@ type
     procedure ParseDemoScript(const Script: String);
     procedure RunDemoStep(const SecondsPassed: Single);
     procedure CaptureScreenshot(const Prefix: String);
+    { Leave the application. Never Halt here: we are inside the window's
+      update loop, and finalizing units now would free views still in use. }
+    procedure RequestQuit;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -115,6 +119,19 @@ const
 
   { Delay before the level restarts after the player dies }
   DeathRestartDelay = 2.0;
+
+procedure TViewPlay.RequestQuit;
+begin
+  if FQuitRequested then
+    Exit;
+  FQuitRequested := True;
+  {$ifdef MSWINDOWS}
+  if FAutoTestActive then
+    ExitProcess(0);
+  {$endif}
+  { Ends Application.Run after this frame; the program then shuts down normally }
+  Application.Terminate;
+end;
 
 procedure TViewPlay.CreateUnderwaterEffect;
 var
@@ -269,7 +286,10 @@ end;
 
 procedure TViewPlay.Stop;
 begin
-  Sounds.StopMusic;
+  { At program exit the view is stopped from CastleWindow finalization,
+    after QuakeSound finalization already freed Sounds }
+  if Sounds <> nil then
+    Sounds.StopMusic;
   inherited Stop;
 end;
 
@@ -344,15 +364,9 @@ begin
   begin
     if FAutoTestActive then
     begin
-      CaptureScreenshot(FAutoTestPrefix);
-      {$ifdef MSWINDOWS}
-      ExitProcess(0);
-      {$else}
-      if Application.MainWindow <> nil then
-        Application.MainWindow.Close
-      else
-        Application.Terminate;
-      {$endif}
+      if not FQuitRequested then
+        CaptureScreenshot(FAutoTestPrefix);
+      RequestQuit;
     end;
     Exit;
   end;
@@ -446,18 +460,8 @@ begin
   end else
   if Action = 'Q' then { Quit }
   begin
-    if FAutoTestActive then
-    begin
-      {$ifdef MSWINDOWS}
-      ExitProcess(0);
-      {$else}
-      Halt(0);
-      {$endif}
-    end else
-    if Application.MainWindow <> nil then
-      Application.MainWindow.Close
-    else
-      Application.Terminate;
+    RequestQuit;
+    FDemoIndex := FDemoCommands.Count;
   end else
     Inc(FDemoIndex);
 end;
@@ -654,7 +658,7 @@ begin
   end else
   if (Cmd = 'quit') or (Cmd = 'exit') then
   begin
-    Application.Terminate;
+    RequestQuit;
   end else
   if Cmd = 'help' then
   begin
@@ -695,7 +699,7 @@ begin
           SetCameraMode(cmFirstPerson);
       end;
     maQuit:
-      Application.Terminate;
+      RequestQuit;
   end;
 end;
 

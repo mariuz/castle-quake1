@@ -14,7 +14,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Sky & Atmosphere** | Double-layer scrolling cylindrical sky dome | Dual-layer scrolling sky shader (`Effect` node, GLQuake `EmitSkyPolys` projection per fragment) | Matches original. |
 | **Liquid Surfaces** | Translucent water, lava, slime with sine wave turbulence (`R_Turbulent`) | Animated textures and transparent blend mode | GLSL vertex/fragment wave distortion shader. |
 | **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | `V_CalcBlend` color shifts (damage, pickup, water/slime/lava, biosuit) and `D_WarpScreen`-style underwater warp | Matches original. |
-| **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser with skin mapping and X3D mesh generation | Add vertex interpolation (mesh lerping) between keyframes. |
+| **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser, per-state animation sequences with keyframe interpolation | Matches original (plus lerping, like later Quake engines). |
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | 3D OpenAL audio with `TCastleSoundSource`, OGG background music | Auto-convert 8-bit legacy Quake WAV headers for universal OpenAL compatibility. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | `TCastleWalkNavigation` with Quake height (40), step climbing (18), gravity | Implement authentic Quake air-acceleration, friction, and swimming physics. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | Axe, Shotgun, Super Shotgun, basic Rocket launcher projectile | Full ballistics (grenade bounce/fuse, spike trails, rocket jumping, lightning discharge). |
@@ -35,8 +35,9 @@ This document outlines the architectural comparison between **Castle Quake** and
 - [x] **Underwater Screen Distortion & Palette Tints**:
   - Full-screen color shifts blended like `V_CalcBlend`: red on player damage (monster attacks now hurt the player, with armor absorption, death and level restart), gold on item pickup, green while the biosuit is active, and liquid tints when the eye is in water, slime or lava (BSP point contents).
   - GLSL screen effect reproducing the sine-wave underwater warp; liquid surfaces are no longer solid so the player can dive in.
-- [ ] **Model Keyframe Interpolation (Mesh Lerping)**:
-  - Interpolate vertex positions between keyframes at runtime for silky-smooth 60+ FPS monster and weapon animations.
+- [x] **Model Keyframe Interpolation (Mesh Lerping)**:
+  - `TMdlAnimator` plays QuakeC frame ranges at 10 Hz and interpolates vertex positions between keyframes every rendered frame; monsters use stand/run/attack/pain/death sequences and the view weapon plays its firing frames.
+  - Distant (beyond 1024 units) and off-screen models skip the per-frame pose update to keep the cost low.
 - [ ] **Ambient Map Sound Emitters**:
   - Spawn positional looping `TCastleSoundSource` entities for Quake ambient entities (`ambient_suck_wind`, `ambient_drone`, `ambient_drip`, `ambient_comp_hum`).
 
