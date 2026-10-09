@@ -72,16 +72,27 @@ type
     function PlayerVelocity: TVector3; virtual; abstract;
     function PlayerAlive: Boolean; virtual; abstract;
     function CanSeePlayer(const M: TQuakeMonster): Boolean; virtual; abstract;
+    { visible() towards another monster (infighting) }
+    function CanSeeMonster(const M, Other: TQuakeMonster): Boolean; virtual; abstract;
+    { sight_entity: a monster that has just spotted the player and that M can
+      see (FindTarget lets M join the hunt); nil if none }
+    function SightEntity(const M: TQuakeMonster): TQuakeMonster; virtual; abstract;
+    { The player fired a weapon recently (show_hostile) }
+    function PlayerHostile: Boolean; virtual; abstract;
     { SV_movestep: move by Move (walkers step up/down stairs, never walk off
       ledges; fliers and swimmers follow the player height). False if blocked. }
     function MoveStep(const M: TQuakeMonster; const Move: TVector3): Boolean; virtual; abstract;
     { One step of a ballistic leap (gravity); True when landed }
-    function TossStep(const M: TQuakeMonster; const Dt: Single; out HitPlayer: Boolean): Boolean; virtual; abstract;
+    function TossStep(const M: TQuakeMonster; const Dt: Single; out HitPlayer: Boolean;
+      out HitMonster: TQuakeMonster): Boolean; virtual; abstract;
     procedure DamagePlayer(const M: TQuakeMonster; const Damage: Single); virtual; abstract;
-    procedure FireBullets(const M: TQuakeMonster; const Count: Integer; const Spread: Single); virtual; abstract;
+    procedure DamageMonster(const M, Victim: TQuakeMonster; const Damage: Single); virtual; abstract;
+    { Pellets towards Aim; they hit the player and monsters in the way }
+    procedure FireBullets(const M: TQuakeMonster; const Count: Integer; const Spread: Single;
+      const Aim: TVector3); virtual; abstract;
     procedure LaunchMissile(const M: TQuakeMonster; const Kind: TMonsterAttack;
       const Org, Vel: TVector3); virtual; abstract;
-    procedure CastLightning(const M: TQuakeMonster); virtual; abstract;
+    procedure CastLightning(const M: TQuakeMonster; const Aim: TVector3); virtual; abstract;
   end;
 
   TQuakeMonster = class
@@ -99,11 +110,20 @@ type
     FDodgeYaw: Single;
     FDodgeTime: Single;
     FDownPhase: Integer;
+    FAlertAge: Single;
     function GetOrigin: TVector3;
     procedure SetOrigin(const Value: TVector3);
     procedure SetYaw(const Value: Single);
     procedure PlaySeq(const Seq: TMonsterSeq; const Loop: Boolean; const Restart: Boolean = False);
     procedure Wake;
+    procedure FoundTarget(const NewEnemy: TQuakeMonster);
+    function EnemyValid: Boolean;
+    function EnemyOrigin(const Env: TQuakeMonsterEnv): TVector3;
+    function EnemyAlive(const Env: TQuakeMonsterEnv): Boolean;
+    function CanSeeEnemy(const Env: TQuakeMonsterEnv): Boolean;
+    procedure DamageEnemy(const Env: TQuakeMonsterEnv; const Damage: Single);
+    procedure CheckEnemy;
+    procedure FindTarget(const Env: TQuakeMonsterEnv);
     procedure FacePlayer(const Env: TQuakeMonsterEnv; const Dt: Single);
     procedure Chase(const Env: TQuakeMonsterEnv; const Dt: Single);
     procedure CheckAttack(const Env: TQuakeMonsterEnv);
@@ -134,13 +154,23 @@ type
     KillCounted: Boolean;
     { Crucified zombie (spawnflags 1): hangs on the wall, never fights }
     Crucified: Boolean;
+    { Ambush (spawnflags 1): only wakes up on sight of the player or damage,
+      not on gunfire noise or other monsters spotting the player }
+    Ambush: Boolean;
+    { Monster being fought after friendly fire; nil = the player }
+    Enemy: TQuakeMonster;
 
     constructor Create(const Parent: TCastleTransform; const ADef: TMonsterDef;
       const AOrigin: TVector3; const AYaw: Single);
     destructor Destroy; override;
 
     procedure Update(const SecondsPassed: Single; const Env: TQuakeMonsterEnv);
-    procedure TakeDamage(const Damage: Integer);
+    { Attacker = nil for the player (or the world) }
+    procedure TakeDamage(const Damage: Integer; const Attacker: TQuakeMonster = nil);
+    { Gunfire heard (the world decides who can hear it) }
+    procedure HearNoise;
+    { Spotted the player within the last moment (sight_entity) }
+    function JustSpottedPlayer: Boolean;
     { Triggered by a target (monster_use / Chthon waking up) }
     procedure Use;
     { Chthon: hit by the electrodes (lightning_use) }
@@ -560,6 +590,7 @@ begin
   State := msIdle;
   FLastFrame := -1;
   FIdleSoundTime := 5 + Random * 10;
+  FAlertAge := 1000;
 
   Transform := TCastleTransform.Create(nil);
   Mdl := MdlManager.GetModel(ADef.Model);
@@ -627,13 +658,116 @@ end;
 
 procedure TQuakeMonster.Wake;
 begin
-  if SightAlerted then
+  if SightAlerted and (Enemy = nil) then
     Exit;
+  FoundTarget(nil);
+end;
+
+procedure TQuakeMonster.FoundTarget(const NewEnemy: TQuakeMonster);
+begin
+  { FoundTarget: hunt the new enemy; only spotting the player is passed on
+    to other monsters (sight_entity) }
+  Enemy := NewEnemy;
+  if NewEnemy = nil then
+    FAlertAge := 0;
   SightAlerted := True;
   if State = msIdle then
     State := msWalk;
   if FDef.SightSound <> '' then
     Sounds.PlayAt(FDef.SightSound, Transform);
+end;
+
+procedure TQuakeMonster.HearNoise;
+begin
+  if (State = msIdle) and not Ambush and not Crucified and (FDef.Move <> mmStatic) then
+    Wake;
+end;
+
+function TQuakeMonster.JustSpottedPlayer: Boolean;
+begin
+  Result := SightAlerted and (Enemy = nil) and (FAlertAge < 0.3) and IsSolid;
+end;
+
+function TQuakeMonster.EnemyValid: Boolean;
+begin
+  Result := (Enemy <> nil) and (Enemy.Health > 0) and not (Enemy.State in [msDeath, msDead]);
+end;
+
+procedure TQuakeMonster.CheckEnemy;
+begin
+  { ai_run: a dead monster enemy is forgotten, back to the player }
+  if (Enemy <> nil) and not EnemyValid then
+    Enemy := nil;
+end;
+
+function TQuakeMonster.EnemyOrigin(const Env: TQuakeMonsterEnv): TVector3;
+begin
+  if Enemy <> nil then
+    Result := Enemy.Origin
+  else
+    Result := Env.PlayerOrigin;
+end;
+
+function TQuakeMonster.EnemyAlive(const Env: TQuakeMonsterEnv): Boolean;
+begin
+  if Enemy <> nil then
+    Result := EnemyValid
+  else
+    Result := Env.PlayerAlive;
+end;
+
+function TQuakeMonster.CanSeeEnemy(const Env: TQuakeMonsterEnv): Boolean;
+begin
+  if Enemy <> nil then
+    Result := Env.CanSeeMonster(Self, Enemy)
+  else
+    Result := Env.CanSeePlayer(Self);
+end;
+
+procedure TQuakeMonster.DamageEnemy(const Env: TQuakeMonsterEnv; const Damage: Single);
+begin
+  if Enemy <> nil then
+    Env.DamageMonster(Self, Enemy, Damage)
+  else
+    Env.DamagePlayer(Self, Damage);
+end;
+
+procedure TQuakeMonster.FindTarget(const Env: TQuakeMonsterEnv);
+const
+  RangeMelee = 120;
+  RangeNear = 500;
+  RangeMid = 1000;
+var
+  Dist, SY, CY: Single;
+  Dir: TVector3;
+begin
+  if FDef.Move = mmStatic then
+    Exit;
+  { Another monster has just spotted the player and we can see it }
+  if not Ambush and (Env.SightEntity(Self) <> nil) then
+  begin
+    Wake;
+    Exit;
+  end;
+  if not Env.PlayerAlive then
+    Exit;
+  Dist := PointsDistance(Origin, Env.PlayerOrigin);
+  if (Dist >= RangeMid) or not Env.CanSeePlayer(Self) then
+    Exit;
+  if Dist >= RangeMelee then
+  begin
+    { Out of melee range the player must be in front (infront: dot > 0.3),
+      except up close right after firing (show_hostile) }
+    SinCos(DegToRad(Yaw), SY, CY);
+    Dir := Env.PlayerOrigin - Origin;
+    Dir.Z := 0;
+    if Dir.IsPerfectlyZero then
+      Exit;
+    Dir := Dir.Normalize;
+    if (Dir.X * CY + Dir.Y * SY <= 0.3) and not ((Dist < RangeNear) and Env.PlayerHostile) then
+      Exit;
+  end;
+  Wake;
 end;
 
 procedure TQuakeMonster.Use;
@@ -701,14 +835,23 @@ begin
     Sounds.PlayAt(FDef.DeathSound, Transform);
 end;
 
-procedure TQuakeMonster.TakeDamage(const Damage: Integer);
+procedure TQuakeMonster.TakeDamage(const Damage: Integer; const Attacker: TQuakeMonster);
 begin
   if FDef.Invulnerable or (State in [msDeath, msDead, msHidden]) or (Damage <= 0) then
     Exit;
 
   Health := Health - Damage;
   if not Crucified then
-    Wake;
+  begin
+    { T_Damage: get mad at the attacker, unless it is of the same class
+      (grunts always fight back) }
+    if Attacker = nil then
+      Wake
+    else
+    if (Attacker <> Self) and (Attacker <> Enemy) and
+       ((Attacker.EntityClassName <> EntityClassName) or (EntityClassName = 'monster_army')) then
+      FoundTarget(Attacker);
+  end;
 
   if EntityClassName = 'monster_zombie' then
   begin
@@ -758,7 +901,7 @@ var
   Delta: TVector3;
   Ideal, Diff: Single;
 begin
-  Delta := Env.PlayerOrigin - Origin;
+  Delta := EnemyOrigin(Env) - Origin;
   if (Abs(Delta.X) < 0.01) and (Abs(Delta.Y) < 0.01) then
     Exit;
   Ideal := RadToDeg(ArcTan2(Delta.Y, Delta.X));
@@ -789,11 +932,11 @@ var
 begin
   { CheckAttack: melee when close, otherwise leap or missile with a chance
     depending on the range (ai.qc / fight.qc) }
-  if not Env.PlayerAlive then
+  if not EnemyAlive(Env) then
     Exit;
-  if not Env.CanSeePlayer(Self) then
+  if not CanSeeEnemy(Env) then
     Exit;
-  Dist := PointsDistance(Origin, Env.PlayerOrigin);
+  Dist := PointsDistance(Origin, EnemyOrigin(Env));
 
   if (FDef.MeleeRange > 0) and (Dist < FDef.MeleeRange) then
   begin
@@ -860,7 +1003,7 @@ begin
 
   if (FDef.Move = mmStatic) or (FDef.RunSpeed <= 0) then
     Exit;
-  Dist := PointsDistance(Origin, Env.PlayerOrigin);
+  Dist := PointsDistance(Origin, EnemyOrigin(Env));
   if (FDef.MeleeRange > 0) and (Dist < FDef.MeleeRange * 0.8) then
     Exit; { close enough, attack instead of pushing }
 
@@ -907,12 +1050,17 @@ var
 begin
   SinCos(DegToRad(Yaw), SY, CY);
   Right := Vector3(SY, -CY, 0);
-  Aim := Env.PlayerOrigin;
+  Aim := EnemyOrigin(Env);
   case FDef.MissileKind of
     maBullets:
-      Env.FireBullets(Self, 4, 0.1);
+      begin
+        { army_fire: aim at where the player will be }
+        if Enemy = nil then
+          Aim := Aim - Env.PlayerVelocity * 0.2;
+        Env.FireBullets(Self, 4, 0.1, Aim);
+      end;
     maLightning:
-      Env.CastLightning(Self);
+      Env.CastLightning(Self, Aim);
     maGrenade:
       begin
         { OgreFireGrenade }
@@ -970,7 +1118,8 @@ begin
           Offset := -100;
         Org := Origin + Vector3(CY, SY, 0) * 100 - Right * Offset + Vector3(0, 0, 200);
         { Lead the target by the flight time }
-        Aim := Aim + Env.PlayerVelocity * (PointsDistance(Org, Aim) / 300);
+        if Enemy = nil then
+          Aim := Aim + Env.PlayerVelocity * (PointsDistance(Org, Aim) / 300);
         Env.LaunchMissile(Self, maLavaBall, Org, (Aim - Org).Normalize * 300);
       end;
   end;
@@ -988,8 +1137,8 @@ begin
   begin
     if (FDef.MeleeFrames and (Cardinal(1) shl Frame)) <> 0 then
       { ai_melee: only hits within reach }
-      if PointsDistance(Origin, Env.PlayerOrigin) <= FDef.MeleeRange + 20 then
-        Env.DamagePlayer(Self, Random * FDef.MeleeDamage);
+      if EnemyAlive(Env) and (PointsDistance(Origin, EnemyOrigin(Env)) <= FDef.MeleeRange + 20) then
+        DamageEnemy(Env, Random * FDef.MeleeDamage);
   end else
   if (FDef.MissileFrames and (Cardinal(1) shl Frame)) <> 0 then
     FireMissile(Env, Frame);
@@ -1020,6 +1169,7 @@ end;
 procedure TQuakeMonster.UpdateLeap(const Env: TQuakeMonsterEnv; const Dt: Single);
 var
   HitPlayer: Boolean;
+  HitMonster: TQuakeMonster;
   SY, CY: Single;
 begin
   FStateTime := FStateTime + Dt;
@@ -1041,7 +1191,7 @@ begin
   if Animator.Finished and (FDef.Extra.Count > 0) then
     PlaySeq(FDef.Extra, True); { tarbaby keeps spinning in the air }
 
-  if Env.TossStep(Self, Dt, HitPlayer) or (FStateTime > 3) then
+  if Env.TossStep(Self, Dt, HitPlayer, HitMonster) or (FStateTime > 3) then
   begin
     OnGround := True;
     Velocity := TVector3.Zero;
@@ -1049,11 +1199,14 @@ begin
     if EntityClassName = 'monster_tarbaby' then
       Sounds.PlayAt('sound/blob/land1.wav', Transform);
   end;
-  if HitPlayer and not FLeapHit then
+  if (HitPlayer or (HitMonster <> nil)) and not FLeapHit then
   begin
-    { Demon_JumpTouch / dog / tarbaby: hurt the player once per leap }
+    { Demon_JumpTouch / dog / tarbaby: hurt what was hit once per leap }
     FLeapHit := True;
-    Env.DamagePlayer(Self, FDef.LeapDamage * (0.5 + Random * 0.5));
+    if HitPlayer then
+      Env.DamagePlayer(Self, FDef.LeapDamage * (0.5 + Random * 0.5))
+    else
+      Env.DamageMonster(Self, HitMonster, FDef.LeapDamage * (0.5 + Random * 0.5));
     if FDef.MeleeSound <> '' then
       Sounds.PlayAt(FDef.MeleeSound, Transform);
   end;
@@ -1088,8 +1241,10 @@ end;
 procedure TQuakeMonster.Update(const SecondsPassed: Single; const Env: TQuakeMonsterEnv);
 begin
   FTime := FTime + SecondsPassed;
+  FAlertAge := FAlertAge + SecondsPassed;
   if Animator = nil then
     Exit;
+  CheckEnemy;
 
   case State of
     msHidden:
@@ -1137,15 +1292,12 @@ begin
         if FThinkTimer <= 0 then
         begin
           FThinkTimer := 0.1 + Random * 0.1;
-          { FindTarget: the player must be in sight and not too far }
-          if (FDef.Move <> mmStatic) and Env.PlayerAlive and
-             (PointsDistance(Origin, Env.PlayerOrigin) < 1000) and Env.CanSeePlayer(Self) then
-            Wake;
+          FindTarget(Env);
         end;
       end;
     msWalk:
       begin
-        if not Env.PlayerAlive then
+        if not EnemyAlive(Env) then
           State := msIdle
         else
           Chase(Env, SecondsPassed);

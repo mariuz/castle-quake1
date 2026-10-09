@@ -205,6 +205,7 @@ type
     FModels: TBSPModelArray;
     FNodes: TBSPNodeArray;
     FLeaves: TBSPLeafArray;
+    FVisData: array of Byte;
     FHulls: array[0..2] of TQuakeHull;
     FTraceRoot: Integer;
     FMiptexes: specialize TObjectList<TQuakeMiptex>;
@@ -242,6 +243,10 @@ type
     { Index of the world leaf containing a point in Quake coordinates (Mod_PointInLeaf),
       -1 when the map has no BSP tree }
     function PointLeaf(const QuakePoint: TVector3): Integer;
+
+    { Potentially visible set: True when leaf ToLeaf is in the PVS of leaf
+      FromLeaf (Mod_LeafPVS). Maps without visibility data see everything. }
+    function LeafVisible(const FromLeaf, ToLeaf: Integer): Boolean;
 
     { Contents of a point in a collision hull, starting at clipnode Num (SV_HullPointContents) }
     function HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;
@@ -753,6 +758,14 @@ begin
       Stream.ReadBuffer(FLeaves[0], Count * SizeOf(TBSPLeaf));
     end;
 
+    { 4: Visibility (run-length compressed PVS rows) }
+    SetLength(FVisData, Hdr.Lumps[LUMP_VISIBILITY].Length);
+    if Length(FVisData) > 0 then
+    begin
+      Stream.Position := Hdr.Lumps[LUMP_VISIBILITY].Offset;
+      Stream.ReadBuffer(FVisData[0], Length(FVisData));
+    end;
+
     { 9: ClipNodes, and the collision hulls built from them }
     Count := Hdr.Lumps[LUMP_CLIPNODES].Length div SizeOf(TBSPClipNode);
     SetLength(RawClipNodes, Count);
@@ -792,6 +805,43 @@ begin
   finally
     Stream.Free;
   end;
+end;
+
+function TQuakeBsp.LeafVisible(const FromLeaf, ToLeaf: Integer): Boolean;
+var
+  Ofs, RowBytes, ByteIdx, OutByte, Run: Integer;
+begin
+  Result := True;
+  if (FromLeaf <= 0) or (ToLeaf <= 0) or (FromLeaf >= Length(FLeaves)) or
+     (ToLeaf >= Length(FLeaves)) then
+    Exit;
+  Ofs := FLeaves[FromLeaf].VisOfs;
+  if (Ofs < 0) or (Ofs >= Length(FVisData)) then
+    Exit;
+  { Bit (leaf - 1) of the row; runs of zero bytes are stored as 0, count }
+  RowBytes := (Length(FLeaves) - 1 + 7) div 8;
+  ByteIdx := (ToLeaf - 1) div 8;
+  OutByte := 0;
+  while (OutByte < RowBytes) and (Ofs < Length(FVisData)) do
+  begin
+    if FVisData[Ofs] <> 0 then
+    begin
+      if OutByte = ByteIdx then
+        Exit((FVisData[Ofs] and (1 shl ((ToLeaf - 1) and 7))) <> 0);
+      Inc(Ofs);
+      Inc(OutByte);
+    end else
+    begin
+      if Ofs + 1 >= Length(FVisData) then
+        Break;
+      Run := FVisData[Ofs + 1];
+      if ByteIdx < OutByte + Run then
+        Exit(False);
+      Inc(OutByte, Run);
+      Inc(Ofs, 2);
+    end;
+  end;
+  Result := False;
 end;
 
 function TQuakeBsp.PointLeaf(const QuakePoint: TVector3): Integer;

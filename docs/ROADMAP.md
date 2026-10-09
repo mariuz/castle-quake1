@@ -18,7 +18,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | PAK WAVs played through OpenAL (`TCastleSoundSource`), static ambient emitters and BSP leaf ambients, OGG background music | Matches original. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | Port of the NetQuake player physics (`QuakePhysics`) tracing the BSP clipping hulls, doors and monster boxes | Matches original. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | All 8 weapons from QuakeC `weapons.qc`: hull-traced hitscan, colliding nails, bouncing grenades, rockets with splash and knockback, lightning beam and discharge | Matches original. |
-| **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | All 13 monster types and both bosses with QuakeC data, line-of-sight wake up, `SV_movestep` chasing and frame-timed attacks | Infighting and sound propagation. |
+| **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | All 13 monster types and both bosses with QuakeC data, `FindTarget` sight checks, `SV_movestep` chasing, frame-timed attacks, infighting, `sight_entity` alerts and PVS gunfire noise | Matches original (plus gunfire noise through open doorways). |
 | **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | `ThrowGib` / `ThrowHead` with QuakeC thresholds, bouncing gib models and blood trails | Matches original. |
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Keys tracked in HUD, warp console command, submodel doors | Interactive level transitions, locked door triggers, secret trigger announcements. |
 | **Intermission** | Intermission stats screen with animated tallies and sound effects | In-game status banner | Dedicated intermission view tallying kills, secrets, and time. |
@@ -70,9 +70,10 @@ This document outlines the architectural comparison between **Castle Quake** and
   - **Rotfish**: aquatic swimming and biting.
   - **Chthon** (E1M7 boss) and **Shub-Niggurath** (End boss).
   - Done with a data-driven `QuakeMonsters` unit: QuakeC sizes, health, frames and sounds for all classes (plus the existing grunt, dog, ogre, knight, and the enforcer and zombie); monsters wake on line of sight, chase with `SV_movestep` over the BSP hulls, attack on animation frames (traced grunt pellets replace the old hit chance), leap, flinch, die and gib. Zombies only die from gibbing and get knocked down by big hits; spawns explode; Chthon rises when the rune is taken and dies from three electrode shocks; Shub-Niggurath idles invulnerable (her telefrag ending is not done).
-- [ ] **Monster Infighting & Sound Propagation**:
+- [x] **Monster Infighting & Sound Propagation**:
   - Monsters retaliate against other monsters when damaged by friendly fire.
   - Weapon gunfire sound propagation alerting monsters across open doorways.
+  - Done following QuakeC `T_Damage` / `ai.qc`: monsters track an `Enemy` (nil = the player) and turn on any other class that hurts them (grunts also fight grunts), with melee, pellets, missiles, lightning and leaps all hitting whatever is in the way; once that enemy dies they go back to the player. `FindTarget` now needs the player in front (`infront`) unless very close or the player just fired (`show_hostile`), a monster that has just spotted the player wakes the monsters that can see it (`sight_entity`), and gunfire wakes idle monsters within 1000 units whose leaf is in the player's PVS (the BSP visibility lump) and which no closed door cuts off. Ambush monsters (`spawnflags 1`) ignore both.
 
 ### Phase 4: Progression, UI, & Game Flow
 - [ ] **Episode Portals & Hub Flow**:
