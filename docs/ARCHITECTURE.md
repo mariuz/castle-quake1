@@ -77,6 +77,7 @@ Player dimensions:
 
 - Supports stacking multiple PAK archives (`pak0.pak`, `pak1.pak`, PWAD/custom paks). Files replaced by a later pak are kept: with `PreferOriginalMaps` (the Quake episode hub) `maps/` come from the original id paks (`id1`, shareware) first.
 - Intermission: `TQuakeWorld.StartIntermission` (camera at `info_intermission`, player frozen, monsters lose their target) and `TQuakeHud.StartIntermission`, which draws the qpics from `QuakePics` (`gfx/*.lmp` and `gfx.wad` lumps decoded with the palette into `TDrawableImage`s) on a 320x200 layout scaled to the window.
+- Savegames: `QuakeSaveGame.TQuakeSaveData` (typed `key=value` text, saved through `castle-config:` URLs) filled by `TQuakeWorld.SaveGame`; `LoadGame` reloads the map with the saved skill and restores the player, submodels, pickups, monsters (`TQuakeMonster.RestoreState`) and triggers by index.
 - Game state across levels (`TQuakeWorld`): skill (`trigger_setskill`), server flags (episode runes), the level parms the player entered a map with (restored on death), and `SetChangeParms` on `trigger_changelevel`. The start map uses `info_player_start2` and the episode / boss gates once runes are collected.
 - Case-insensitive lookup.
 - Registered protocol `quakepak:` allows loading sounds and models via `quakepak:/sound/weapons/sgun1.wav`.

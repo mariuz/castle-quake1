@@ -22,7 +22,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Gibs & Gore** | Overkill (> -40 health) explodes monsters into flying head/meat gibs | `ThrowGib` / `ThrowHead` with QuakeC thresholds, bouncing gib models and blood trails | Matches original. |
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Start map hub with skill and episode portals, runes and episode gates, level parms carried between maps, trigger messages, secret areas, keys tracked in HUD, warp console command, submodel doors | Locked door triggers. |
 | **Intermission** | Intermission stats screen with animated tallies and sound effects | `info_intermission` camera, level title, `gfx/complete.lmp` / `gfx/inter.lmp` and big number pictures with counting tallies, `trigger_secret` counting | Matches original (plus counting tallies). |
-| **Save / Load** | Quake binary savegame format (`.sav`) | Not yet implemented | JSON / binary serializer for player inventory, camera, and map state. |
+| **Save / Load** | Quake binary savegame format (`.sav`) | Text key/value savegames in the user config directory: level, player, inventory, doors and plats, items, monsters and triggers; F6 / F9 quicksave and console `save` / `load` | Projectiles and gibs in flight are not saved. |
 | **Game Logic VM** | Stack-based QuakeC bytecode VM (`progs.dat`) | Native Object Pascal | Keep high-performance Pascal as primary; optional `progs.dat` interpreter. |
 
 ---
@@ -82,8 +82,9 @@ This document outlines the architectural comparison between **Castle Quake** and
 - [x] **Intermission Screen**:
   - Authentic intermission screen showing level title, animated tallies for kills, secrets, and time, accompanied by classic Quake tally sounds.
   - Done: leaving a level through a `trigger_changelevel` without `NO_INTERMISSION` freezes the player and looks from a random `info_intermission` spot (`mangle`) to the intermission music, while the HUD draws `Sbar_IntermissionOverlay` from the PAK pictures (new `QuakePics` unit for `gfx/*.lmp` and `gfx.wad` qpics) under the level title. Time, secrets and kills count up one after another with ticks. After 5 seconds fire, jump or use loads the next map. `trigger_secret` now counts secret areas ("You found a secret area!").
-- [ ] **Save & Load System**:
+- [x] **Save & Load System**:
   - Savegame system recording player state, inventory, camera position, submodel states, and remaining monsters to disk or browser `localStorage`.
+  - Done with `QuakeSaveGame` (`key=value` text saved through `castle-config:/save_<slot>.sav`, so CGE puts it in the user config directory) and `TQuakeWorld.SaveGame` / `LoadGame`: map, skill, runes and the hub choice, player stats and the level start parms, origin, velocity and view, air and timers, door / plat / button positions and states, taken items, monsters (position, yaw, health, state, alert, enemy, gibbed, counted) and fired triggers. Loading spawns the map again with the saved skill and puts every entity back by index. F6 / F9 quicksave and quickload like Quake, console `save [slot]` / `load [slot]`, demo actions `O:slot` / `L:slot`. Not while dead or in the intermission.
 - [ ] **Quake Demos (`.dem`)**:
   - Support recording and playback of original Quake demo files.
 

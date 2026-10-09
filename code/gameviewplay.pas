@@ -13,7 +13,7 @@ uses
   X3DNodes, X3DFields, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
-  QuakePhysics;
+  QuakePhysics, QuakeSaveGame;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -70,6 +70,12 @@ type
     function Press(const Event: TInputPressRelease): Boolean; override;
 
     procedure LoadLevel(const AMapName: String);
+
+    { Savegame slots (quick = F6 / F9) }
+
+    procedure SaveGameSlot(const Slot: String);
+
+    procedure LoadGameSlot(const Slot: String);
     procedure SetCameraMode(const Mode: TCameraMode);
 
     property World: TQuakeWorld read FWorld;
@@ -324,6 +330,34 @@ begin
     FHud.ShowMessage('Failed to load level: ' + FMapName, 5.0);
 end;
 
+procedure TViewPlay.SaveGameSlot(const Slot: String);
+begin
+  if not FWorld.CanSave then
+  begin
+    FHud.ShowMessage('You can''t save now');
+    Exit;
+  end;
+  if FWorld.SaveGame(SaveGameUrl(Slot), FViewport.Camera.Direction) then
+    FHud.ShowMessage('Game saved (' + Slot + ')')
+  else
+    FHud.ShowMessage('Saving failed');
+end;
+
+procedure TViewPlay.LoadGameSlot(const Slot: String);
+var
+  ViewDir: TVector3;
+begin
+  if not FWorld.LoadGame(SaveGameUrl(Slot), ViewDir) then
+  begin
+    FHud.ShowMessage('Cannot load savegame ' + Slot);
+    Exit;
+  end;
+  FMapName := FWorld.MapName;
+  FDeathTimer := 0;
+  FViewport.Camera.SetWorldView(FWorld.PlayerEyePosition, ViewDir, Vector3(0, 1, 0));
+  FHud.ShowMessage('Game loaded (' + Slot + ')');
+end;
+
 procedure TViewPlay.CaptureScreenshot(const Prefix: String);
 var
   OutPath: String;
@@ -477,6 +511,16 @@ begin
   if Action = 'F' then { Hold fire for some seconds }
   begin
     FDemoFireTime := StrToFloatDef(Param, 1.0);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'O' then { Save game to a slot }
+  begin
+    SaveGameSlot(Param);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'L' then { Load game from a slot }
+  begin
+    LoadGameSlot(Param);
     Inc(FDemoIndex);
   end else
   if Action = 'J' then { Jump }
@@ -713,6 +757,18 @@ begin
     Exit(True);
   end;
 
+  { Quicksave / quickload like Quake }
+  if Event.IsKey(keyF6) then
+  begin
+    SaveGameSlot('quick');
+    Exit(True);
+  end;
+  if Event.IsKey(keyF9) then
+  begin
+    LoadGameSlot('quick');
+    Exit(True);
+  end;
+
   { Screenshot with F12 }
   if Event.IsKey(keyF12) then
   begin
@@ -730,6 +786,20 @@ begin
       LoadLevel(Args)
     else
       FConsole.Print('Usage: map <mapname>');
+  end else
+  if Cmd = 'save' then
+  begin
+    if Args <> '' then
+      SaveGameSlot(Args)
+    else
+      SaveGameSlot('quick');
+  end else
+  if Cmd = 'load' then
+  begin
+    if Args <> '' then
+      LoadGameSlot(Args)
+    else
+      LoadGameSlot('quick');
   end else
   if Cmd = 'skill' then
   begin
@@ -763,6 +833,8 @@ begin
     FConsole.Print('Commands:');
     FConsole.Print('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)');
     FConsole.Print('  skill <0..3>   - Skill for the next map');
+    FConsole.Print('  save [slot]    - Save the game (F6 = quick)');
+    FConsole.Print('  load [slot]    - Load a saved game (F9 = quick)');
     FConsole.Print('  god            - God mode');
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');

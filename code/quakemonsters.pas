@@ -179,6 +179,9 @@ type
     procedure LightningShock;
     { Turn into a crucified zombie (not counted as a kill, like in QuakeC) }
     procedure Crucify;
+    { Savegames: put the monster back into a saved state (an attack, pain
+      or leap in progress resumes as chasing) }
+    procedure RestoreState(const AState: TMonsterState; const AHealth: Integer; const AYaw: Single);
 
     { Blocks movement and shots (not dead, hidden or lying down) }
     function IsSolid: Boolean;
@@ -811,6 +814,61 @@ begin
   Crucified := True;
   KillCounted := True;
   PlaySeq(Seq(192, 6), True, True); { $cruc_1 .. $cruc_6 }
+end;
+
+procedure TQuakeMonster.RestoreState(const AState: TMonsterState; const AHealth: Integer;
+  const AYaw: Single);
+begin
+  Health := AHealth;
+  SetYaw(AYaw);
+  Velocity := TVector3.Zero;
+  OnGround := FDef.Move = mmWalk;
+  FLastFrame := -1;
+  case AState of
+    msDeath, msDead:
+      begin
+        State := msDead;
+        PlaySeq(FDef.Death, False, True);
+        if Animator <> nil then
+          Animator.Update(1000); { lie at the last death frame }
+        if EntityClassName = 'monster_boss' then
+          Transform.Exists := False;
+      end;
+    msHidden:
+      begin
+        State := msHidden;
+        Transform.Exists := False;
+      end;
+    msIdle:
+      begin
+        State := msIdle;
+        if not Crucified then
+          PlaySeq(FDef.Stand, True, True);
+      end;
+    msDown:
+      begin
+        { zombie lying on the ground, gets up after a while }
+        State := msDown;
+        FDownPhase := 1;
+        FStateTime := 0;
+        PlaySeq(Seq(FDef.Extra.First, 12), False, True);
+        if Animator <> nil then
+          Animator.Update(1000);
+      end;
+    else
+      if EntityClassName = 'monster_boss' then
+      begin
+        { Chthon out of the lava keeps throwing }
+        Transform.Exists := True;
+        State := msAttack;
+        FAttackIsMelee := False;
+        PlaySeq(FDef.Missile, True, True);
+      end else
+      begin
+        State := msWalk;
+        PlaySeq(FDef.Run, True, True);
+      end;
+  end;
 end;
 
 procedure TQuakeMonster.Die;
