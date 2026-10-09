@@ -10,7 +10,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors, CastleQuaternions,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
-  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics;
+  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters;
 
 type
   { World simulation manager }
@@ -57,8 +57,15 @@ type
     FLightningSoundTime: Single;
     FLightningFiring: Boolean;
     FLastLightningTime: Single;
-    FBoltSegments: array of TCastleTransform;
-    FBoltTime: Single;
+    { Lightning beams: 0 = player (bolt2), 1 = shambler (bolt), 2 = Chthon electrodes (bolt3) }
+    FBeams: array[0..2] of record
+      Segments: array of TCastleTransform;
+      Time: Single;
+    end;
+    FMonsterEnv: TQuakeMonsterEnv;
+    FHud: TQuakeHud;            { HUD of the current frame, for monster damage flashes }
+    FLightningEvents: TStringList; { targetnames of event_lightning entities }
+    FLightningEnd: Single;
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
@@ -70,19 +77,36 @@ type
     function MonsterBounds(const M: TQuakeMonster; out AMins, AMaxs: TVector3): Boolean;
     { Point trace against world, brush entities and monsters (traceline) }
     function TraceShot(const Start, Stop: TVector3; out HitMonster: TQuakeMonster): TQuakeTrace;
+    { Same, for monster missiles: skips the owner and can hit the player }
+    function TraceMissile(const Start, Stop: TVector3; const Owner: TObject;
+      out HitMonster: TQuakeMonster; out HitPlayer: Boolean): TQuakeTrace;
     { CanDamage: the explosion can see the target center or one of its corners }
     function CanDamage(const Inflictor, TargetCenter: TVector3): Boolean;
     { T_RadiusDamage from an explosion at Center (Quake coordinates) }
     procedure RadiusDamage(const Center: TVector3; const Damage: Single;
-      const Ignore: TQuakeMonster; const Hud: TQuakeHud);
+      const Ignore: TQuakeMonster; const Hud: TQuakeHud; const PlayerAttacker: Boolean = True;
+      const IgnorePlayer: Boolean = False);
     procedure DamageMonster(const M: TQuakeMonster; const Damage: Single; const From: TVector3);
     procedure FireBullets(const Count: Integer; const Src, Dir, Right, Up: TVector3;
       const SpreadX, SpreadY: Single);
     procedure LaunchSpike(const Kind: TQuakeProjectileKind; const Src, Dir: TVector3);
     procedure FireLightning(const Src, Dir: TVector3; const Hud: TQuakeHud);
-    procedure ShowLightningBeam(const StartQ, StopQ: TVector3);
+    procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
+    { Monster support (TWorldMonsterEnv) }
+    function MonsterTrace(const M: TQuakeMonster; const Start, Stop: TVector3): TQuakeTrace;
+    function MonsterCheckBottom(const M: TQuakeMonster): Boolean;
+    function MonsterMoveStep(const M: TQuakeMonster; const Move: TVector3): Boolean;
+    function MonsterTossStep(const M: TQuakeMonster; const Dt: Single; out HitPlayer: Boolean): Boolean;
+    procedure MonsterDropToFloor(const M: TQuakeMonster);
+    function MonsterCanSeePlayer(const M: TQuakeMonster): Boolean;
+    procedure MonsterFireBullets(const M: TQuakeMonster; const Count: Integer; const Spread: Single);
+    procedure MonsterLaunch(const M: TQuakeMonster; const Kind: TMonsterAttack; const Org, Vel: TVector3);
+    procedure MonsterLightning(const M: TQuakeMonster);
+    procedure MonsterExplode(const M: TQuakeMonster);
+    { event_lightning (E1M7): electrodes shock Chthon }
+    procedure LightningEvent;
     procedure ExplodeProjectile(const P: TQuakeProjectile; const Direct: TQuakeMonster;
-      const Hud: TQuakeHud);
+      const Hud: TQuakeHud; const DirectPlayer: Boolean = False);
     procedure UpdateProjectiles(const SecondsPassed: Single; const Hud: TQuakeHud);
     { Burst a monster into head and gibs (ThrowHead / ThrowGib) }
     procedure GibMonster(const M: TQuakeMonster);
@@ -92,8 +116,6 @@ type
     procedure UpdateWeaponModel;
     procedure ResetPlayerStats;
     procedure CheckPickups(const Hud: TQuakeHud);
-    function MonsterSeesPlayer(const M: TQuakeMonster): Boolean;
-    function MonsterHitChance(const M: TQuakeMonster): Single;
     procedure CheckTriggers;
   public
     constructor Create(const ARoot: TCastleTransform);
@@ -163,6 +185,91 @@ type
 
 implementation
 
+type
+  { Gives monsters access to the world (traces, the player, missiles) }
+  TWorldMonsterEnv = class(TQuakeMonsterEnv)
+  private
+    FWorld: TQuakeWorld;
+  public
+    constructor Create(const AWorld: TQuakeWorld);
+    function Time: Single; override;
+    function PlayerOrigin: TVector3; override;
+    function PlayerVelocity: TVector3; override;
+    function PlayerAlive: Boolean; override;
+    function CanSeePlayer(const M: TQuakeMonster): Boolean; override;
+    function MoveStep(const M: TQuakeMonster; const Move: TVector3): Boolean; override;
+    function TossStep(const M: TQuakeMonster; const Dt: Single; out HitPlayer: Boolean): Boolean; override;
+    procedure DamagePlayer(const M: TQuakeMonster; const Damage: Single); override;
+    procedure FireBullets(const M: TQuakeMonster; const Count: Integer; const Spread: Single); override;
+    procedure LaunchMissile(const M: TQuakeMonster; const Kind: TMonsterAttack;
+      const Org, Vel: TVector3); override;
+    procedure CastLightning(const M: TQuakeMonster); override;
+  end;
+
+constructor TWorldMonsterEnv.Create(const AWorld: TQuakeWorld);
+begin
+  inherited Create;
+  FWorld := AWorld;
+end;
+
+function TWorldMonsterEnv.Time: Single;
+begin
+  Result := FWorld.FTime;
+end;
+
+function TWorldMonsterEnv.PlayerOrigin: TVector3;
+begin
+  Result := FWorld.FPhys.Origin;
+end;
+
+function TWorldMonsterEnv.PlayerVelocity: TVector3;
+begin
+  Result := FWorld.FPhys.Velocity;
+end;
+
+function TWorldMonsterEnv.PlayerAlive: Boolean;
+begin
+  Result := not FWorld.FPlayerDead;
+end;
+
+function TWorldMonsterEnv.CanSeePlayer(const M: TQuakeMonster): Boolean;
+begin
+  Result := FWorld.MonsterCanSeePlayer(M);
+end;
+
+function TWorldMonsterEnv.MoveStep(const M: TQuakeMonster; const Move: TVector3): Boolean;
+begin
+  Result := FWorld.MonsterMoveStep(M, Move);
+end;
+
+function TWorldMonsterEnv.TossStep(const M: TQuakeMonster; const Dt: Single;
+  out HitPlayer: Boolean): Boolean;
+begin
+  Result := FWorld.MonsterTossStep(M, Dt, HitPlayer);
+end;
+
+procedure TWorldMonsterEnv.DamagePlayer(const M: TQuakeMonster; const Damage: Single);
+begin
+  FWorld.DamagePlayer(Max(1, Round(Damage)), FWorld.FHud);
+end;
+
+procedure TWorldMonsterEnv.FireBullets(const M: TQuakeMonster; const Count: Integer;
+  const Spread: Single);
+begin
+  FWorld.MonsterFireBullets(M, Count, Spread);
+end;
+
+procedure TWorldMonsterEnv.LaunchMissile(const M: TQuakeMonster; const Kind: TMonsterAttack;
+  const Org, Vel: TVector3);
+begin
+  FWorld.MonsterLaunch(M, Kind, Org, Vel);
+end;
+
+procedure TWorldMonsterEnv.CastLightning(const M: TQuakeMonster);
+begin
+  FWorld.MonsterLightning(M);
+end;
+
 constructor TQuakeWorld.Create(const ARoot: TCastleTransform);
 begin
   inherited Create;
@@ -173,6 +280,8 @@ begin
   FMonsters := TQuakeMonsterList.Create(True);
   FProjectiles := TQuakeProjectileList.Create(True);
   FGibs := TQuakeGibList.Create(True);
+  FMonsterEnv := TWorldMonsterEnv.Create(Self);
+  FLightningEvents := TStringList.Create;
   FTriggers := TQuakeTriggerList.Create(True);
   FAmbient := TQuakeAmbientSounds.Create;
   FPhys := TQuakePlayerPhysics.Create;
@@ -224,36 +333,348 @@ begin
     Result := CONTENTS_EMPTY;
 end;
 
-function TQuakeWorld.MonsterSeesPlayer(const M: TQuakeMonster): Boolean;
+
+
+{ Monsters }
+
+function TQuakeWorld.MonsterTrace(const M: TQuakeMonster; const Start, Stop: TVector3): TQuakeTrace;
 var
-  Eye, Delta: TVector3;
-  Len, HitDist: Single;
-  Hit: TCastleTransform;
+  Hull, I: Integer;
+  ClipOffset, BoxMins, BoxMaxs: TVector3;
+  T: TQuakeTrace;
+  Other: TQuakeMonster;
+
+  procedure Combine(const Entity: Integer);
+  begin
+    if T.AllSolid or T.StartSolid or (T.Fraction < Result.Fraction) then
+    begin
+      if (T.Fraction < 1) or T.StartSolid then
+        T.Entity := Entity;
+      if Result.StartSolid then
+      begin
+        Result := T;
+        Result.StartSolid := True;
+      end else
+        Result := T;
+    end else
+    if T.StartSolid then
+      Result.StartSolid := True;
+  end;
+
 begin
-  { Like Quake's visible(): a traceline from the monster's eyes that only
-    world geometry and brush entities (closed doors) can block. }
-  Result := True;
-  if FGeometry = nil then
+  { SV_Move for a monster box: the hull that fits its size, offset by
+    clip_mins - mins (SV_HullForEntity), then brush entities, other monsters
+    and the player }
+  Hull := FBsp.HullForSize(M.Def.Mins, M.Def.Maxs);
+  ClipOffset := FBsp.HullClipMins(Hull) - M.Def.Mins;
+  Result := FBsp.TraceHull(Hull, 0, ClipOffset, Start, Stop);
+  if (Result.Fraction < 1) or Result.StartSolid then
+    Result.Entity := 0;
+  if Result.AllSolid then
     Exit;
-  Eye := M.Transform.Translation + Vector3(0, 24, 0);
-  Delta := FPlayerPos - Eye;
-  Len := Delta.Length;
-  if Len < 1 then
-    Exit;
-  Hit := M.Transform.RayCast(Eye, Delta / Len, HitDist);
-  Result := not ((Hit <> nil) and (HitDist < Len) and FGeometry.IsGeometryScene(Hit));
+
+  for I := 0 to High(FPhys.SolidModels) do
+  begin
+    T := FBsp.TraceHull(Hull, FPhys.SolidModels[I].ModelIndex,
+      FPhys.SolidModels[I].Offset + ClipOffset, Start, Stop);
+    Combine(FPhys.SolidModels[I].ModelIndex);
+  end;
+
+  for Other in FMonsters do
+    if (Other <> M) and MonsterBounds(Other, BoxMins, BoxMaxs) then
+    begin
+      T := TraceSegmentBox(BoxMins - M.Def.Maxs, BoxMaxs - M.Def.Mins, Start, Stop);
+      Combine(-2);
+    end;
+
+  if not FPlayerDead then
+  begin
+    PlayerBox(BoxMins, BoxMaxs);
+    T := TraceSegmentBox(BoxMins - M.Def.Maxs, BoxMaxs - M.Def.Mins, Start, Stop);
+    Combine(-3);
+  end;
 end;
 
-function TQuakeWorld.MonsterHitChance(const M: TQuakeMonster): Single;
-const
-  MeleeRange = 100.0;
+function TQuakeWorld.MonsterCheckBottom(const M: TQuakeMonster): Boolean;
+var
+  AMins, AMaxs, Start, Stop: TVector3;
+  T: TQuakeTrace;
+  X, Y: Integer;
+  Mid: Single;
 begin
-  { Monster attacks are instant for now. Ranged ones stand in for spread
-    shotgun blasts and dodgeable grenades, so they hit less often far away. }
-  if M.AttackRange <= MeleeRange then
-    Result := 1.0
-  else
-    Result := EnsureRange(1.0 - 0.75 * (M.Transform.Translation - FPlayerPos).Length / M.AttackRange, 0.25, 1.0);
+  { SV_CheckBottom: is there ground under all four corners? }
+  AMins := M.Origin + M.Def.Mins;
+  AMaxs := M.Origin + M.Def.Maxs;
+  Start.Z := AMins.Z - 1;
+  Result := True;
+  for X := 0 to 1 do
+    for Y := 0 to 1 do
+    begin
+      if X = 0 then Start.X := AMins.X else Start.X := AMaxs.X;
+      if Y = 0 then Start.Y := AMins.Y else Start.Y := AMaxs.Y;
+      if FBsp.PointContents(Start) <> CONTENTS_SOLID then
+        Result := False;
+    end;
+  if Result then
+    Exit;
+
+  { Real check: the corners must be within a step of the middle }
+  Start := Vector3((AMins.X + AMaxs.X) * 0.5, (AMins.Y + AMaxs.Y) * 0.5, AMins.Z);
+  Stop := Start - Vector3(0, 0, 2 * StepSize);
+  T := FPhys.Trace(Start, Stop, True, True);
+  if T.Fraction = 1 then
+    Exit(False);
+  Mid := T.EndPos.Z;
+  for X := 0 to 1 do
+    for Y := 0 to 1 do
+    begin
+      if X = 0 then Start.X := AMins.X else Start.X := AMaxs.X;
+      if Y = 0 then Start.Y := AMins.Y else Start.Y := AMaxs.Y;
+      Stop.X := Start.X;
+      Stop.Y := Start.Y;
+      T := FPhys.Trace(Start, Stop, True, True);
+      if (T.Fraction = 1) or (Mid - T.EndPos.Z > StepSize) then
+        Exit(False);
+    end;
+  Result := True;
+end;
+
+function TQuakeWorld.MonsterMoveStep(const M: TQuakeMonster; const Move: TVector3): Boolean;
+var
+  OldOrg, NewOrg, Stop: TVector3;
+  T: TQuakeTrace;
+  Dz: Single;
+  Cont: Integer;
+begin
+  Result := False;
+  if FBsp = nil then
+    Exit;
+  OldOrg := M.Origin;
+
+  if M.Def.Move in [mmFly, mmSwim] then
+  begin
+    { Fliers and swimmers keep a little above the player (SV_movestep) }
+    NewOrg := OldOrg + Move;
+    if not FPlayerDead then
+    begin
+      Dz := OldOrg.Z - FPhys.Origin.Z;
+      if Dz > 40 then
+        NewOrg.Z := NewOrg.Z - Min(8, Dz - 40)
+      else if Dz < 30 then
+        NewOrg.Z := NewOrg.Z + Min(8, 30 - Dz);
+    end;
+    T := MonsterTrace(M, OldOrg, NewOrg);
+    if T.Fraction < 1 then
+    begin
+      { Try again without the height change }
+      NewOrg.Z := OldOrg.Z + Move.Z;
+      T := MonsterTrace(M, OldOrg, NewOrg);
+      if T.Fraction < 1 then
+        Exit;
+    end;
+    if M.Def.Move = mmSwim then
+    begin
+      Cont := FBsp.PointContents(T.EndPos);
+      if not ((Cont <= CONTENTS_WATER) and (Cont > CONTENTS_SKY)) then
+        Exit; { fish stay in the water }
+    end;
+    M.Origin := T.EndPos;
+    Exit(True);
+  end;
+
+  { Walkers: push up a step, trace down two steps }
+  NewOrg := OldOrg + Move;
+  NewOrg.Z := NewOrg.Z + StepSize;
+  Stop := NewOrg;
+  Stop.Z := Stop.Z - StepSize * 2;
+  T := MonsterTrace(M, NewOrg, Stop);
+  if T.AllSolid then
+    Exit;
+  if T.StartSolid then
+  begin
+    NewOrg.Z := NewOrg.Z - StepSize;
+    T := MonsterTrace(M, NewOrg, Stop);
+    if T.AllSolid or T.StartSolid then
+      Exit;
+  end;
+  if T.Fraction = 1 then
+    Exit; { walked off an edge }
+
+  M.Origin := T.EndPos;
+  if not MonsterCheckBottom(M) then
+  begin
+    M.Origin := OldOrg;
+    Exit;
+  end;
+  Result := True;
+end;
+
+function TQuakeWorld.MonsterTossStep(const M: TQuakeMonster; const Dt: Single;
+  out HitPlayer: Boolean): Boolean;
+var
+  T: TQuakeTrace;
+begin
+  { MOVETYPE_TOSS for leaps: gravity, slide on walls, stop on floors }
+  HitPlayer := False;
+  Result := False;
+  if FBsp = nil then
+    Exit(True);
+  M.Velocity.Z := M.Velocity.Z - SvGravity * Dt;
+  T := MonsterTrace(M, M.Origin, M.Origin + M.Velocity * Dt);
+  if T.AllSolid then
+    Exit(True);
+  M.Origin := T.EndPos;
+  if T.Fraction < 1 then
+  begin
+    HitPlayer := T.Entity = -3;
+    M.Velocity := ClipVelocity(M.Velocity, T.PlaneNormal, 1);
+    if T.PlaneNormal.Z > 0.7 then
+      Result := True;
+  end;
+end;
+
+procedure TQuakeWorld.MonsterDropToFloor(const M: TQuakeMonster);
+var
+  T: TQuakeTrace;
+begin
+  { droptofloor: monsters are placed above the floor in the map }
+  T := MonsterTrace(M, M.Origin, M.Origin - Vector3(0, 0, 256));
+  if (T.Fraction < 1) and not T.AllSolid and not T.StartSolid then
+    M.Origin := T.EndPos;
+end;
+
+function TQuakeWorld.MonsterCanSeePlayer(const M: TQuakeMonster): Boolean;
+begin
+  { visible(): line from the monster's eyes to the player's eyes, only
+    world geometry and brush entities block it }
+  if (FBsp = nil) or FPlayerDead then
+    Exit(False);
+  Result := FPhys.Trace(M.Origin + Vector3(0, 0, 25), FPhys.EyePosition, True, True).Fraction = 1;
+end;
+
+procedure TQuakeWorld.MonsterFireBullets(const M: TQuakeMonster; const Count: Integer;
+  const Spread: Single);
+var
+  Src, Aim, Right, Up, Dir, BoxMins, BoxMaxs: TVector3;
+  T, PT: TQuakeTrace;
+  I, Hits: Integer;
+begin
+  { army_fire: aim at where the player will be, pellets with spread }
+  Src := M.Origin + Vector3(0, 0, 20);
+  Aim := (FPhys.Origin - FPhys.Velocity * 0.2 - Src).Normalize;
+  Right := Vector3(Aim.Y, -Aim.X, 0);
+  if Right.IsPerfectlyZero then
+    Right := Vector3(1, 0, 0);
+  Right := Right.Normalize;
+  Up := TVector3.CrossProduct(Right, Aim);
+  PlayerBox(BoxMins, BoxMaxs);
+  Hits := 0;
+  for I := 1 to Count do
+  begin
+    Dir := Aim + Right * ((Random * 2 - 1) * Spread) + Up * ((Random * 2 - 1) * Spread);
+    T := FPhys.Trace(Src, Src + Dir * 2048, True, True);
+    PT := TraceSegmentBox(BoxMins, BoxMaxs, Src, Src + Dir * 2048);
+    if (PT.Fraction < T.Fraction) and not FPlayerDead then
+      Inc(Hits)
+    else
+    if T.Fraction < 1 then
+      Particles.SpawnPuff(QuakeToCge(T.EndPos - Dir * 4), QuakeToCge(T.PlaneNormal));
+  end;
+  Lighting.TriggerMuzzleFlash(QuakeToCge(Src), 1.5);
+  if Hits > 0 then
+    DamagePlayer(4 * Hits, FHud);
+end;
+
+procedure TQuakeWorld.MonsterLaunch(const M: TQuakeMonster; const Kind: TMonsterAttack;
+  const Org, Vel: TVector3);
+var
+  PKind: TQuakeProjectileKind;
+  P: TQuakeProjectile;
+begin
+  case Kind of
+    maGrenade: PKind := pjOgreGrenade;
+    maWizSpike: PKind := pjWizSpike;
+    maKnightSpike: PKind := pjKnightSpike;
+    maLaser: PKind := pjLaser;
+    maVorePod: PKind := pjVorePod;
+    maZombieGib: PKind := pjZombieGib;
+    maLavaBall: PKind := pjLavaBall;
+    else Exit;
+  end;
+  P := TQuakeProjectile.Create(FRootTransform, PKind, Org, Vel);
+  P.Owner := M;
+  FProjectiles.Add(P);
+end;
+
+procedure TQuakeWorld.MonsterLightning(const M: TQuakeMonster);
+var
+  Org, Dir, Stop, BoxMins, BoxMaxs: TVector3;
+  T, PT: TQuakeTrace;
+begin
+  { CastLightning (shambler): 600 units towards the player, 10 damage }
+  Org := M.Origin + Vector3(0, 0, 40);
+  Dir := (FPhys.Origin + Vector3(0, 0, 16) - Org).Normalize;
+  T := FPhys.Trace(Org, M.Origin + Dir * 600, True, True);
+  Stop := T.EndPos;
+  PlayerBox(BoxMins, BoxMaxs);
+  PT := TraceSegmentBox(BoxMins, BoxMaxs, Org, T.EndPos);
+  if (PT.Fraction < 1) and not FPlayerDead then
+  begin
+    Stop := PT.EndPos;
+    DamagePlayer(10, FHud);
+  end;
+  ShowBeam(1, Org, Stop, 0.1);
+end;
+
+procedure TQuakeWorld.MonsterExplode(const M: TQuakeMonster);
+begin
+  { tbaby_die: the spawn blows up }
+  M.ExplodePending := False;
+  M.Transform.Exists := False;
+  RadiusDamage(M.Center, 120, M, FHud, False);
+  Particles.SpawnExplosion(QuakeToCge(M.Center));
+  Lighting.TriggerMuzzleFlash(QuakeToCge(M.Center), 6.0);
+end;
+
+procedure TQuakeWorld.LightningEvent;
+var
+  Sub, Le1, Le2: TQuakeSubmodel;
+  M: TQuakeMonster;
+  C1, C2, AMins, AMaxs: TVector3;
+begin
+  { lightning_use: both electrodes (doors targeting "lightning") must have
+    stopped at the same end; at the top the bolt shocks Chthon }
+  if FLightningEnd >= FTime + 1 then
+    Exit;
+  Le1 := nil;
+  Le2 := nil;
+  for Sub in FGeometry.Submodels do
+    if SameText(Sub.Target, 'lightning') then
+    begin
+      if Le1 = nil then
+        Le1 := Sub
+      else if Le2 = nil then
+        Le2 := Sub;
+    end;
+  if (Le1 = nil) or (Le2 = nil) then
+    Exit;
+  if not (Le1.State in [smsOpen, smsClosed]) or (Le1.State <> Le2.State) then
+    Exit;
+
+  FLightningEnd := FTime + 1;
+  Sounds.Play('sound/misc/power.wav');
+  C1 := TVector3.Zero;
+  C2 := TVector3.Zero;
+  if SubmodelBounds(Le1, AMins, AMaxs) then
+    C1 := (AMins + AMaxs) * 0.5;
+  if SubmodelBounds(Le2, AMins, AMaxs) then
+    C2 := (AMins + AMaxs) * 0.5;
+  ShowBeam(2, C1, C2, 1.0);
+
+  if Le1.State = smsOpen then
+    for M in FMonsters do
+      if M.EntityClassName = 'monster_boss' then
+        M.LightningShock;
 end;
 
 function SubmodelIsSolid(const Sub: TQuakeSubmodel): Boolean;
@@ -284,10 +705,16 @@ end;
 procedure TQuakeWorld.UseTargets(const Target: String);
 var
   Sub: TQuakeSubmodel;
+  M: TQuakeMonster;
 begin
-  { SUB_UseTargets: activate every brush entity with this targetname }
+  { SUB_UseTargets: activate every entity with this targetname }
   if (Target = '') or (FGeometry = nil) then
     Exit;
+  for M in FMonsters do
+    if SameText(M.TargetName, Target) then
+      M.Use;
+  if FLightningEvents.IndexOf(Target) >= 0 then
+    LightningEvent;
   for Sub in FGeometry.Submodels do
     if SameText(Sub.TargetName, Target) and (Sub.State = smsClosed) then
     begin
@@ -581,10 +1008,13 @@ end;
 
 destructor TQuakeWorld.Destroy;
 var
-  I: Integer;
+  I, J: Integer;
 begin
-  for I := 0 to High(FBoltSegments) do
-    FBoltSegments[I].Free;
+  for J := 0 to High(FBeams) do
+    for I := 0 to High(FBeams[J].Segments) do
+      FBeams[J].Segments[I].Free;
+  FreeAndNil(FMonsterEnv);
+  FreeAndNil(FLightningEvents);
   FreeAndNil(FWeaponAnim);
   if FWeaponTransform <> nil then
   begin
@@ -656,6 +1086,9 @@ begin
   end;
 end;
 
+const
+  SpawnFlagNotMedium = 512;
+
 procedure TQuakeWorld.SpawnEntities;
 var
   I: Integer;
@@ -668,15 +1101,24 @@ var
   Trig: TQuakeTrigger;
   Mins, Maxs: TVector3;
   MdlIdx: Integer;
+  Def: TMonsterDef;
+  PickupsBefore: Integer;
 begin
   FPickups.Clear;
   FMonsters.Clear;
+  FLightningEvents.Clear;
+  FLightningEnd := 0;
   FTriggers.Clear;
 
   for I := 0 to FBsp.Entities.Count - 1 do
   begin
     Ent := FBsp.Entities[I];
     CName := LowerCase(Ent.ClassName);
+    { ED_LoadFromFile: skip entities not meant for the current skill
+      (skill 1, "normal": SPAWNFLAG_NOT_MEDIUM) }
+    if (Ent.SpawnFlags and SpawnFlagNotMedium) <> 0 then
+      Continue;
+    PickupsBefore := FPickups.Count;
     Pos := QuakeToCge(Ent.Origin);
     Yaw := Ent.Angle;
 
@@ -778,6 +1220,12 @@ begin
       Pickup := TQuakePickup.Create(FRootTransform, ikBioSuit, Pos, 'progs/suit.mdl');
       FPickups.Add(Pickup);
     end else
+    if CName = 'item_sigil' then
+    begin
+      { The episode rune; picking it up wakes Chthon in E1M7 }
+      Pickup := TQuakePickup.Create(FRootTransform, ikSigil, Pos, 'progs/end1.mdl');
+      FPickups.Add(Pickup);
+    end else
     if CName = 'item_key1' then
     begin
       Pickup := TQuakePickup.Create(FRootTransform, ikKeySilver, Pos, 'progs/w_skey.mdl');
@@ -789,35 +1237,30 @@ begin
       FPickups.Add(Pickup);
     end else
 
-    { Monsters }
-    if CName = 'monster_army' then
+    { Monsters (all classes from QuakeMonsters) }
+    if MonsterDef(CName, Def) then
     begin
-      Monster := TQuakeMonster.Create(FRootTransform, CName, Pos, Yaw, 'progs/soldier.mdl',
-        30, 9, 80.0, 500.0);
-      FMonsters.Add(Monster);
-      Inc(FPlayerStats.TotalKills);
+      if MdlManager.GetModel(Def.Model) = nil then
+        WritelnWarning('QuakeWorld', 'No model for %s, skipped', [CName])
+      else
+      begin
+        Monster := TQuakeMonster.Create(FRootTransform, Def, Ent.Origin, Ent.Angle);
+        Monster.TargetName := Ent.TargetName;
+        Monster.Target := Ent.Target;
+        FMonsters.Add(Monster);
+        if (CName = 'monster_zombie') and ((Ent.SpawnFlags and 1) <> 0) then
+          Monster.Crucify { decoration, not counted }
+        else
+        begin
+          if Def.Move = mmWalk then
+            MonsterDropToFloor(Monster);
+          Inc(FPlayerStats.TotalKills);
+        end;
+      end;
     end else
-    if CName = 'monster_dog' then
-    begin
-      Monster := TQuakeMonster.Create(FRootTransform, CName, Pos, Yaw, 'progs/dog.mdl',
-        25, 12, 140.0, 48.0);
-      FMonsters.Add(Monster);
-      Inc(FPlayerStats.TotalKills);
-    end else
-    if CName = 'monster_ogre' then
-    begin
-      Monster := TQuakeMonster.Create(FRootTransform, CName, Pos, Yaw, 'progs/ogre.mdl',
-        200, 25, 60.0, 600.0);
-      FMonsters.Add(Monster);
-      Inc(FPlayerStats.TotalKills);
-    end else
-    if CName = 'monster_knight' then
-    begin
-      Monster := TQuakeMonster.Create(FRootTransform, CName, Pos, Yaw, 'progs/knight.mdl',
-        75, 15, 90.0, 55.0);
-      FMonsters.Add(Monster);
-      Inc(FPlayerStats.TotalKills);
-    end else
+    if CName = 'event_lightning' then
+      FLightningEvents.Add(Ent.TargetName)
+    else
 
     { Triggers }
     if (CName = 'trigger_teleport') or (CName = 'trigger_changelevel') or
@@ -840,6 +1283,10 @@ begin
       Trig.TargetName := Ent.TargetName;
       FTriggers.Add(Trig);
     end;
+
+    { Items fire their targets when picked up }
+    if FPickups.Count > PickupsBefore then
+      FPickups.Last.Target := Ent.Target;
   end;
 
   WritelnLog('QuakeWorld', 'Spawned %d pickups, %d monsters, %d triggers',
@@ -882,7 +1329,11 @@ begin
   { Initialize dynamic lights from map entities }
   Lighting.CreateLightsFromBsp(FBsp, FRootTransform);
 
-  { Spawn world items and monsters }
+  { Spawn world items and monsters (monsters are dropped to the floor with
+    the player physics traces, so give them the new map first) }
+  FPhys.Bsp := FBsp;
+  SetLength(FPhys.SolidModels, 0);
+  SetLength(FPhys.SolidBoxes, 0);
   SpawnEntities;
 
   { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
@@ -938,6 +1389,7 @@ begin
         Hud.ShowMessage(P.MessageText);
         Hud.BonusFlash;
       end;
+      UseTargets(P.Target);
 
       case P.Kind of
         ikSuperShotgun:
@@ -1077,6 +1529,7 @@ var
   M: TQuakeMonster;
 begin
   FPlayerPos := PlayerPos;
+  FHud := Hud;
   FPlayerFacing := PlayerFacing;
   FPlayerPitch := PlayerPitch;
   FPlayerStats.LevelTime := FPlayerStats.LevelTime + SecondsPassed;
@@ -1121,15 +1574,17 @@ begin
   for I := 0 to FMonsters.Count - 1 do
   begin
     M := FMonsters[I];
-    M.Update(SecondsPassed, FPlayerPos);
-    if M.AttackLaunched then
-    begin
-      M.AttackLaunched := False;
-      if MonsterSeesPlayer(M) and (Random < MonsterHitChance(M)) then
-        DamagePlayer(M.AttackDamage, Hud);
-    end;
+    M.Update(SecondsPassed, FMonsterEnv);
     if M.GibPending then
       GibMonster(M);
+    if M.ExplodePending then
+      MonsterExplode(M);
+    if M.DeathTargetPending then
+    begin
+      { boss_death: fire the boss target (opens the exit) }
+      M.DeathTargetPending := False;
+      UseTargets(M.Target);
+    end;
     if (M.State = msDead) and not M.KillCounted then
     begin
       Inc(FPlayerStats.Kills);
@@ -1199,36 +1654,49 @@ function TQuakeWorld.MonsterBounds(const M: TQuakeMonster; out AMins, AMaxs: TVe
 var
   Org: TVector3;
 begin
-  Result := not (M.State in [msDeath, msDead]);
+  Result := M.IsSolid;
   if not Result then
     Exit;
-  { Sizes from the QuakeC monster spawn functions }
-  if M.EntityClassName = 'monster_dog' then
-  begin
-    AMins := Vector3(-32, -32, -24);
-    AMaxs := Vector3(32, 32, 40);
-  end else
-  if M.EntityClassName = 'monster_ogre' then
-  begin
-    AMins := Vector3(-32, -32, -24);
-    AMaxs := Vector3(32, 32, 64);
-  end else
-  begin
-    AMins := Vector3(-16, -16, -24);
-    AMaxs := Vector3(16, 16, 40);
-  end;
-  Org := CgeToQuake(M.Transform.Translation);
-  AMins := AMins + Org;
-  AMaxs := AMaxs + Org;
+  Org := M.Origin;
+  AMins := M.Def.Mins + Org;
+  AMaxs := M.Def.Maxs + Org;
 end;
 
 function TQuakeWorld.TraceShot(const Start, Stop: TVector3; out HitMonster: TQuakeMonster): TQuakeTrace;
 var
+  HitPlayer: Boolean;
+begin
+  Result := TraceMissile(Start, Stop, nil, HitMonster, HitPlayer);
+end;
+
+function TQuakeWorld.TraceMissile(const Start, Stop: TVector3; const Owner: TObject;
+  out HitMonster: TQuakeMonster; out HitPlayer: Boolean): TQuakeTrace;
+var
   M: TQuakeMonster;
   BoxMins, BoxMaxs: TVector3;
   T: TQuakeTrace;
+
+  procedure Consider(const AMins, AMaxs: TVector3; const AMonster: TQuakeMonster);
+  begin
+    T := TraceSegmentBox(AMins, AMaxs, Start, Stop);
+    if T.StartSolid then
+    begin
+      { Point blank: the shot starts inside the target }
+      T.Fraction := 0;
+      T.EndPos := Start;
+      T.PlaneNormal := (Stop - Start).Normalize * -1;
+    end;
+    if (T.Fraction < Result.Fraction) and (T.Fraction < 1) then
+    begin
+      Result := T;
+      HitMonster := AMonster;
+      HitPlayer := AMonster = nil;
+    end;
+  end;
+
 begin
   HitMonster := nil;
+  HitPlayer := False;
   if FBsp = nil then
   begin
     FillChar(Result, SizeOf(Result), 0);
@@ -1238,22 +1706,14 @@ begin
   end;
   Result := FPhys.Trace(Start, Stop, True, True);
   for M in FMonsters do
-    if MonsterBounds(M, BoxMins, BoxMaxs) then
-    begin
-      T := TraceSegmentBox(BoxMins, BoxMaxs, Start, Stop);
-      if T.StartSolid then
-      begin
-        { Point blank: the shot starts inside the monster }
-        T.Fraction := 0;
-        T.EndPos := Start;
-        T.PlaneNormal := (Stop - Start).Normalize * -1;
-      end;
-      if (T.Fraction < Result.Fraction) and (T.Fraction < 1) then
-      begin
-        Result := T;
-        HitMonster := M;
-      end;
-    end;
+    if (M <> Owner) and MonsterBounds(M, BoxMins, BoxMaxs) then
+      Consider(BoxMins, BoxMaxs, M);
+  { Monster missiles can hit the player }
+  if (Owner <> nil) and not FPlayerDead then
+  begin
+    PlayerBox(BoxMins, BoxMaxs);
+    Consider(BoxMins, BoxMaxs, nil);
+  end;
 end;
 
 function TQuakeWorld.CanDamage(const Inflictor, TargetCenter: TVector3): Boolean;
@@ -1273,11 +1733,12 @@ end;
 procedure TQuakeWorld.DamageMonster(const M: TQuakeMonster; const Damage: Single; const From: TVector3);
 begin
   if Damage > 0 then
-    M.TakeDamage(Max(1, Round(Damage)), QuakeToCge(From));
+    M.TakeDamage(Max(1, Round(Damage)));
 end;
 
 procedure TQuakeWorld.RadiusDamage(const Center: TVector3; const Damage: Single;
-  const Ignore: TQuakeMonster; const Hud: TQuakeHud);
+  const Ignore: TQuakeMonster; const Hud: TQuakeHud; const PlayerAttacker: Boolean;
+  const IgnorePlayer: Boolean);
 var
   M: TQuakeMonster;
   BoxMins, BoxMaxs, Target, Dir: TVector3;
@@ -1289,6 +1750,8 @@ begin
     begin
       Target := (BoxMins + BoxMaxs) * 0.5;
       Points := Damage - 0.5 * PointsDistance(Center, Target);
+      if M.EntityClassName = 'monster_shambler' then
+        Points := Points * 0.5; { shamblers resist explosions }
       if (Points > 0) and CanDamage(Center, Target) then
         DamageMonster(M, Points, Center);
     end;
@@ -1296,8 +1759,10 @@ begin
   { The player takes half damage from their own explosions, and the
     knockback (T_Damage) is what makes rocket jumping work }
   Target := FPhys.Origin + (FPhys.Mins + FPhys.Maxs) * 0.5;
-  Points := (Damage - 0.5 * PointsDistance(Center, Target)) * 0.5;
-  if (Points > 0) and CanDamage(Center, Target) and not FPlayerDead then
+  Points := Damage - 0.5 * PointsDistance(Center, Target);
+  if PlayerAttacker then
+    Points := Points * 0.5;
+  if (Points > 0) and CanDamage(Center, Target) and not FPlayerDead and not IgnorePlayer then
   begin
     Dir := FPhys.Origin - Center;
     if not Dir.IsPerfectlyZero then
@@ -1354,9 +1819,11 @@ begin
   FProjectiles.Add(TQuakeProjectile.Create(FRootTransform, Kind, Src, Dir * 1000));
 end;
 
-procedure TQuakeWorld.ShowLightningBeam(const StartQ, StopQ: TVector3);
+procedure TQuakeWorld.ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3;
+  const Duration: Single);
 const
   SegmentLength = 30.0; { CL_ParseBeam draws bolt models every 30 units }
+  BeamModels: array[0..2] of String = ('progs/bolt2.mdl', 'progs/bolt.mdl', 'progs/bolt3.mdl');
 var
   Mdl: TQuakeMdl;
   Delta, Dir: TVector3;
@@ -1371,12 +1838,12 @@ begin
   if Dist < 1 then
     Exit;
   Dir := Delta / Dist;
-  Count := Min(Ceil(Dist / SegmentLength), 32);
+  Count := Min(Ceil(Dist / SegmentLength), 40);
 
   { Grow the pool of bolt segments when needed }
-  while Length(FBoltSegments) < Count do
+  while Length(FBeams[Pool].Segments) < Count do
   begin
-    Mdl := MdlManager.GetModel('progs/bolt2.mdl');
+    Mdl := MdlManager.GetModel(BeamModels[Pool]);
     if Mdl = nil then
       Break;
     Seg := TCastleTransform.Create(nil);
@@ -1384,15 +1851,15 @@ begin
     Scene.Collides := False;
     Seg.Add(Scene);
     FRootTransform.Add(Seg);
-    SetLength(FBoltSegments, Length(FBoltSegments) + 1);
-    FBoltSegments[High(FBoltSegments)] := Seg;
+    SetLength(FBeams[Pool].Segments, Length(FBeams[Pool].Segments) + 1);
+    FBeams[Pool].Segments[High(FBeams[Pool].Segments)] := Seg;
   end;
 
   Yaw := ArcTan2(Dir.Y, Dir.X);
   Pitch := ArcTan2(Dir.Z, Sqrt(Sqr(Dir.X) + Sqr(Dir.Y)));
-  for I := 0 to High(FBoltSegments) do
+  for I := 0 to High(FBeams[Pool].Segments) do
   begin
-    Seg := FBoltSegments[I];
+    Seg := FBeams[Pool].Segments[I];
     Seg.Exists := I < Count;
     if not Seg.Exists then
       Continue;
@@ -1402,7 +1869,7 @@ begin
     Seg.Rotation := Q.ToAxisAngle;
     Seg.Translation := QuakeToCge(StartQ + Dir * (I * SegmentLength));
   end;
-  FBoltTime := 0.1;
+  FBeams[Pool].Time := Duration;
 end;
 
 procedure TQuakeWorld.FireLightning(const Src, Dir: TVector3; const Hud: TQuakeHud);
@@ -1436,7 +1903,7 @@ begin
   FLastLightningTime := FTime;
 
   T := TraceShot(Src, Src + Dir * 600, M);
-  ShowLightningBeam(Src, T.EndPos);
+  ShowBeam(0, Src, T.EndPos, 0.1);
   if M <> nil then
   begin
     { LightningDamage: 30 per 0.1 s }
@@ -1596,22 +2063,38 @@ begin
 end;
 
 procedure TQuakeWorld.ExplodeProjectile(const P: TQuakeProjectile; const Direct: TQuakeMonster;
-  const Hud: TQuakeHud);
+  const Hud: TQuakeHud; const DirectPlayer: Boolean);
 var
   Center: TVector3;
+  ByPlayer: Boolean;
 begin
-  { T_MissileTouch / GrenadeExplode: direct hit damage, then 120 radius damage
-    from slightly behind the impact point }
+  { T_MissileTouch / GrenadeExplode / OgreGrenadeExplode / ShalMissileTouch:
+    direct hit damage, then radius damage from slightly behind the impact }
   Center := P.Origin;
   if not P.Velocity.IsPerfectlyZero then
     Center := Center - P.Velocity.Normalize * 8;
-  if P.Kind = pjRocket then
-  begin
-    if Direct <> nil then
-      DamageMonster(Direct, 100 + Random * 20, P.Origin);
-    RadiusDamage(Center, 120, Direct, Hud);
-  end else
-    RadiusDamage(Center, 120, nil, Hud);
+  ByPlayer := P.Owner = nil;
+  case P.Kind of
+    pjRocket, pjLavaBall:
+      begin
+        { The direct target is left out of the splash }
+        if Direct <> nil then
+          DamageMonster(Direct, 100 + Random * 20, P.Origin);
+        if DirectPlayer then
+          DamagePlayer(100 + Random(20), Hud);
+        RadiusDamage(Center, 120, Direct, Hud, ByPlayer, DirectPlayer);
+      end;
+    pjOgreGrenade:
+      RadiusDamage(Center, 40, nil, Hud, False);
+    pjVorePod:
+      begin
+        if (Direct <> nil) and (Direct.EntityClassName = 'monster_zombie') then
+          DamageMonster(Direct, 110, P.Origin);
+        RadiusDamage(Center, 40, nil, Hud, False);
+      end;
+    else
+      RadiusDamage(Center, 120, nil, Hud, ByPlayer);
+  end;
   Particles.SpawnExplosion(QuakeToCge(Center));
   Lighting.TriggerMuzzleFlash(QuakeToCge(Center), 6.0);
   Sounds.PlayAt('sound/weapons/r_exp3.wav', P.Transform);
@@ -1636,25 +2119,28 @@ var
   I: Integer;
 begin
   M.GibPending := False;
-  Org := CgeToQuake(M.Transform.Translation);
+  Org := M.Origin;
   { The body is replaced by its head }
   M.Transform.Exists := False;
   Sounds.PlayAt('sound/player/udeath.wav', M.Transform);
 
-  for I := 0 to High(M.GibModels) do
+  for I := 0 to High(M.Def.GibModels) do
   begin
     { ThrowGib: removed after 10 to 20 seconds }
-    Gib := TQuakeGib.Create(FRootTransform, M.GibModels[I], Org, VelocityForDamage(M.Health),
+    Gib := TQuakeGib.Create(FRootTransform, M.Def.GibModels[I], Org, VelocityForDamage(M.Health),
       10 + Random * 10);
     Gib.AngularVelocity := Vector3(Random * 600, Random * 600, Random * 600);
     FGibs.Add(Gib);
   end;
 
   { ThrowHead: the head stays, 24 units lower, spinning around its up axis }
-  Gib := TQuakeGib.Create(FRootTransform, M.HeadModel, Org - Vector3(0, 0, 24),
-    VelocityForDamage(M.Health), -1);
-  Gib.AngularVelocity := Vector3(0, (Random * 2 - 1) * 600, 0);
-  FGibs.Add(Gib);
+  if M.Def.Head <> '' then
+  begin
+    Gib := TQuakeGib.Create(FRootTransform, M.Def.Head, Org - Vector3(0, 0, 24),
+      VelocityForDamage(M.Health), -1);
+    Gib.AngularVelocity := Vector3(0, (Random * 2 - 1) * 600, 0);
+    FGibs.Add(Gib);
+  end;
 
   { Blood fountain }
   for I := 1 to 3 do
@@ -1711,56 +2197,88 @@ end;
 
 procedure TQuakeWorld.UpdateProjectiles(const SecondsPassed: Single; const Hud: TQuakeHud);
 var
-  I: Integer;
+  I, J: Integer;
   P: TQuakeProjectile;
   T: TQuakeTrace;
   M: TQuakeMonster;
-  Remove: Boolean;
+  HitPlayer, Remove, Bounces: Boolean;
   Damage: Single;
+
+  procedure DirectHit(const Amount: Single);
+  begin
+    if HitPlayer then
+    begin
+      DamagePlayer(Max(1, Round(Amount)), Hud);
+      Particles.SpawnBlood(QuakeToCge(T.EndPos), QuakeToCge(P.Velocity.Normalize * -1));
+    end else
+    if M <> nil then
+    begin
+      Particles.SpawnBlood(QuakeToCge(T.EndPos), QuakeToCge(P.Velocity.Normalize * -1));
+      DamageMonster(M, Amount, T.EndPos);
+    end;
+  end;
+
 begin
   for I := FProjectiles.Count - 1 downto 0 do
   begin
     P := FProjectiles[I];
     Remove := False;
     P.Life := P.Life - SecondsPassed;
+    Bounces := P.Kind in [pjGrenade, pjOgreGrenade];
 
     if P.Life <= 0 then
     begin
-      if P.Kind = pjGrenade then
+      if Bounces then
         ExplodeProjectile(P, nil, Hud); { fuse ran out }
       Remove := True;
     end else
     if not P.OnGround then
     begin
-      { MOVETYPE_BOUNCE grenades fall, the rest fly straight (MOVETYPE_FLYMISSILE) }
-      if P.Kind = pjGrenade then
+      { Grenades and zombie flesh fall, the rest fly straight }
+      if Bounces or (P.Kind = pjZombieGib) then
       begin
         P.Velocity.Z := P.Velocity.Z - SvGravity * SecondsPassed;
         P.Spin := P.Spin + 300 * SecondsPassed;
       end;
-      T := TraceShot(P.Origin, P.Origin + P.Velocity * SecondsPassed, M);
+      if P.Kind = pjLavaBall then
+        P.Spin := P.Spin + 200 * SecondsPassed;
+
+      { ShalHome: vore pods steer towards the player }
+      if (P.Kind = pjVorePod) and not FPlayerDead then
+      begin
+        P.HomeTimer := P.HomeTimer - SecondsPassed;
+        if P.HomeTimer <= 0 then
+        begin
+          P.HomeTimer := 0.2;
+          P.Velocity := (FPhys.Origin + Vector3(0, 0, 10) - P.Origin).Normalize * 350;
+        end;
+      end;
+
+      T := TraceMissile(P.Origin, P.Origin + P.Velocity * SecondsPassed, P.Owner, M, HitPlayer);
       P.Origin := T.EndPos;
 
       if (T.Fraction < 1) or T.StartSolid then
       begin
-        if (M = nil) and (FBsp.PointContents(T.EndPos) = CONTENTS_SKY) then
+        if (M = nil) and not HitPlayer and (FBsp.PointContents(T.EndPos) = CONTENTS_SKY) then
           Remove := True { missiles vanish into the sky }
         else
         case P.Kind of
-          pjNail, pjSuperNail:
+          pjNail, pjSuperNail, pjWizSpike, pjKnightSpike, pjLaser:
             begin
-              { spike_touch }
-              if P.Kind = pjSuperNail then
-                Damage := 18
+              { spike_touch, Wiz_MissileTouch, laser touch }
+              case P.Kind of
+                pjSuperNail: Damage := 18;
+                pjLaser: Damage := 15;
+                else Damage := 9;
+              end;
+              if HitPlayer or (M <> nil) then
+                DirectHit(Damage)
               else
-                Damage := 9;
-              if M <> nil then
-              begin
-                Particles.SpawnBlood(QuakeToCge(T.EndPos), QuakeToCge(P.Velocity.Normalize * -1));
-                DamageMonster(M, Damage, T.EndPos);
-              end else
               begin
                 Particles.SpawnPuff(QuakeToCge(T.EndPos), QuakeToCge(T.PlaneNormal));
+                if P.Kind = pjLaser then
+                  Sounds.PlayAt('sound/enforcer/enfstop.wav', P.Transform)
+                else
                 case Random(5) of
                   0: Sounds.PlayAt('sound/weapons/ric1.wav', P.Transform);
                   1: Sounds.PlayAt('sound/weapons/ric2.wav', P.Transform);
@@ -1770,15 +2288,31 @@ begin
               end;
               Remove := True;
             end;
-          pjRocket:
+          pjRocket, pjLavaBall, pjVorePod:
             begin
-              ExplodeProjectile(P, M, Hud);
+              ExplodeProjectile(P, M, Hud, HitPlayer);
               Remove := True;
             end;
-          pjGrenade:
-            if M <> nil then
+          pjZombieGib:
             begin
-              ExplodeProjectile(P, M, Hud); { GrenadeTouch: explode on monsters }
+              { ZombieGrenadeTouch: 10 damage, or lie on the floor }
+              if HitPlayer or (M <> nil) then
+              begin
+                DirectHit(10);
+                Sounds.PlayAt('sound/zombie/z_hit.wav', P.Transform);
+                Remove := True;
+              end else
+              begin
+                Sounds.PlayAt('sound/zombie/z_miss.wav', P.Transform);
+                P.OnGround := True;
+                P.Velocity := TVector3.Zero;
+                P.Life := Min(P.Life, 1.5);
+              end;
+            end;
+          pjGrenade, pjOgreGrenade:
+            if HitPlayer or (M <> nil) then
+            begin
+              ExplodeProjectile(P, M, Hud); { GrenadeTouch: explode on contact }
               Remove := True;
             end else
             begin
@@ -1801,16 +2335,38 @@ begin
         if P.TrailTimer <= 0 then
         begin
           case P.Kind of
-            pjRocket:
+            pjRocket, pjLavaBall:
               begin
                 Particles.SpawnRocketTrail(QuakeToCge(P.Origin));
                 P.TrailTimer := 0.03;
               end;
-            pjGrenade:
+            pjGrenade, pjOgreGrenade:
               begin
                 Particles.SpawnGrenadeTrail(QuakeToCge(P.Origin));
                 P.TrailTimer := 0.05;
               end;
+            pjZombieGib:
+              begin
+                Particles.SpawnBloodTrail(QuakeToCge(P.Origin));
+                P.TrailTimer := 0.05;
+              end;
+            pjWizSpike:
+              begin
+                Particles.SpawnTrail(QuakeToCge(P.Origin), Vector3(0.3, 0.9, 0.2));
+                P.TrailTimer := 0.04;
+              end;
+            pjKnightSpike:
+              begin
+                Particles.SpawnTrail(QuakeToCge(P.Origin), Vector3(1.0, 0.55, 0.15));
+                P.TrailTimer := 0.04;
+              end;
+            pjVorePod:
+              begin
+                Particles.SpawnTrail(QuakeToCge(P.Origin), Vector3(0.7, 0.3, 0.9));
+                P.TrailTimer := 0.04;
+              end;
+            pjLaser:
+              P.TrailTimer := 1; { glows on its own }
             else
               begin
                 Particles.SpawnNailTrail(QuakeToCge(P.Origin));
@@ -1827,14 +2383,15 @@ begin
       P.UpdateVisual;
   end;
 
-  { Lightning beam lasts a moment after each discharge }
-  if FBoltTime > 0 then
-  begin
-    FBoltTime := FBoltTime - SecondsPassed;
-    if FBoltTime <= 0 then
-      for I := 0 to High(FBoltSegments) do
-        FBoltSegments[I].Exists := False;
-  end;
+  { Lightning beams last a moment after each discharge }
+  for J := 0 to High(FBeams) do
+    if FBeams[J].Time > 0 then
+    begin
+      FBeams[J].Time := FBeams[J].Time - SecondsPassed;
+      if FBeams[J].Time <= 0 then
+        for I := 0 to High(FBeams[J].Segments) do
+          FBeams[J].Segments[I].Exists := False;
+    end;
 end;
 
 procedure TQuakeWorld.ActivateUse(const RayOrigin, RayDir: TVector3; const Hud: TQuakeHud);

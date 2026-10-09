@@ -65,6 +65,8 @@ type
     procedure SpawnGrenadeTrail(const Pos: TVector3);
     procedure SpawnNailTrail(const Pos: TVector3);
     procedure SpawnBloodTrail(const Pos: TVector3);
+    { Glowing trail puff of a given color (monster missiles) }
+    procedure SpawnTrail(const Pos, Color: TVector3);
 
     { Small puff where a bullet or nail hits a wall (TE_GUNSHOT / TE_SPIKE) }
     procedure SpawnPuff(const Pos, Normal: TVector3);
@@ -331,6 +333,13 @@ begin
     Exit;
   FParticles.Add(TQuakeParticle.Create(FParent, Pos, TVector3.Zero, pkTeleport, 0.15, 0.8, 0.2,
     Vector3(0.55, 0.45, 1.0)));
+end;
+
+procedure TQuakeParticleManager.SpawnTrail(const Pos, Color: TVector3);
+begin
+  if FParent = nil then
+    Exit;
+  FParticles.Add(TQuakeParticle.Create(FParent, Pos, TVector3.Zero, pkTeleport, 0.25, 1.5, 0.3, Color));
 end;
 
 procedure TQuakeParticleManager.SpawnBloodTrail(const Pos: TVector3);

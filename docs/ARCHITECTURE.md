@@ -137,7 +137,8 @@ Player dimensions:
 
 - Weapons: Axe, Shotgun, Super Shotgun, Nailgun, Super Nailgun, Grenade Launcher, Rocket Launcher, Thunderbolt.
 - Pickups: Armor, Health, Ammo, Keys, Powerups (Quad Damage, Pentagram).
-- Monster AI: Grunt (`monster_army`), Dog (`monster_dog`), Ogre (`monster_ogre`), Knight (`monster_knight`).
+- Monsters (`QuakeMonsters`): every Quake class is described by a `TMonsterDef` taken from QuakeC (size, health, gib threshold, frame ranges, run speed, attack frames, sounds). `TQuakeMonster.Update` runs a Quake-style think: sight checks with line of sight (`visible`), chasing with `SV_movestep` (hull traces, stair steps, no walking off ledges, detours when blocked; fliers and swimmers follow the player height), `CheckAttack` range chances, attacks fired on animation frames (hitscan pellets, ogre grenades, scrag / hell knight / vore / enforcer / zombie / lavaball missiles, shambler lightning), leaps (dog, fiend, spawn), pain, death and gibbing. The world implements `TQuakeMonsterEnv` (`TWorldMonsterEnv`) for traces, damage and missiles. Chthon wakes when used and only dies from the E1M7 electrodes (`event_lightning`); Shub-Niggurath is an invulnerable idle boss.
+- Entities with `SPAWNFLAG_NOT_MEDIUM` are skipped (skill 1), items fire their targets when picked up, and crucified zombies are decoration.
 - Weapons follow QuakeC `weapons.qc`: hitscan and the lightning beam use `TraceShot` (BSP hull 0, brush entities, monster boxes); nails, grenades and rockets are `TQuakeProjectile`s moved by `UpdateProjectiles` with the same traces (grenades bounce with `ClipVelocity`). Explosions use `T_RadiusDamage` falloff, `CanDamage` line of sight and player knockback.
 - Gibs: a monster killed below its `GibHealth` sets `GibPending`; `GibMonster` hides the body and spawns `TQuakeGib` heads and meat (`ThrowHead` / `ThrowGib`), moved by `UpdateGibs` as `MOVETYPE_BOUNCE`.
 
