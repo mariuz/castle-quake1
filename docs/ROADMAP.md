@@ -13,7 +13,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Dynamic Lights** | Lightstyles (0..63) modulated at 10 Hz; muzzle flashes | Quake lightstyles (0..12) evaluated dynamically; muzzle flashes; shadow maps | Matches original; enhanced with real-time shadow mapping. |
 | **Sky & Atmosphere** | Double-layer scrolling cylindrical sky dome | Dual-layer scrolling sky shader (`Effect` node, GLQuake `EmitSkyPolys` projection per fragment) | Matches original. |
 | **Liquid Surfaces** | Translucent water, lava, slime with sine wave turbulence (`R_Turbulent`) | Animated textures and transparent blend mode | GLSL vertex/fragment wave distortion shader. |
-| **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | Clean rendering without screen tints | Full-screen color blend tint overlay on damage and item pickup. |
+| **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | `V_CalcBlend` color shifts (damage, pickup, water/slime/lava, biosuit) and `D_WarpScreen`-style underwater warp | Matches original. |
 | **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser with skin mapping and X3D mesh generation | Add vertex interpolation (mesh lerping) between keyframes. |
 | **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | 3D OpenAL audio with `TCastleSoundSource`, OGG background music | Auto-convert 8-bit legacy Quake WAV headers for universal OpenAL compatibility. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | `TCastleWalkNavigation` with Quake height (40), step climbing (18), gravity | Implement authentic Quake air-acceleration, friction, and swimming physics. |
@@ -32,9 +32,9 @@ This document outlines the architectural comparison between **Castle Quake** and
 ### Phase 1: Authentic Look & Feel (Visual Polish)
 - [x] **Dual-Layer Scrolling Sky Shader**:
   - Sky miptexes are split into a solid back layer and a transparent cloud front layer, projected onto Quake's flattened sky dome per fragment and scrolled at 8 / 16 texels per second.
-- [ ] **Underwater Screen Distortion & Palette Tints**:
-  - Implement full-screen screen flash overlays: red flash on player damage, gold flash on item pickup, green flash for biosuit.
-  - Implement GLSL underwater wave distortion (sine lookup turbulence).
+- [x] **Underwater Screen Distortion & Palette Tints**:
+  - Full-screen color shifts blended like `V_CalcBlend`: red on player damage (monster attacks now hurt the player, with armor absorption, death and level restart), gold on item pickup, green while the biosuit is active, and liquid tints when the eye is in water, slime or lava (BSP point contents).
+  - GLSL screen effect reproducing the sine-wave underwater warp; liquid surfaces are no longer solid so the player can dive in.
 - [ ] **Model Keyframe Interpolation (Mesh Lerping)**:
   - Interpolate vertex positions between keyframes at runtime for silky-smooth 60+ FPS monster and weapon animations.
 - [ ] **Ambient Map Sound Emitters**:

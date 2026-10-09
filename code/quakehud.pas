@@ -27,6 +27,13 @@ type
     Kills, TotalKills: Integer;
     Secrets, TotalSecrets: Integer;
     LevelTime: Single;
+    BiosuitTime: Single; { seconds of environment suit left }
+  end;
+
+  { Full-screen palette shift (cshift_t): Dest color in 0..255, Percent in 0..255 }
+  TQuakeColorShift = record
+    Dest: TVector3;
+    Percent: Single;
   end;
 
   { Quake Heads-Up Display container }
@@ -38,6 +45,11 @@ type
     FMessageTimer: Single;
     FCrosshairVisible: Boolean;
     FStatsVisible: Boolean;
+    FContentsShift: TQuakeColorShift;
+    FDamageShift: TQuakeColorShift;
+    FBonusShift: TQuakeColorShift;
+    FPowerupShift: TQuakeColorShift;
+    function CalcBlend: TVector4;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -48,6 +60,16 @@ type
     { Display a centered notification message }
     procedure ShowMessage(const S: String; const Duration: Single = 3.0);
 
+    { Red flash after the player is hurt (V_ParseDamage).
+      Armor and Blood are the amounts absorbed by armor and taken from health. }
+    procedure DamageFlash(const Armor, Blood: Integer);
+
+    { Gold flash after picking up an item (bonus_flash) }
+    procedure BonusFlash;
+
+    { Tint for the liquid the view is in (V_SetContentsColor), CONTENTS_xxx value }
+    procedure SetContents(const Contents: Integer);
+
     { Render custom crosshair and status bar at bottom of viewport }
     procedure Render; override;
 
@@ -56,6 +78,15 @@ type
   end;
 
 implementation
+
+uses
+  QuakeBsp;
+
+function ColorShift(const R, G, B, Percent: Single): TQuakeColorShift;
+begin
+  Result.Dest := Vector3(R, G, B);
+  Result.Percent := Percent;
+end;
 
 { TQuakeHud }
 
@@ -99,11 +130,74 @@ begin
   FMessageTimer := Duration;
 end;
 
+procedure TQuakeHud.DamageFlash(const Armor, Blood: Integer);
+var
+  Count: Integer;
+begin
+  Count := Max(Armor + Blood, 10);
+  FDamageShift.Percent := Min(150, FDamageShift.Percent + 3 * Count);
+  if Armor > Blood then
+    FDamageShift.Dest := Vector3(200, 100, 100)
+  else if Armor > 0 then
+    FDamageShift.Dest := Vector3(220, 50, 50)
+  else
+    FDamageShift.Dest := Vector3(255, 0, 0);
+end;
+
+procedure TQuakeHud.BonusFlash;
+begin
+  FBonusShift := ColorShift(215, 186, 69, 50);
+end;
+
+procedure TQuakeHud.SetContents(const Contents: Integer);
+begin
+  case Contents of
+    CONTENTS_WATER: FContentsShift := ColorShift(130, 80, 50, 128);
+    CONTENTS_SLIME: FContentsShift := ColorShift(0, 25, 5, 150);
+    CONTENTS_LAVA:  FContentsShift := ColorShift(255, 80, 0, 150);
+    else            FContentsShift := ColorShift(0, 0, 0, 0);
+  end;
+end;
+
+function TQuakeHud.CalcBlend: TVector4;
+var
+  Shifts: array[0..3] of TQuakeColorShift;
+  I: Integer;
+  A, A2: Single;
+  Rgb: TVector3;
+begin
+  { V_CalcBlend: layer every active shift over the previous ones }
+  Shifts[0] := FContentsShift;
+  Shifts[1] := FDamageShift;
+  Shifts[2] := FBonusShift;
+  Shifts[3] := FPowerupShift;
+  A := 0;
+  Rgb := TVector3.Zero;
+  for I := 0 to High(Shifts) do
+  begin
+    A2 := Shifts[I].Percent / 255.0;
+    if A2 <= 0 then
+      Continue;
+    A := A + A2 * (1 - A);
+    A2 := A2 / A;
+    Rgb := Rgb * (1 - A2) + Shifts[I].Dest * A2;
+  end;
+  Result := Vector4(Rgb / 255.0, Min(A, 1.0));
+end;
+
 procedure TQuakeHud.Update(const SecondsPassed: Single; const Stats: TQuakePlayerStats);
 var
   Mins, Secs: Integer;
 begin
   FStats := Stats;
+
+  { Flashes fade out like in V_UpdatePalette }
+  FDamageShift.Percent := Max(0, FDamageShift.Percent - 150 * SecondsPassed);
+  FBonusShift.Percent := Max(0, FBonusShift.Percent - 100 * SecondsPassed);
+  if Stats.BiosuitTime > 0 then
+    FPowerupShift := ColorShift(0, 255, 0, 20)
+  else
+    FPowerupShift := ColorShift(0, 0, 0, 0);
 
   if FMessageTimer > 0 then
   begin
@@ -132,8 +226,14 @@ var
   BarW, BarH, BarX, BarY, ColW: Single;
   ArmorCol, HealthCol, AmmoCol: TVector4;
   KeyStr: String;
+  Blend: TVector4;
 begin
   inherited Render;
+
+  { 0. Palette shift over the 3D view (damage, pickups, liquids, powerups) }
+  Blend := CalcBlend;
+  if Blend.W > 0 then
+    DrawRectangle(RenderRect, Blend);
 
   { 1. Draw Quake Status Bar at bottom center }
   BarW := Min(RenderRect.Width - 40, 600);

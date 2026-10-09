@@ -137,6 +137,9 @@ type
       EyePos is the viewer position, used to project the sky layers. }
     procedure Update(const SecondsPassed: Single; const EyePos: TVector3);
 
+    { True if T is the world scene or the scene of a brush entity (door, plat...) }
+    function IsGeometryScene(const T: TCastleTransform): Boolean;
+
     { Find submodel by targetname or model string like "*1" }
     function FindSubmodel(const AName: String): TQuakeSubmodel;
 
@@ -361,6 +364,9 @@ begin
   Shape := TShapeNode.Create;
   Shape.Geometry := Geometry;
   Shape.Appearance := Appearance;
+  { Liquid surfaces are not solid in Quake: the player has to be able to dive in }
+  if IsLiquid then
+    Shape.Collision := scNone;
 end;
 
 { TQuakeLightmapAtlas }
@@ -969,6 +975,17 @@ begin
     FSkyTimeFields[I].Send(FSkyTime);
     FSkyEyeFields[I].Send(EyePos);
   end;
+end;
+
+function TQuakeGeometry.IsGeometryScene(const T: TCastleTransform): Boolean;
+var
+  Sub: TQuakeSubmodel;
+begin
+  Result := T = FSceneWorld;
+  if not Result then
+    for Sub in FSubmodels do
+      if T = Sub.Scene then
+        Exit(True);
 end;
 
 function TQuakeGeometry.FindSubmodel(const AName: String): TQuakeSubmodel;

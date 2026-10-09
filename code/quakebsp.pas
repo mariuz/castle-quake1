@@ -39,6 +39,14 @@ const
   SURF_DRAW_SLIME = $0040; { slime }
   SURF_DRAW_LAVA  = $0080; { lava }
 
+  { Leaf contents (bspfile.h) }
+  CONTENTS_EMPTY = -1;
+  CONTENTS_SOLID = -2;
+  CONTENTS_WATER = -3;
+  CONTENTS_SLIME = -4;
+  CONTENTS_LAVA  = -5;
+  CONTENTS_SKY   = -6;
+
 type
   TBSPLump = packed record
     Offset: Cardinal;
@@ -54,6 +62,25 @@ type
     Normal: TVector3;
     Dist: Single;
     PlaneType: Cardinal;
+  end;
+
+  TBSPNode = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of SmallInt; { >= 0: node index, < 0: -(leaf index + 1) }
+    Mins: array[0..2] of SmallInt;
+    Maxs: array[0..2] of SmallInt;
+    FirstFace: Word;
+    NumFaces: Word;
+  end;
+
+  TBSPLeaf = packed record
+    Contents: LongInt;
+    VisOfs: LongInt;
+    Mins: array[0..2] of SmallInt;
+    Maxs: array[0..2] of SmallInt;
+    FirstMarkSurface: Word;
+    NumMarkSurfaces: Word;
+    AmbientLevel: array[0..3] of Byte;
   end;
 
   TBSPEdge = packed record
@@ -138,6 +165,8 @@ type
   TBSPTexInfoArray = array of TBSPTexInfo;
   TBSPFaceArray = array of TBSPFace;
   TBSPModelArray = array of TBSPModel;
+  TBSPNodeArray = array of TBSPNode;
+  TBSPLeafArray = array of TBSPLeaf;
 
   { Loaded Quake 1 BSP map }
   TQuakeBsp = class
@@ -150,6 +179,8 @@ type
     FTexInfos: TBSPTexInfoArray;
     FFaces: TBSPFaceArray;
     FModels: TBSPModelArray;
+    FNodes: TBSPNodeArray;
+    FLeaves: TBSPLeafArray;
     FMiptexes: specialize TObjectList<TQuakeMiptex>;
     FLightmaps: PByte;
     FLightmapsSize: Cardinal;
@@ -178,6 +209,12 @@ type
 
     { Get face plane normal }
     function GetFaceNormal(const FaceIdx: Integer): TVector3;
+
+    { Contents (CONTENTS_xxx) of the world leaf containing a point in Quake coordinates }
+    function PointContents(const QuakePoint: TVector3): Integer;
+
+    { Same as PointContents, for a point in CGE coordinates }
+    function PointContentsCge(const CgePoint: TVector3): Integer;
 
     { Find entity by classname }
     function FindEntity(const AClassName: String): TQuakeEntity;
@@ -648,6 +685,24 @@ begin
       Stream.ReadBuffer(FModels[0], Hdr.Lumps[LUMP_MODELS].Length);
     end;
 
+    { 5: Nodes }
+    Count := Hdr.Lumps[LUMP_NODES].Length div SizeOf(TBSPNode);
+    SetLength(FNodes, Count);
+    if Count > 0 then
+    begin
+      Stream.Position := Hdr.Lumps[LUMP_NODES].Offset;
+      Stream.ReadBuffer(FNodes[0], Count * SizeOf(TBSPNode));
+    end;
+
+    { 10: Leaves }
+    Count := Hdr.Lumps[LUMP_LEAVES].Length div SizeOf(TBSPLeaf);
+    SetLength(FLeaves, Count);
+    if Count > 0 then
+    begin
+      Stream.Position := Hdr.Lumps[LUMP_LEAVES].Offset;
+      Stream.ReadBuffer(FLeaves[0], Count * SizeOf(TBSPLeaf));
+    end;
+
     { 8: Lightmaps }
     if FLightmaps <> nil then
     begin
@@ -677,6 +732,42 @@ begin
   finally
     Stream.Free;
   end;
+end;
+
+function TQuakeBsp.PointContents(const QuakePoint: TVector3): Integer;
+var
+  NodeIdx, Child: Integer;
+  Plane: TBSPPlane;
+  D: Single;
+begin
+  Result := CONTENTS_EMPTY;
+  if (Length(FModels) = 0) or (Length(FNodes) = 0) then
+    Exit;
+
+  NodeIdx := FModels[0].HeadNodes[0];
+  { Walk the BSP tree (SV_HullPointContents on hull 0 / Mod_PointInLeaf) }
+  while NodeIdx >= 0 do
+  begin
+    if (NodeIdx >= Length(FNodes)) or (FNodes[NodeIdx].PlaneId < 0) or
+       (FNodes[NodeIdx].PlaneId >= Length(FPlanes)) then
+      Exit;
+    Plane := FPlanes[FNodes[NodeIdx].PlaneId];
+    D := TVector3.DotProduct(Plane.Normal, QuakePoint) - Plane.Dist;
+    if D >= 0 then
+      Child := FNodes[NodeIdx].Children[0]
+    else
+      Child := FNodes[NodeIdx].Children[1];
+    NodeIdx := Child;
+  end;
+
+  NodeIdx := -(NodeIdx + 1);
+  if NodeIdx < Length(FLeaves) then
+    Result := FLeaves[NodeIdx].Contents;
+end;
+
+function TQuakeBsp.PointContentsCge(const CgePoint: TVector3): Integer;
+begin
+  Result := PointContents(Vector3(CgePoint.X, -CgePoint.Z, CgePoint.Y));
 end;
 
 function TQuakeBsp.GetFaceVertexCount(const FaceIdx: Integer): Integer;

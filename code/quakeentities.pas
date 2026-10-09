@@ -70,6 +70,9 @@ type
     DropItem: TQuakeItemKind;
     HasDrop: Boolean;
     SightSound, PainSound, DeathSound, AttackSound: String;
+    { Set when the monster attacked during the last Update; the world decides
+      whether the attack reaches the player and clears it. }
+    AttackLaunched: Boolean;
     constructor Create(const Parent: TCastleTransform; const ACName: String;
       const Pos: TVector3; const Yaw: Single; const MdlPath: String;
       const AHealth, ADamage: Integer; const ASpeed, ARange: Single);
@@ -245,6 +248,11 @@ begin
       begin
         MessageText := 'Pentagram of Protection!';
         PickupSound := 'sound/items/protect.wav';
+      end;
+    ikBioSuit:
+      begin
+        MessageText := 'You got the Biosuit';
+        PickupSound := 'sound/items/suit.wav';
       end;
     else
       begin
@@ -450,6 +458,7 @@ begin
     begin
       State := msAttack;
       AttackCooldown := 1.2;
+      AttackLaunched := True;
       Sounds.PlayAt(AttackSound, Transform);
       Lighting.TriggerMuzzleFlash(Transform.Translation + Vector3(0, 24, 0), 1.5);
     end;
