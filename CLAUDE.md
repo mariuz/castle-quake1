@@ -51,6 +51,8 @@ Demo script actions:
 - `R:name` record a demo to `castle-config:/<name>.dem`, `R` stops it
 - `B:1` / `B:0` world lighting: Quake lightmaps or dynamic PBR (reloads the map)
 
+QuakeC VM test: `--qctest e1m1` loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines in the log), then exits.
+
 Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo (or a file / `castle-config:` URL) with only `W`, `S` and `Q` actions; `-playdemo <name>` plays one from the menu view.
 - `Q` quit application
 
