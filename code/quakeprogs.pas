@@ -156,6 +156,8 @@ type
       const Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3; out HitEntity: Integer;
       out AllSolid, StartSolid, InOpen, InWater: Boolean); virtual;
     function WalkMove(const Progs: TQuakeProgs; const E: Integer; const Yaw, Dist: Single): Boolean; virtual;
+    { SV_MoveToGoal: a step of Dist towards self.goalentity }
+    procedure MoveToGoal(const Progs: TQuakeProgs; const E: Integer; const Dist: Single); virtual;
     function DropToFloor(const Progs: TQuakeProgs; const E: Integer): Boolean; virtual;
     function CheckBottom(const Progs: TQuakeProgs; const E: Integer): Boolean; virtual;
     function PointContents(const Progs: TQuakeProgs; const P: TVector3): Integer; virtual;
@@ -344,6 +346,9 @@ type
     procedure Execute(const F: Integer);
     { Convenience: self = E, other = world, then call F }
     procedure CallWith(const F, E: Integer);
+    procedure CallWithOther(const F, E, Other: Integer);
+    { Keep edicts 1..N for the clients (SV_SpawnServer) }
+    procedure ReserveEdicts(const N: Integer);
 
     { One server frame: StartFrame, then the thinks that are due
       (SV_Physics without movement); Time advances by FrameTime }
@@ -430,6 +435,20 @@ begin
   Org.Y := Org.Y + Sin(DegToRad(Yaw)) * Dist;
   Progs.SetFieldVector(E, Progs.FOrigin, Org);
   Result := True;
+end;
+
+procedure TQuakeProgsHost.MoveToGoal(const Progs: TQuakeProgs; const E: Integer; const Dist: Single);
+var
+  Goal: Integer;
+  Dir: TVector3;
+begin
+  Goal := Progs.Field(E, Progs.FieldOfs('goalentity'))^.I;
+  if Goal <= 0 then
+    Exit;
+  Dir := Progs.FieldVector(Goal, Progs.FOrigin) - Progs.FieldVector(E, Progs.FOrigin);
+  if (Dir.X = 0) and (Dir.Y = 0) then
+    Exit;
+  WalkMove(Progs, E, RadToDeg(ArcTan2(Dir.Y, Dir.X)), Dist);
 end;
 
 function TQuakeProgsHost.DropToFloor(const Progs: TQuakeProgs; const E: Integer): Boolean;
@@ -1301,6 +1320,26 @@ begin
   Execute(F);
 end;
 
+procedure TQuakeProgs.CallWithOther(const F, E, Other: Integer);
+begin
+  Global(FGSelf)^.I := E;
+  Global(FGOther)^.I := Other;
+  Execute(F);
+end;
+
+procedure TQuakeProgs.ReserveEdicts(const N: Integer);
+var
+  I: Integer;
+begin
+  for I := 1 to Min(N, MaxEdicts - 1) do
+  begin
+    FEdictFree[I] := False;
+    FillChar(FEdicts[I * FEntityFields], FEntityFields * SizeOf(TProgCell), 0);
+  end;
+  if FNumEdicts < N + 1 then
+    FNumEdicts := N + 1;
+end;
+
 procedure TQuakeProgs.RunFrame(const FrameTime: Single);
 var
   E, F: Integer;
@@ -1869,21 +1908,8 @@ begin
 end;
 
 procedure TQuakeProgs.PF_movetogoal;
-var
-  E, Goal: Integer;
-  Dir: TVector3;
-  Yaw: Single;
 begin
-  { SV_MoveToGoal: a step towards the enemy / goal }
-  E := Global(FGSelf)^.I;
-  Goal := Field(E, FieldOfs('goalentity'))^.I;
-  if Goal <= 0 then
-    Exit;
-  Dir := FieldVector(Goal, FFOrigin) - FieldVector(E, FFOrigin);
-  if (Dir.X = 0) and (Dir.Y = 0) then
-    Exit;
-  Yaw := RadToDeg(ArcTan2(Dir.Y, Dir.X));
-  FHost.WalkMove(Self, E, Yaw, Global(OFS_PARM0)^.F);
+  FHost.MoveToGoal(Self, Global(FGSelf)^.I, Global(OFS_PARM0)^.F);
 end;
 
 procedure TQuakeProgs.PF_makestatic;

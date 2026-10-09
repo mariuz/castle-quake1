@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs,
-  GameViewMenu, GameViewPlay, GameViewDemo;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc;
 
 var
   Window: TCastleWindow;
@@ -22,6 +22,7 @@ var
   CmdGame: String;
   CmdPlayDemo: String;
   CmdQcTest: String;
+  CmdQc: String;
 
 procedure ApplicationInitialize;
 
@@ -93,6 +94,11 @@ begin
     if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
     begin
       CmdWarp := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-qc') or (Parameters[I] = '--qc')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdQc := Parameters[I + 1];
       Inc(I);
     end else
     if (Parameters[I] = '--qctest') and (I + 1 <= Parameters.High) then
@@ -189,8 +195,22 @@ begin
   ViewMenu := TViewMenu.Create(Application);
   ViewPlay := TViewPlay.Create(Application);
   ViewDemo := TViewDemo.Create(Application);
+  ViewQc := TViewQc.Create(Application);
 
-  { Handle warp / autotest; a .dem name plays that demo instead of a map }
+  { Handle warp / autotest; a .dem name plays that demo instead of a map,
+    "qc:map" runs the map with its QuakeC }
+  if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 3)) = 'qc:') then
+  begin
+    ViewQc.MapName := Copy(AutoTestMap, 4, MaxInt);
+    ViewQc.AutoTestPrefix := AutoTestPrefix;
+    ViewQc.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewQc;
+  end else
+  if CmdQc <> '' then
+  begin
+    ViewQc.MapName := CmdQc;
+    Window.Container.View := ViewQc;
+  end else
   if (AutoTestMap <> '') and (LowerCase(ExtractFileExt(AutoTestMap)) = '.dem') then
   begin
     ViewDemo.DemoName := AutoTestMap;
