@@ -193,6 +193,9 @@ type
     FMsgSize, FMsgPos: Integer;
     FBadMessage: Boolean;
     FDisconnected: Boolean;
+    FNetwork: Boolean;
+    FNetBlocks: specialize TQueue<TBytes>;
+    FNetCurrent: TBytes;
     function ReadByte: Integer;
     function ReadChar: Integer;
     function ReadShort: Integer;
@@ -233,6 +236,13 @@ type
     IntermissionTime: Single;
     Finished: Boolean;
     LevelStartTime: Single;
+    { Network: the scoreboard (svc_updatefrags, svc_updatename) }
+    Frags: array[0..15] of Integer;
+    Names: array[0..15] of String;
+    FragsChanged: Boolean;
+    { Network: the server set the view angles (svc_setangle); the owner
+      takes ViewAngles and clears this }
+    AngleFixed: Boolean;
 
     OnServerInfo: TDemoSimpleEvent;
     OnSound: TDemoSoundEvent;
@@ -248,6 +258,13 @@ type
 
     { A demo from the PAKs ('demo1.dem') or any URL }
     function Load(const NameOrUrl: String): Boolean;
+
+    { Network client: the blocks come from PushBlock instead of a file,
+      nothing is finished until the server disconnects, and the view
+      angles are the owner's }
+    procedure StartNetwork;
+    procedure PushBlock(const Data: TBytes);
+    property Network: Boolean read FNetwork;
 
     { CL_ReadFromServer: read the messages that are due and interpolate }
     procedure Advance(const SecondsPassed: Single);
@@ -355,6 +372,7 @@ end;
 constructor TQuakeDemoReader.Create;
 begin
   inherited Create;
+  FNetBlocks := specialize TQueue<TBytes>.Create;
   FData := TMemoryStream.Create;
   Models := TStringList.Create;
   Sounds := TStringList.Create;
@@ -364,6 +382,7 @@ end;
 
 destructor TQuakeDemoReader.Destroy;
 begin
+  FNetBlocks.Free;
   FData.Free;
   Models.Free;
   Sounds.Free;
@@ -537,6 +556,18 @@ var
   Angles: TVector3;
 begin
   Result := False;
+  if FNetwork then
+  begin
+    if FNetBlocks.Count = 0 then
+      Exit;
+    FNetCurrent := FNetBlocks.Dequeue;
+    if Length(FNetCurrent) = 0 then
+      Exit(ReadBlock);
+    FMsg := PByte(@FNetCurrent[0]);
+    FMsgSize := Length(FNetCurrent);
+    FMsgPos := 0;
+    Exit(True);
+  end;
   if FData.Position + 16 > FData.Size then
     Exit;
   FData.ReadBuffer(Len, 4);
@@ -833,6 +864,7 @@ begin
           ViewAngles.Z := ReadAngle;
           MViewAngles[0] := ViewAngles;
           MViewAngles[1] := ViewAngles;
+          AngleFixed := True;
         end;
       svc_serverinfo:
         ParseServerInfo;
@@ -849,13 +881,23 @@ begin
         end;
       svc_updatename:
         begin
-          ReadByte;
-          ReadString;
+          I := ReadByte;
+          S := ReadString;
+          if (I >= 0) and (I <= High(Names)) then
+          begin
+            Names[I] := S;
+            FragsChanged := True;
+          end;
         end;
       svc_updatefrags:
         begin
-          ReadByte;
-          ReadShort;
+          I := ReadByte;
+          Count := ReadShort;
+          if (I >= 0) and (I <= High(Frags)) and (Frags[I] <> Count) then
+          begin
+            Frags[I] := Count;
+            FragsChanged := True;
+          end;
         end;
       svc_clientdata:
         ParseClientData;
@@ -1008,7 +1050,9 @@ var
   F, D: Single;
   Delta: TVector3;
 begin
-  { View angles between the two recorded frames }
+  { View angles between the two recorded frames (a network client looks
+    where its owner does) }
+  if not FNetwork then
   for J := 0 to 2 do
   begin
     D := MViewAngles[0].Data[J] - MViewAngles[1].Data[J];
@@ -1049,11 +1093,50 @@ begin
   end;
 end;
 
+procedure TQuakeDemoReader.StartNetwork;
+var
+  I: Integer;
+begin
+  FNetwork := True;
+  FNetBlocks.Clear;
+  FDisconnected := False;
+  Finished := False;
+  ClearState;
+  for I := 0 to High(Frags) do
+  begin
+    Frags[I] := 0;
+    Names[I] := '';
+  end;
+  FragsChanged := False;
+  AngleFixed := False;
+end;
+
+procedure TQuakeDemoReader.PushBlock(const Data: TBytes);
+begin
+  FNetBlocks.Enqueue(Data);
+end;
+
 procedure TQuakeDemoReader.Advance(const SecondsPassed: Single);
 begin
   if Finished then
     Exit;
   Time := Time + SecondsPassed;
+  if FNetwork then
+  begin
+    { Everything the server sent so far }
+    while ReadBlock do
+    begin
+      ParseMessages;
+      if FDisconnected then
+      begin
+        Finished := True;
+        Break;
+      end;
+    end;
+    LerpPoint;
+    RelinkEntities;
+    Exit;
+  end;
   { CL_ReadFromServer: messages are read until the next one lies in the
     future; everything is read until the connection is complete }
   while True do

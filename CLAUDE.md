@@ -54,6 +54,8 @@ Demo script actions:
 QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and the player; `--autotest qc:e1m1 C:\TMP\qc --demo "W:1,S,Q"` does it headless (actions W, S, X, F, C, A, T, P, G, V, J, K, Y, Q; screenshots log health and kills). `--qctest e1m1` only loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines), then exits.
 
 Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo (or a file / `castle-config:` URL) with only `W`, `S` and `Q` actions; `-playdemo <name>` plays one from the menu view.
+
+Multiplayer: `-host <map> [-port N]` hosts a deathmatch game (UDP, default port 26000) and plays in it, `-connect host[:port]` joins one. Headless: `--autotest host:start C:\TMP\h --demo "W:5,S,Q"` and, in a second process, `--autotest connect:127.0.0.1 C:\TMP\c --demo "W:3,S,X,W:1,S,Q"` (actions W, S, X, F, C, A, T, P, V, J, Q; screenshots log signon, health and frags). `K` and `Y` are no cheats in deathmatch.
 - `Q` quit application
 
 ## Conventions & Rules

@@ -13,8 +13,8 @@ uses
 
 type
   TMenuAction = (
-    maNone, maNewGame, maWarpMap, maPlayDemo, maPlayQc, maToggleShadows, maToggleLighting, maToggleCamera,
-    maToggleSound, maQuit
+    maNone, maNewGame, maWarpMap, maPlayDemo, maPlayQc, maHostGame, maJoinGame, maToggleShadows,
+    maToggleLighting, maToggleCamera, maToggleSound, maQuit
   );
 
   TOnMenuActionEvent = procedure(const Action: TMenuAction; const Param: String) of object;
@@ -23,7 +23,7 @@ type
   TQuakeMenu = class(TCastleUserInterface)
   private
     FSelectedIdx: Integer;
-    FSubMenu: (smMain, smEpisodes, smMaps, smDemos, smOptions, smShowcase);
+    FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smShowcase);
     FDemoUrls: TStringList;
     FItems: TStringList;
     FOnMenuAction: TOnMenuActionEvent;
@@ -78,6 +78,7 @@ begin
     smMain:
       begin
         FItems.Add('Single Player');
+        FItems.Add('Multiplayer');
         FItems.Add('Map Warp');
         FItems.Add('Demos');
         FItems.Add('Options');
@@ -92,6 +93,13 @@ begin
           FItems.Add('Quake: Episode Hub');
         FItems.Add('LibreQuake: Episode Hub');
         FItems.Add('QuakeC Mode: progs.dat runs the game');
+        FItems.Add('Back to Main Menu');
+      end;
+    smMultiplayer:
+      begin
+        FItems.Add('Host Deathmatch: start (port 26000)');
+        FItems.Add('Host Deathmatch: e1m1 (port 26000)');
+        FItems.Add('Join: localhost');
         FItems.Add('Back to Main Menu');
       end;
     smMaps:
@@ -172,11 +180,29 @@ begin
     smMain:
       case FSelectedIdx of
         0: begin FSubMenu := smEpisodes; RebuildMenuItems; end;
-        1: begin FSubMenu := smMaps; RebuildMenuItems; end;
-        2: begin FSubMenu := smDemos; RebuildMenuItems; end;
-        3: begin FSubMenu := smOptions; RebuildMenuItems; end;
-        4: begin FSubMenu := smShowcase; RebuildMenuItems; end;
-        5: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+        1: begin FSubMenu := smMultiplayer; RebuildMenuItems; end;
+        2: begin FSubMenu := smMaps; RebuildMenuItems; end;
+        3: begin FSubMenu := smDemos; RebuildMenuItems; end;
+        4: begin FSubMenu := smOptions; RebuildMenuItems; end;
+        5: begin FSubMenu := smShowcase; RebuildMenuItems; end;
+        6: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+      end;
+    smMultiplayer:
+      begin
+        if ItemText = 'Back to Main Menu' then
+        begin
+          FSubMenu := smMain;
+          RebuildMenuItems;
+        end else
+        if Assigned(FOnMenuAction) then
+        begin
+          if Pos('Host Deathmatch: start', ItemText) = 1 then
+            FOnMenuAction(maHostGame, 'start')
+          else if Pos('Host Deathmatch: e1m1', ItemText) = 1 then
+            FOnMenuAction(maHostGame, 'e1m1')
+          else
+            FOnMenuAction(maJoinGame, '127.0.0.1');
+        end;
       end;
     smEpisodes:
       begin

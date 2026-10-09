@@ -1,7 +1,12 @@
 { Plays Quake .dem recordings: the map named by the demo is loaded, the
   entities of every server frame are shown with their models, and sounds,
   effects, lightstyles, centerprints and the status bar follow the
-  recorded messages. }
+  recorded messages.
+
+  The same view is the multiplayer client: with NetHost set it connects to
+  a TQuakeServer, feeds the server's messages to the same reader, and
+  sends the player's input back; with HostMap set it runs that server in
+  this process first (a listen server). }
 unit GameViewDemo;
 
 {$mode objfpc}{$H+}
@@ -12,8 +17,9 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
+  CastleCameras,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo;
+  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer;
 
 type
   TDemoVisual = record
@@ -47,6 +53,14 @@ type
     FLevelStart: Single;
     FFinishedTimer: Single;
     FLoaded: Boolean;
+    { Network client }
+    FClient: TQuakeNetClient;
+    FNavigation: TCastleWalkNavigation;
+    FImpulse: Integer;
+    FFireHeld: Single;
+    FScriptMove: TVector3;
+    FScriptJump: Single;
+    FWasConnected: Boolean;
     { Autotest: W:sec, S (screenshot), Q }
     FScript: TStringList;
     FScriptIndex: Integer;
@@ -75,12 +89,20 @@ type
     procedure RunScript(const SecondsPassed: Single);
     procedure CaptureScreenshot;
     procedure Leave;
+    procedure SetViewAngles(const Yaw, Pitch: Single);
+    procedure UpdateNetwork(const SecondsPassed: Single);
+    procedure SendInput;
   public
     { PAK name ('demo1.dem') or URL of the demo to play }
     DemoName: String;
     { Headless testing: screenshots go to Prefix_N.png, Script like the
       play view's --demo (W, S and Q) }
     AutoTestPrefix, AutoTestScript: String;
+    { Multiplayer: the server to join (NetHost, NetPort; 0 is the default
+      port), and the map to host in this process first (HostMap) }
+    NetHost: String;
+    NetPort: Word;
+    HostMap: String;
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -88,6 +110,7 @@ type
     procedure Stop; override;
     procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
     function Press(const Event: TInputPressRelease): Boolean; override;
+    function NetMode: Boolean;
   end;
 
 var
@@ -147,6 +170,13 @@ begin
     FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
     InsertFront(FViewport);
 
+    FNavigation := TCastleWalkNavigation.Create(Self);
+    FNavigation.MoveSpeed := 0;
+    FNavigation.Gravity := False;
+    FNavigation.HeadBobbing := 0;
+    FNavigation.MouseLook := False;
+    FViewport.InsertFront(FNavigation);
+
     FWeaponTransform := TCastleTransform.Create(Self);
     FWeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
     FViewport.Camera.Add(FWeaponTransform);
@@ -165,6 +195,9 @@ begin
     InsertFront(FHud);
   end;
   FHud.StopIntermission;
+  FHud.CrosshairVisible := NetMode;
+  FNavigation.Exists := NetMode;
+  FNavigation.MouseLook := NetMode and (AutoTestPrefix = '');
   Particles.SetParent(FViewport.Items);
 
   FScript.Clear;
@@ -177,7 +210,39 @@ begin
 
   FFinishedTimer := 0;
   FLoaded := False;
+  FImpulse := 0;
+  FFireHeld := 0;
+  FScriptMove := TVector3.Zero;
+  FScriptJump := 0;
+  FWasConnected := False;
   ClearLevel;
+  if NetMode then
+  begin
+    if NetPort = 0 then
+      NetPort := DefaultNetPort;
+    FreeAndNil(ListenServer);
+    if HostMap <> '' then
+    begin
+      ListenServer := TQuakeServer.Create(NetPort, HostMap, MaxNetClients);
+      if not ListenServer.Valid then
+      begin
+        FHud.ShowMessage('Cannot host ' + HostMap + ' on port ' + IntToStr(NetPort), 3);
+        FreeAndNil(ListenServer);
+        FDemo.Finished := True;
+        Exit;
+      end;
+      NetHost := '127.0.0.1';
+    end;
+    FDemo.StartNetwork;
+    FreeAndNil(FClient);
+    FClient := TQuakeNetClient.Create;
+    if not FClient.Connect(NetHost, NetPort) then
+    begin
+      FHud.ShowMessage('Cannot connect to ' + NetHost + ':' + IntToStr(NetPort), 3);
+      FDemo.Finished := True;
+    end else
+      FHud.ShowMessage('Connecting to ' + NetHost + ':' + IntToStr(NetPort) + '...', 5);
+  end else
   if not FDemo.Load(DemoName) then
   begin
     FHud.ShowMessage('Cannot play demo ' + DemoName, 3);
@@ -187,12 +252,95 @@ end;
 
 procedure TViewDemo.Stop;
 begin
+  if FClient <> nil then
+  begin
+    FClient.Disconnect;
+    FreeAndNil(FClient);
+  end;
+  FreeAndNil(ListenServer);
   ClearLevel;
   if Sounds <> nil then
     Sounds.StopMusic;
   if Lighting <> nil then
     Lighting.ResetStyles;
   inherited Stop;
+end;
+
+function TViewDemo.NetMode: Boolean;
+begin
+  Result := (NetHost <> '') or (HostMap <> '');
+end;
+
+procedure TViewDemo.SetViewAngles(const Yaw, Pitch: Single);
+var
+  Dir: TVector3;
+  P: Single;
+begin
+  { Quake angles: yaw 0 along +X, pitch > 0 looks down }
+  P := EnsureRange(Pitch, -89, 89);
+  FDemo.ViewAngles := Vector3(P, Yaw, 0);
+  Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(P)), Sin(DegToRad(Yaw)) * Cos(DegToRad(P)), -Sin(DegToRad(P)));
+  FViewport.Camera.SetWorldView(FViewport.Camera.Translation, QuakeToCge(Dir), Vector3(0, 1, 0));
+end;
+
+procedure TViewDemo.SendInput;
+var
+  Input: TNetInput;
+begin
+  Input := Default(TNetInput);
+  Input.Angles := FDemo.ViewAngles;
+  if AutoTestPrefix = '' then
+  begin
+    if FNavigation.Input_Forward.IsPressed(Container) then
+      Input.Move.X := Input.Move.X + ClForwardSpeed;
+    if FNavigation.Input_Backward.IsPressed(Container) then
+      Input.Move.X := Input.Move.X - ClBackSpeed;
+    if FNavigation.Input_RightStrafe.IsPressed(Container) then
+      Input.Move.Y := Input.Move.Y + ClSideSpeed;
+    if FNavigation.Input_LeftStrafe.IsPressed(Container) then
+      Input.Move.Y := Input.Move.Y - ClSideSpeed;
+    if FNavigation.Input_Run.IsPressed(Container) then
+      Input.Move := Input.Move * 0.5;
+    if FNavigation.Input_Jump.IsPressed(Container) then
+      Input.Buttons := Input.Buttons or nbJump;
+    if Container.Pressed[keyCtrl] or (buttonLeft in Container.MousePressed) then
+      Input.Buttons := Input.Buttons or nbFire;
+  end;
+  Input.Move := Input.Move + Vector3(FScriptMove.X * ClForwardSpeed, FScriptMove.Y * ClSideSpeed,
+    FScriptMove.Z * ClUpSpeed);
+  if FScriptJump > 0 then
+    Input.Buttons := Input.Buttons or nbJump;
+  if FFireHeld > 0 then
+    Input.Buttons := Input.Buttons or nbFire;
+  Input.Impulse := EnsureRange(FImpulse, 0, 255);
+  FImpulse := 0;
+  FClient.SendInput(Input);
+end;
+
+procedure TViewDemo.UpdateNetwork(const SecondsPassed: Single);
+var
+  Data: TNetBytes;
+begin
+  { The listen server runs here, before its own client reads it }
+  if ListenServer <> nil then
+    ListenServer.Update(SecondsPassed);
+  if FClient = nil then
+    Exit;
+  FClient.Update(SecondsPassed);
+  while FClient.PollBlock(Data) do
+    FDemo.PushBlock(Data);
+  if FClient.State = csConnected then
+    FWasConnected := True
+  else
+  if (FClient.State = csDisconnected) and not FDemo.Finished then
+  begin
+    if FWasConnected then
+      FHud.ShowMessage('Disconnected from the server', 3)
+    else
+      FHud.ShowMessage('Cannot reach ' + NetHost + ':' + IntToStr(NetPort) + ' ' + FClient.Error, 3);
+    WritelnLog('GameViewDemo', 'Connection ended: %s', [FClient.Error]);
+    FDemo.Finished := True;
+  end;
 end;
 
 procedure TViewDemo.FreeVisual(var V: TDemoVisual);
@@ -678,7 +826,8 @@ begin
     begin
       SaveImage(Img, OutPath);
       Img.Free;
-      WritelnLog('GameViewDemo', 'Saved screenshot to "%s"', [OutPath]);
+      WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, frags %d, time %.1f)',
+        [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
     end;
   except
     on E: Exception do
@@ -690,6 +839,7 @@ procedure TViewDemo.RunScript(const SecondsPassed: Single);
 var
   Cmd, Action, Param: String;
   P: Integer;
+  Parts: TStringArray;
 begin
   while FScriptIndex < FScript.Count do
   begin
@@ -713,6 +863,29 @@ begin
     end else
     if Action = 'S' then
       CaptureScreenshot
+    else if Action = 'X' then
+      FFireHeld := 0.05
+    else if Action = 'F' then
+      FFireHeld := StrToFloatDef(Param, 1.0)
+    else if Action = 'C' then
+      FImpulse := StrToIntDef(Param, 2)
+    else if Action = 'K' then
+      FImpulse := 9
+    else if Action = 'A' then
+      SetViewAngles(StrToFloatDef(Param, 0), FDemo.ViewAngles.X)
+    else if Action = 'T' then
+      SetViewAngles(FDemo.ViewAngles.Y + StrToFloatDef(Param, 0), FDemo.ViewAngles.X)
+    else if Action = 'P' then
+      SetViewAngles(FDemo.ViewAngles.Y, -StrToFloatDef(Param, 0))
+    else if Action = 'V' then
+    begin
+      Parts := Param.Split([';']);
+      FScriptMove := TVector3.Zero;
+      for P := 0 to Min(High(Parts), 2) do
+        FScriptMove.Data[P] := StrToFloatDef(Parts[P], 0);
+    end else
+    if Action = 'J' then
+      FScriptJump := 0.1
     else
     if Action = 'Q' then
     begin
@@ -725,6 +898,8 @@ end;
 
 procedure TViewDemo.Leave;
 begin
+  if FClient <> nil then
+    FClient.Disconnect;
   if AutoTestPrefix <> '' then
     Application.Terminate
   else
@@ -734,14 +909,17 @@ end;
 procedure TViewDemo.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 var
   I, J: Integer;
-  Eye, Dir: TVector3;
+  Eye, Dir, CamDir: TVector3;
   Pitch, Yaw: Single;
   CD: TDemoClientData;
+  Cmd: String;
 begin
   inherited Update(SecondsPassed, HandleInput);
 
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
+  if NetMode then
+    UpdateNetwork(SecondsPassed);
 
   if FDemo.Finished then
   begin
@@ -756,6 +934,40 @@ begin
     Exit;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
     FLevelStart := FDemo.Time;
+
+  if NetMode then
+  begin
+    { The player looks where the mouse turned the camera, unless the
+      server set the angles (spawn, teleport); then the input goes out }
+    CamDir := FViewport.Camera.Direction;
+    Yaw := RadToDeg(ArcTan2(-CamDir.Z, CamDir.X));
+    Pitch := -RadToDeg(ArcSin(Clamped(CamDir.Y, -1, 1)));
+    if FDemo.AngleFixed then
+    begin
+      Yaw := FDemo.ViewAngles.Y;
+      Pitch := FDemo.ViewAngles.X;
+      FDemo.AngleFixed := False;
+    end;
+    FDemo.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
+    FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
+    if FDemo.Signon = Signons then
+      SendInput;
+    FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
+    if FDemo.FragsChanged then
+    begin
+      FDemo.FragsChanged := False;
+      Cmd := '';
+      for I := 0 to High(FDemo.Names) do
+        if FDemo.Names[I] <> '' then
+        begin
+          if Cmd <> '' then
+            Cmd := Cmd + '   ';
+          Cmd := Cmd + FDemo.Names[I] + ': ' + IntToStr(FDemo.Frags[I]);
+        end;
+      if Cmd <> '' then
+        FHud.ShowMessage(Cmd, 4);
+    end;
+  end;
 
   { Entities of this server frame }
   for I := 0 to High(FSubmodelUsed) do
@@ -805,10 +1017,32 @@ begin
 end;
 
 function TViewDemo.Press(const Event: TInputPressRelease): Boolean;
+var
+  I: Integer;
 begin
   Result := inherited Press(Event);
   if Result then
     Exit;
+  if NetMode then
+  begin
+    if Event.IsKey(keyEscape) then
+    begin
+      Leave;
+      Exit(True);
+    end;
+    for I := 1 to 8 do
+      if Event.IsKey(Chr(Ord('0') + I)) then
+      begin
+        FImpulse := I;
+        Exit(True);
+      end;
+    if Event.IsKey(keyF12) then
+    begin
+      CaptureScreenshot;
+      Exit(True);
+    end;
+    Exit;
+  end;
   if Event.IsKey(keyEscape) or Event.IsKey(keyEnter) or Event.IsKey(keySpace) then
   begin
     Leave;

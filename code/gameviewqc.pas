@@ -72,12 +72,12 @@ type
     procedure CaptureScreenshot;
     procedure SetViewAngles(const Yaw, Pitch: Single);
     { Game events }
-    procedure HandleSound(const E: Integer; const Sample: String; const Volume, Attenuation: Single;
+    procedure HandleSound(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
       const Origin: TVector3);
-    procedure HandleCenterPrint(const S: String);
-    procedure HandleStuffCmd(const S: String);
+    procedure HandleCenterPrint(const E: Integer; const S: String);
+    procedure HandleStuffCmd(const E: Integer; const S: String);
     procedure HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector3; const Entity: Integer);
-    procedure HandleDamage(const Armor, Blood: Integer);
+    procedure HandleDamage(const E, Armor, Blood: Integer);
     procedure HandleAmbient(const Origin: TVector3; const Sample: String; const Volume: Single);
     procedure HandleIntermission(const S: String);
   public
@@ -296,7 +296,7 @@ end;
 
 { Events }
 
-procedure TViewQc.HandleSound(const E: Integer; const Sample: String; const Volume, Attenuation: Single;
+procedure TViewQc.HandleSound(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
   const Origin: TVector3);
 var
   T: TCastleTransform;
@@ -312,19 +312,19 @@ begin
   end;
 end;
 
-procedure TViewQc.HandleCenterPrint(const S: String);
+procedure TViewQc.HandleCenterPrint(const E: Integer; const S: String);
 begin
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
-procedure TViewQc.HandleStuffCmd(const S: String);
+procedure TViewQc.HandleStuffCmd(const E: Integer; const S: String);
 begin
   { bf = bonus flash, the rest (cd tracks, cvars) is ignored }
   if S = 'bf' then
     FHud.BonusFlash;
 end;
 
-procedure TViewQc.HandleDamage(const Armor, Blood: Integer);
+procedure TViewQc.HandleDamage(const E, Armor, Blood: Integer);
 begin
   FHud.DamageFlash(Armor, Blood);
 end;
