@@ -47,6 +47,7 @@ Demo script actions:
 - `J` jump (press briefly)
 - `K` cheat: give all weapons, ammo, keys
 - `Y` cheat: toggle god mode
+- `O:slot` save the game to a slot, `L:slot` load it (`castle-config:/save_<slot>.sav`)
 - `Q` quit application
 
 ## Conventions & Rules
