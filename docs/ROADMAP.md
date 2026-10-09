@@ -23,6 +23,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Level Flow** | `trigger_changelevel`, locked doors with Silver/Gold keys, secret counters | Start map hub with skill and episode portals, runes and episode gates, level parms carried between maps, trigger messages, secret areas, keys tracked in HUD, warp console command, submodel doors | Locked door triggers. |
 | **Intermission** | Intermission stats screen with animated tallies and sound effects | `info_intermission` camera, level title, `gfx/complete.lmp` / `gfx/inter.lmp` and big number pictures with counting tallies, `trigger_secret` counting | Matches original (plus counting tallies). |
 | **Save / Load** | Quake binary savegame format (`.sav`) | Text key/value savegames in the user config directory: level, player, inventory, doors and plats, items, monsters and triggers; F6 / F9 quicksave and console `save` / `load` | Projectiles and gibs in flight are not saved. |
+| **Demos** | `.dem` recording and playback of the network stream (protocol 15) | `QuakeDemo`: protocol 15 reader with server frame interpolation shown by `GameViewDemo`, writer recording the game from `TQuakeWorld` (console `record` / `stop`) | Matches original; demos play in Quake engines too. |
 | **Game Logic VM** | Stack-based QuakeC bytecode VM (`progs.dat`) | Native Object Pascal | Keep high-performance Pascal as primary; optional `progs.dat` interpreter. |
 
 ---
@@ -85,8 +86,9 @@ This document outlines the architectural comparison between **Castle Quake** and
 - [x] **Save & Load System**:
   - Savegame system recording player state, inventory, camera position, submodel states, and remaining monsters to disk or browser `localStorage`.
   - Done with `QuakeSaveGame` (`key=value` text saved through `castle-config:/save_<slot>.sav`, so CGE puts it in the user config directory) and `TQuakeWorld.SaveGame` / `LoadGame`: map, skill, runes and the hub choice, player stats and the level start parms, origin, velocity and view, air and timers, door / plat / button positions and states, taken items, monsters (position, yaw, health, state, alert, enemy, gibbed, counted) and fired triggers. Loading spawns the map again with the saved skill and puts every entity back by index. F6 / F9 quicksave and quickload like Quake, console `save [slot]` / `load [slot]`, demo actions `O:slot` / `L:slot`. Not while dead or in the intermission.
-- [ ] **Quake Demos (`.dem`)**:
+- [x] **Quake Demos (`.dem`)**:
   - Support recording and playback of original Quake demo files.
+  - Done with the `QuakeDemo` unit: `TQuakeDemoReader` parses the NetQuake protocol 15 stream (serverinfo, baselines, static entities, fast entity updates with `cl_parse.c` interpolation between server frames, client data, sounds, temp entities, particles, lightstyles, prints, intermission) and `GameViewDemo` shows it: the demo's map with its brush entities placed by the recording, alias models at their frames, the view entity's eyes and recorded view angles, the view weapon, beams, trails from the model flags, sounds, the status bar and the intermission. "Demos" in the menu lists the PAK demos and recordings; `-playdemo <name>` and `--autotest <name>.dem` play one. `TQuakeDemoWriter` records the game from `TQuakeWorld` (console `record <name>` / `stop`, demo action `R:name` / `R`): the player, doors, monsters, items, projectiles and gibs each frame, client data, sounds, explosions, teleports, puffs, blood, centerprints, kills, secrets, damage and the intermission, one serverinfo section per level, with models and sounds numbered on first use and baselines written when the demo is saved to `castle-config:/<name>.dem`.
 
 ### Phase 5: Advanced & Modding Features
 - [ ] **Software Lightmap Rendering Option**:

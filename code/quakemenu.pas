@@ -8,11 +8,12 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
-  CastleRectangles, CastleGLUtils, CastleImages, QuakeSound, QuakePak;
+  CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils,
+  QuakeSound, QuakePak;
 
 type
   TMenuAction = (
-    maNone, maNewGame, maWarpMap, maToggleShadows, maToggleCamera, maToggleSound, maQuit
+    maNone, maNewGame, maWarpMap, maPlayDemo, maToggleShadows, maToggleCamera, maToggleSound, maQuit
   );
 
   TOnMenuActionEvent = procedure(const Action: TMenuAction; const Param: String) of object;
@@ -21,7 +22,8 @@ type
   TQuakeMenu = class(TCastleUserInterface)
   private
     FSelectedIdx: Integer;
-    FSubMenu: (smMain, smEpisodes, smMaps, smOptions, smShowcase);
+    FSubMenu: (smMain, smEpisodes, smMaps, smDemos, smOptions, smShowcase);
+    FDemoUrls: TStringList;
     FItems: TStringList;
     FOnMenuAction: TOnMenuActionEvent;
     FShadowsEnabled: Boolean;
@@ -48,6 +50,7 @@ begin
   inherited Create(AOwner);
   FullSize := True;
   FItems := TStringList.Create;
+  FDemoUrls := TStringList.Create;
   FSelectedIdx := 0;
   FSubMenu := smMain;
   FShadowsEnabled := False;
@@ -59,10 +62,15 @@ end;
 destructor TQuakeMenu.Destroy;
 begin
   FItems.Free;
+  FDemoUrls.Free;
   inherited Destroy;
 end;
 
 procedure TQuakeMenu.RebuildMenuItems;
+var
+  PakFiles: TStringList;
+  Found: TFileInfoList;
+  I: Integer;
 begin
   FItems.Clear;
   case FSubMenu of
@@ -70,6 +78,7 @@ begin
       begin
         FItems.Add('Single Player');
         FItems.Add('Map Warp');
+        FItems.Add('Demos');
         FItems.Add('Options');
         FItems.Add('CGE Features Showcase');
         FItems.Add('Quit');
@@ -91,6 +100,38 @@ begin
         FItems.Add('maps/e1m3.bsp');
         FItems.Add('maps/lq_e0m1.bsp');
         FItems.Add('maps/lq_e0m2.bsp');
+        FItems.Add('Back to Main Menu');
+      end;
+    smDemos:
+      begin
+        { Demos from the PAKs and recordings in the config directory }
+        FDemoUrls.Clear;
+        PakFiles := Pak.FindFiles('', '.dem');
+        try
+          PakFiles.Sort;
+          for I := 0 to PakFiles.Count - 1 do
+          begin
+            FItems.Add(PakFiles[I]);
+            FDemoUrls.Add(PakFiles[I]);
+          end;
+        finally
+          PakFiles.Free;
+        end;
+        try
+          Found := FindFilesList('castle-config:/', '*.dem', False, []);
+          try
+            Found.SortUrls;
+            for I := 0 to Found.Count - 1 do
+            begin
+              FItems.Add('recorded: ' + Found[I].Name);
+              FDemoUrls.Add(Found[I].Url);
+            end;
+          finally
+            Found.Free;
+          end;
+        except
+          { no config directory yet }
+        end;
         FItems.Add('Back to Main Menu');
       end;
     smOptions:
@@ -126,9 +167,10 @@ begin
       case FSelectedIdx of
         0: begin FSubMenu := smEpisodes; RebuildMenuItems; end;
         1: begin FSubMenu := smMaps; RebuildMenuItems; end;
-        2: begin FSubMenu := smOptions; RebuildMenuItems; end;
-        3: begin FSubMenu := smShowcase; RebuildMenuItems; end;
-        4: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+        2: begin FSubMenu := smDemos; RebuildMenuItems; end;
+        3: begin FSubMenu := smOptions; RebuildMenuItems; end;
+        4: begin FSubMenu := smShowcase; RebuildMenuItems; end;
+        5: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
       end;
     smEpisodes:
       begin
@@ -154,6 +196,16 @@ begin
         end else
         if Assigned(FOnMenuAction) then
           FOnMenuAction(maWarpMap, ItemText);
+      end;
+    smDemos:
+      begin
+        if ItemText = 'Back to Main Menu' then
+        begin
+          FSubMenu := smMain;
+          RebuildMenuItems;
+        end else
+        if Assigned(FOnMenuAction) and (FSelectedIdx < FDemoUrls.Count) then
+          FOnMenuAction(maPlayDemo, FDemoUrls[FSelectedIdx]);
       end;
     smOptions:
       case FSelectedIdx of

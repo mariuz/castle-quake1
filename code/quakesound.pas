@@ -18,6 +18,10 @@ type
     FMusicSound: TCastleSound;
     FCurrentMusicTrack: String;
     FEnabled: Boolean;
+  public
+    { Demo recording: every sound played (Spatial = False for Play) }
+    OnPlay: procedure(const APath: String; const Spatial: Boolean; const ATransform: TCastleTransform;
+      const Volume: Single) of object;
     function GetSound(const APath: String): TCastleSound;
   public
     constructor Create;
@@ -81,6 +85,8 @@ var
   Snd: TCastleSound;
   Playing: TCastlePlayingSound;
 begin
+  if Assigned(OnPlay) then
+    OnPlay(APath, False, nil, Volume);
   if not FEnabled or (SoundEngine = nil) then
     Exit;
 
@@ -106,6 +112,8 @@ var
   Snd: TCastleSound;
   Source: TCastleSoundSource;
 begin
+  if Assigned(OnPlay) and (ATransform <> nil) then
+    OnPlay(APath, True, ATransform, Volume);
   if not FEnabled or (SoundEngine = nil) or (ATransform = nil) then
     Exit;
 

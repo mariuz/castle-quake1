@@ -62,6 +62,10 @@ type
     FInterTick: Single;
     FInterReady: Boolean;     { the player may continue }
     function CalcBlend: TVector4;
+  public
+    { Demo recording: centerprints }
+    OnMessage: procedure(const S: String) of object;
+  private
     procedure UpdateIntermission(const SecondsPassed: Single);
     procedure RenderIntermission;
   public
@@ -154,6 +158,8 @@ end;
 
 procedure TQuakeHud.ShowMessage(const S: String; const Duration: Single);
 begin
+  if Assigned(OnMessage) then
+    OnMessage(S);
   FMessageLabel.Caption := S;
   FMessageTimer := Duration;
 end;

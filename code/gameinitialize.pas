@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils,
   QuakePak, QuakePalette, QuakeSound,
-  GameViewMenu, GameViewPlay;
+  GameViewMenu, GameViewPlay, GameViewDemo;
 
 var
   Window: TCastleWindow;
@@ -20,6 +20,7 @@ var
   CmdWarp: String;
   CmdPaks: TStringList;
   CmdGame: String;
+  CmdPlayDemo: String;
 
 procedure ApplicationInitialize;
 
@@ -48,6 +49,11 @@ begin
     if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
     begin
       CmdWarp := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-playdemo') or (Parameters[I] = '--playdemo')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdPlayDemo := Parameters[I + 1];
       Inc(I);
     end else
     if ((Parameters[I] = '-game') or (Parameters[I] = '--game')) and (I + 1 <= Parameters.High) then
@@ -122,8 +128,21 @@ begin
   { Create views }
   ViewMenu := TViewMenu.Create(Application);
   ViewPlay := TViewPlay.Create(Application);
+  ViewDemo := TViewDemo.Create(Application);
 
-  { Handle warp / autotest }
+  { Handle warp / autotest; a .dem name plays that demo instead of a map }
+  if (AutoTestMap <> '') and (LowerCase(ExtractFileExt(AutoTestMap)) = '.dem') then
+  begin
+    ViewDemo.DemoName := AutoTestMap;
+    ViewDemo.AutoTestPrefix := AutoTestPrefix;
+    ViewDemo.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewDemo;
+  end else
+  if CmdPlayDemo <> '' then
+  begin
+    ViewDemo.DemoName := CmdPlayDemo;
+    Window.Container.View := ViewDemo;
+  end else
   if AutoTestMap <> '' then
   begin
     ViewPlay.AutoTestMap := AutoTestMap;
