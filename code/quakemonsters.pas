@@ -159,6 +159,8 @@ type
     Ambush: Boolean;
     { Monster being fought after friendly fire; nil = the player }
     Enemy: TQuakeMonster;
+    { Nightmare skill: at most one pain animation every 5 seconds }
+    Nightmare: Boolean;
 
     constructor Create(const Parent: TCastleTransform; const ADef: TMonsterDef;
       const AOrigin: TVector3; const AYaw: Single);
@@ -889,6 +891,8 @@ begin
     Exit;
   State := msPain;
   FPainFinished := FTime + 1.0;
+  if Nightmare then
+    FPainFinished := FTime + 5;
   PlaySeq(FDef.Pain, False, True);
   if FDef.PainSound <> '' then
     Sounds.PlayAt(FDef.PainSound, Transform);

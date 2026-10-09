@@ -75,7 +75,8 @@ Player dimensions:
 
 ## 3. QuakePak: Archive Management
 
-- Supports stacking multiple PAK archives (`pak0.pak`, `pak1.pak`, PWAD/custom paks).
+- Supports stacking multiple PAK archives (`pak0.pak`, `pak1.pak`, PWAD/custom paks). Files replaced by a later pak are kept: with `PreferOriginalMaps` (the Quake episode hub) `maps/` come from the original id paks (`id1`, shareware) first.
+- Game state across levels (`TQuakeWorld`): skill (`trigger_setskill`), server flags (episode runes), the level parms the player entered a map with (restored on death), and `SetChangeParms` on `trigger_changelevel`. The start map uses `info_player_start2` and the episode / boss gates once runes are collected.
 - Case-insensitive lookup.
 - Registered protocol `quakepak:` allows loading sounds and models via `quakepak:/sound/weapons/sgun1.wav`.
 

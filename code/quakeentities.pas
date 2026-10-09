@@ -36,6 +36,7 @@ type
     MessageText: String;
     PickupSound: String;
     Target: String; { fired on pickup (SUB_UseTargets) }
+    SpawnFlags: Integer; { item_sigil: episode rune bit }
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeItemKind;
       const Pos: TVector3; const MdlPath: String; const SkinIdx: Integer = 0);
     destructor Destroy; override;
@@ -101,6 +102,10 @@ type
     Target: String;
     TargetName: String;
     MapName: String; { for changelevel }
+    Message: String; { centerprinted when triggered }
+    MoveDir: TVector3; { trigger_multiple with an angle: only when walking this way }
+    Touchable: Boolean;
+    Removed: Boolean; { trigger_once that has fired }
     SpawnFlags: Integer;
     WaitTime: Single;
     LastTriggerTime: Single;
@@ -448,6 +453,7 @@ begin
   MapName := AMap;
   WaitTime := 1.0;
   LastTriggerTime := -999.0;
+  Touchable := True;
 end;
 
 function TQuakeTrigger.Touches(const BoxMins, BoxMaxs: TVector3): Boolean;

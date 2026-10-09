@@ -83,6 +83,7 @@ type
     Target: String;
     TargetName: String;
     Sounds: Integer;
+    SpawnFlags: Integer;
     { func_plat that rests at the bottom (ClosedPos = top, OpenPos = bottom) and
       rises when stood on; returns down 3 seconds after reaching the top }
     IsAutoPlat: Boolean;
@@ -132,6 +133,8 @@ type
     procedure SetupSubmodels(const Parent: TCastleTransform);
     procedure RegisterAnimNode(const TexName: String; const Node: TImageTextureNode);
   public
+    { Skill the brush entities are spawned for (set before AddToWorld) }
+    Skill: Integer;
     constructor Create(const ABsp: TQuakeBsp);
     destructor Destroy; override;
 
@@ -615,6 +618,7 @@ constructor TQuakeGeometry.Create(const ABsp: TQuakeBsp);
 begin
   inherited Create;
   FBsp := ABsp;
+  Skill := 1;
   FSceneWorld := TCastleScene.Create(nil);
   FSceneWorld.PreciseCollisions := True;
   FSceneWorld.Collides := True;
@@ -878,6 +882,8 @@ begin
     Ent := FBsp.Entities[I];
     MdlStr := Ent.Model;
     CName := LowerCase(Ent.ClassName);
+    if EntityNotInSkill(Ent, Skill) then
+      Continue;
 
     if (Length(MdlStr) >= 2) and (MdlStr[1] = '*') then
     begin
@@ -891,6 +897,7 @@ begin
         Sub.Target := Ent.Target;
         Sub.TargetName := Ent.TargetName;
         Sub.Sounds := Ent.Sounds;
+        Sub.SpawnFlags := Ent.SpawnFlags;
 
         Sub.Mins := QuakeToCge(Mdl.Mins);
         Sub.Maxs := QuakeToCge(Mdl.Maxs);
