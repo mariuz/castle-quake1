@@ -95,6 +95,7 @@ type
     FClients: array[1..MaxQcClients] of TQcClient;
     FMaxClients: Integer;
     FDeathmatch: Integer;
+    FCoop: Integer;
     FTime: Single;
     FMapName: String;
     FSkill: Integer;
@@ -217,6 +218,7 @@ type
     property Phys: TQuakePlayerPhysics read FClients[1].Phys;
     property MaxClients: Integer read FMaxClients write FMaxClients;
     property Deathmatch: Integer read FDeathmatch write FDeathmatch;
+    property Coop: Integer read FCoop write FCoop;
     property Time: Single read FTime;
     property MapName: String read FMapName;
     property Skill: Integer read FSkill;
@@ -465,7 +467,7 @@ begin
   FProgs.Global(FProgs.GlobalOfs('serverflags'))^.F := 0;
   FProgs.Global(FProgs.GSkill)^.F := ASkill;
   FProgs.Global(FProgs.GlobalOfs('deathmatch'))^.F := FDeathmatch;
-  FProgs.Global(FProgs.GlobalOfs('coop'))^.F := 0;
+  FProgs.Global(FProgs.GlobalOfs('coop'))^.F := FCoop;
   WorldEnt := FBsp.FindEntity('worldspawn');
   if WorldEnt = nil then
     Exit;
@@ -1471,6 +1473,8 @@ begin
     Result := FSkill
   else if Name = 'deathmatch' then
     Result := FDeathmatch
+  else if Name = 'coop' then
+    Result := FCoop
   else if Name = 'sv_gravity' then
     Result := SvGravity
   else if Name = 'registered' then

@@ -99,6 +99,7 @@ begin
       begin
         FItems.Add('Host Deathmatch: start (port 26000)');
         FItems.Add('Host Deathmatch: e1m1 (port 26000)');
+        FItems.Add('Host Coop: e1m1 (port 26000)');
         FItems.Add('Join: localhost');
         FItems.Add('Back to Main Menu');
       end;
@@ -200,6 +201,8 @@ begin
             FOnMenuAction(maHostGame, 'start')
           else if Pos('Host Deathmatch: e1m1', ItemText) = 1 then
             FOnMenuAction(maHostGame, 'e1m1')
+          else if Pos('Host Coop: e1m1', ItemText) = 1 then
+            FOnMenuAction(maHostGame, 'coop:e1m1')
           else
             FOnMenuAction(maJoinGame, '127.0.0.1');
         end;

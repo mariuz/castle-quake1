@@ -51,7 +51,10 @@ type
     procedure HandleParticle(const Org, Dir: TVector3; const Color, Count: Integer);
     procedure HandleMessage(const E: Integer; const Data: TBytes);
   public
-    constructor Create(const Port: Word; const AMapName: String; const AMaxClients: Integer);
+    { Coop: the single player rules with monsters, everyone on one side;
+      otherwise deathmatch }
+    constructor Create(const Port: Word; const AMapName: String; const AMaxClients: Integer;
+      const ACoop: Boolean; const ASkill: Integer);
     destructor Destroy; override;
     function Valid: Boolean;
     { One server frame: the clients' input, the progs, the messages }
@@ -77,13 +80,14 @@ const
   STAT_MONSTERS = 14;
   MaxFrameBytes = 7000;
 
-constructor TQuakeServer.Create(const Port: Word; const AMapName: String; const AMaxClients: Integer);
+constructor TQuakeServer.Create(const Port: Word; const AMapName: String; const AMaxClients: Integer;
+  const ACoop: Boolean; const ASkill: Integer);
 var
   I: Integer;
 begin
   inherited Create;
   FMapName := AMapName;
-  FSkill := 1;
+  FSkill := EnsureRange(ASkill, 0, 3);
   FModels := TStringList.Create;
   FSounds := TStringList.Create;
   FOut := TQuakeNetMessage.Create;
@@ -94,7 +98,15 @@ begin
   end;
   FGame := TQuakeQcGame.Create;
   FGame.MaxClients := EnsureRange(AMaxClients, 1, Min(MaxQcClients, MaxNetClients));
-  FGame.Deathmatch := 1;
+  if ACoop then
+  begin
+    FGame.Deathmatch := 0;
+    FGame.Coop := 1;
+  end else
+  begin
+    FGame.Deathmatch := 1;
+    FGame.Coop := 0;
+  end;
   FGame.OnSound := @HandleSound;
   FGame.OnPrint := @HandlePrint;
   FGame.OnCenterPrint := @HandleCenterPrint;
@@ -110,7 +122,8 @@ begin
     WritelnWarning('QuakeServer', 'Cannot load the level "%s"', [AMapName]);
   BuildLists;
   if FNet.Valid then
-    WritelnLog('QuakeServer', 'Hosting "%s" on port %d for %d players', [AMapName, Port, FGame.MaxClients]);
+    WritelnLog('QuakeServer', 'Hosting "%s" on port %d for %d players (%s, skill %d)',
+      [AMapName, Port, FGame.MaxClients, BoolToStr(ACoop, 'coop', 'deathmatch'), FSkill]);
 end;
 
 destructor TQuakeServer.Destroy;

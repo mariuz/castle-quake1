@@ -10,7 +10,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, Math, Sockets,
-  {$ifdef UNIX} BaseUnix, {$else} WinSock2, {$endif}
+  ctypes, {$ifdef UNIX} BaseUnix, {$else} WinSock2, {$endif}
   CastleVectors, CastleLog;
 
 const

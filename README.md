@@ -59,7 +59,7 @@ Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom), Castle 
   - `--autotest <MAP> <PREFIX>`: loads map headlessly, executes `--demo` actions, takes PNG screenshots, and exits.
 
 - **Multiplayer Deathmatch**:
-  - Host a game (`-host start`, Multiplayer menu) or join one (`-connect host[:port]`) over UDP: the QuakeC deathmatch rules run on the host, NetQuake protocol 15 messages stream the game to every player.
+  - Host a game (`-host start`, Multiplayer menu) or join one (`-connect host[:port]`) over UDP: the QuakeC deathmatch or coop (`-coop`) rules run on the host, NetQuake protocol 15 messages stream the game to every player.
 
 - **Dual Asset Support**:
   - Bundled with open-source **LibreQuake** assets (`pak0.pak`, `pak1.pak`, and music).
@@ -108,6 +108,7 @@ castle-engine compile --mode=release
 .\castle-quake1.exe -playdemo demo1.dem            # Play a Quake demo from the PAKs
 .\castle-quake1.exe -qc e1m1                        # QuakeC mode: progs.dat runs the game (mods)
 .\castle-quake1.exe -host start                     # Host a deathmatch game on UDP port 26000 and play
+.\castle-quake1.exe -host e1m1 -coop -skill 2        # Host a cooperative game instead
 .\castle-quake1.exe -connect 192.168.1.10            # Join one (host[:port])
 
 In the Options menu, "World Lighting" switches between Quake's lightmaps (lightstyles and dynamic lights blended in a shader) and dynamic PBR lighting by the map's lights with shadow maps.

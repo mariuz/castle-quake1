@@ -1,12 +1,15 @@
-# Native builds (Windows x86_64, Linux x86_64) using the Castle Game Engine
-# Docker image, which bundles FPC with cross-compilers and the CGE build tool.
+# Native builds: Windows x86_64 and Linux x86_64 on GitHub's runners, with
+# FPC and the CGE snapshot set up by castle-build-ci (like CGE's own template
+# castle-game/.github/workflows/build.yml). The CGE Docker image did the same,
+# but Docker Hub's unauthenticated pull rate limit on the shared runner IPs
+# kept failing the runs.
 #
 # - On every push / pull request: build and keep the packages as workflow artifacts.
 # - On a tag like v0.1.0: also attach the packages to a GitHub Release.
 # - Run manually with a "release_tag" (e.g. v0.2.0): create that tag and the
 #   GitHub Release from the chosen branch.
 #
-# See https://castle-engine.io/github_actions and https://castle-engine.io/docker
+# See https://castle-engine.io/github_actions
 
 name: Build
 
@@ -26,31 +29,24 @@ permissions:
   contents: read
 
 jobs:
-  build-native:
-    name: Package Windows and Linux
+  build-linux:
+    name: Package Linux
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    container: kambi/castle-engine-cloud-builds-tools:cge-unstable
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show versions
+      - name: Set up FPC and Castle Game Engine
+        timeout-minutes: 20
         run: |
-          castle-engine --version
-          fpc -iV
-
-      - name: Package Windows (x86_64)
-        run: castle-engine package --os=win64 --cpu=x86_64 --mode=release --verbose
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine
 
       - name: Package Linux (x86_64)
         run: castle-engine package --os=linux --cpu=x86_64 --mode=release --verbose
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: castle-quake1-windows
-          path: "*-win64-x86_64.zip"
-          if-no-files-found: error
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -59,10 +55,39 @@ jobs:
           path: "*-linux-x86_64.tar.gz"
           if-no-files-found: error
 
+  build-windows:
+    name: Package Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up FPC and Castle Game Engine
+        timeout-minutes: 20
+        run: |
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine
+
+      - name: Package Windows (x86_64)
+        run: castle-engine package --os=win64 --cpu=x86_64 --mode=release --verbose
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: castle-quake1-windows
+          path: "*-win64-x86_64.zip"
+          if-no-files-found: error
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: build-native
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
