@@ -10,6 +10,7 @@ uses
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse,
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils,
+  X3DNodes, X3DFields, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu;
 
@@ -37,7 +38,13 @@ type
     FDemoCommands: TStringList;
     FDemoIndex: Integer;
     FDemoTimer: Single;
+    FUnderwaterEffect: TScreenEffectNode;
+    FUnderwaterTime: TSFFloat;
+    FWarpTime: Single;
+    FDeathTimer: Single;
     procedure SetupNavigation;
+    procedure CreateUnderwaterEffect;
+    procedure UpdateViewContents(const SecondsPassed: Single);
     procedure HandleConsoleCommand(const Cmd, Args: String);
     procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
     procedure ParseDemoScript(const Script: String);
@@ -84,6 +91,68 @@ destructor TViewPlay.Destroy;
 begin
   FDemoCommands.Free;
   inherited Destroy;
+end;
+
+const
+  { Underwater view warp, after D_WarpScreen in software Quake: every row and
+    column is shifted by a sine wave (8 pixels at 320x200, 128 pixel period),
+    with the image shrunk by the amplitude so the edges never sample outside. }
+  UnderwaterFragmentShader =
+    'uniform float warp_time;' + LineEnding +
+    'void main(void)' + LineEnding +
+    '{' + LineEnding +
+    '  const vec2 amp = vec2(8.0 / 320.0, 8.0 / 200.0);' + LineEnding +
+    '  const float tau = 6.2831853;' + LineEnding +
+    '  vec2 p = screenf_01_position;' + LineEnding +
+    '  vec2 q = p * (1.0 - 2.0 * amp) + amp;' + LineEnding +
+    '  q.x += amp.x * sin(p.y * (200.0 / 128.0) * tau + warp_time);' + LineEnding +
+    '  q.y += amp.y * sin(p.x * (320.0 / 128.0) * tau + warp_time);' + LineEnding +
+    '  gl_FragColor = vec4(screenf_01_get_color(q).rgb, 1.0);' + LineEnding +
+    '}' + LineEnding;
+
+  { Turbulence phase speed: 20 sine table steps (of 128) per second }
+  UnderwaterWarpSpeed = 20.0 * 6.2831853 / 128.0;
+
+  { Delay before the level restarts after the player dies }
+  DeathRestartDelay = 2.0;
+
+procedure TViewPlay.CreateUnderwaterEffect;
+var
+  FragmentPart: TShaderPartNode;
+  Shader: TComposedShaderNode;
+begin
+  FragmentPart := TShaderPartNode.Create;
+  FragmentPart.ShaderType := stFragment;
+  FragmentPart.Contents := UnderwaterFragmentShader;
+
+  Shader := TComposedShaderNode.Create;
+  Shader.SetParts([FragmentPart]);
+  FUnderwaterTime := TSFFloat.Create(Shader, True, 'warp_time', 0);
+  Shader.AddCustomField(FUnderwaterTime);
+
+  FUnderwaterEffect := TScreenEffectNode.Create;
+  FUnderwaterEffect.SetShaders([Shader]);
+  FUnderwaterEffect.Enabled := False;
+  FViewport.AddScreenEffect(FUnderwaterEffect);
+end;
+
+procedure TViewPlay.UpdateViewContents(const SecondsPassed: Single);
+var
+  Contents: Integer;
+  InLiquid: Boolean;
+begin
+  { Contents at the eye decide the liquid tint and the underwater warp }
+  Contents := FWorld.PointContents(FViewport.Camera.Translation);
+  FHud.SetContents(Contents);
+  InLiquid := (Contents = CONTENTS_WATER) or (Contents = CONTENTS_SLIME) or
+    (Contents = CONTENTS_LAVA);
+  if FUnderwaterEffect.Enabled <> InLiquid then
+    FUnderwaterEffect.Enabled := InLiquid;
+  if InLiquid then
+  begin
+    FWarpTime := FloatModulo(FWarpTime + SecondsPassed * UnderwaterWarpSpeed, 2 * Pi);
+    FUnderwaterTime.Send(FWarpTime);
+  end;
 end;
 
 procedure TViewPlay.SetupNavigation;
@@ -141,6 +210,7 @@ begin
     FViewport.Transparent := False;
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
     InsertFront(FViewport);
+    CreateUnderwaterEffect;
   end;
 
   SetupNavigation;
@@ -418,9 +488,23 @@ begin
     if FWorld.WeaponTransform <> nil then
       FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson);
 
+    UpdateViewContents(SecondsPassed);
+
     { Handle level transition }
     if FWorld.LevelExited and (FWorld.NextMap <> '') then
       LoadLevel(FWorld.NextMap);
+
+    { Restart the level with starting inventory after death }
+    if FWorld.PlayerDead then
+    begin
+      FDeathTimer := FDeathTimer + SecondsPassed;
+      if FDeathTimer >= DeathRestartDelay then
+      begin
+        FDeathTimer := 0;
+        FWorld.RespawnPlayer;
+        LoadLevel(FMapName);
+      end;
+    end;
   end;
 
   { Update camera positioning for third-person view }
@@ -434,7 +518,7 @@ begin
   end;
 
   { Attack trigger while fire key is held }
-  if not FConsole.IsOpen and not FMenu.Exists then
+  if not FConsole.IsOpen and not FMenu.Exists and not FWorld.PlayerDead then
   begin
     if Container.Pressed[keyCtrl] then
     begin

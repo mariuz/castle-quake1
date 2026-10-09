@@ -36,9 +36,14 @@ type
     FNextMap: String;
     FSpawnPoint: TVector3;
     FSpawnAngle: Single;
+    FGodMode: Boolean;
+    FPlayerDead: Boolean;
     procedure SpawnEntities;
     procedure UpdateWeaponModel;
-    procedure CheckPickups;
+    procedure ResetPlayerStats;
+    procedure CheckPickups(const Hud: TQuakeHud);
+    function MonsterSeesPlayer(const M: TQuakeMonster): Boolean;
+    function MonsterHitChance(const M: TQuakeMonster): Single;
     procedure CheckTriggers;
   public
     constructor Create(const ARoot: TCastleTransform);
@@ -66,6 +71,15 @@ type
     { Cheat: toggle god mode }
     procedure CheatGodMode(const Hud: TQuakeHud);
 
+    { Hurt the player (T_Damage): armor absorbs part of the damage }
+    procedure DamagePlayer(const Damage: Integer; const Hud: TQuakeHud);
+
+    { Restore starting health, weapons and ammo (after death) }
+    procedure RespawnPlayer;
+
+    { Contents (CONTENTS_xxx) at a point in CGE coordinates, CONTENTS_EMPTY without a map }
+    function PointContents(const P: TVector3): Integer;
+
     { Attach viewmodel weapon directly to camera }
     procedure AttachWeaponToCamera(const Camera: TCastleTransform);
 
@@ -73,6 +87,8 @@ type
     property SpawnPoint: TVector3 read FSpawnPoint;
     property SpawnAngle: Single read FSpawnAngle;
     property LevelExited: Boolean read FLevelExited;
+    property PlayerDead: Boolean read FPlayerDead;
+    property GodMode: Boolean read FGodMode;
     property NextMap: String read FNextMap;
     property Monsters: TQuakeMonsterList read FMonsters;
     property Pickups: TQuakePickupList read FPickups;
@@ -96,6 +112,18 @@ begin
   FWeaponTransform := TCastleTransform.Create(nil);
   FWeaponScene := nil;
 
+  ResetPlayerStats;
+
+  FWeaponRecoil := 0;
+  FWeaponCooldown := 0;
+  FLevelExited := False;
+  FNextMap := '';
+  FSpawnPoint := Vector3(0, 40, 0);
+  FSpawnAngle := 0;
+end;
+
+procedure TQuakeWorld.ResetPlayerStats;
+begin
   { Default starting player stats }
   FillChar(FPlayerStats, SizeOf(FPlayerStats), 0);
   FPlayerStats.Health := 100;
@@ -111,13 +139,87 @@ begin
   FPlayerStats.WeaponMask := (1 shl 1) or (1 shl 2); { Axe and Shotgun }
   FPlayerStats.CurrentWeapon := 2;
   FWeaponModelName := 'progs/v_shot.mdl';
+  FPlayerDead := False;
+end;
 
-  FWeaponRecoil := 0;
-  FWeaponCooldown := 0;
-  FLevelExited := False;
-  FNextMap := '';
-  FSpawnPoint := Vector3(0, 40, 0);
-  FSpawnAngle := 0;
+procedure TQuakeWorld.RespawnPlayer;
+begin
+  ResetPlayerStats;
+  UpdateWeaponModel;
+end;
+
+function TQuakeWorld.PointContents(const P: TVector3): Integer;
+begin
+  if FBsp <> nil then
+    Result := FBsp.PointContentsCge(P)
+  else
+    Result := CONTENTS_EMPTY;
+end;
+
+function TQuakeWorld.MonsterSeesPlayer(const M: TQuakeMonster): Boolean;
+var
+  Eye, Delta: TVector3;
+  Len, HitDist: Single;
+  Hit: TCastleTransform;
+begin
+  { Like Quake's visible(): a traceline from the monster's eyes that only
+    world geometry and brush entities (closed doors) can block. }
+  Result := True;
+  if FGeometry = nil then
+    Exit;
+  Eye := M.Transform.Translation + Vector3(0, 24, 0);
+  Delta := FPlayerPos - Eye;
+  Len := Delta.Length;
+  if Len < 1 then
+    Exit;
+  Hit := M.Transform.RayCast(Eye, Delta / Len, HitDist);
+  Result := not ((Hit <> nil) and (HitDist < Len) and FGeometry.IsGeometryScene(Hit));
+end;
+
+function TQuakeWorld.MonsterHitChance(const M: TQuakeMonster): Single;
+const
+  MeleeRange = 100.0;
+begin
+  { Monster attacks are instant for now. Ranged ones stand in for spread
+    shotgun blasts and dodgeable grenades, so they hit less often far away. }
+  if M.AttackRange <= MeleeRange then
+    Result := 1.0
+  else
+    Result := EnsureRange(1.0 - 0.75 * (M.Transform.Translation - FPlayerPos).Length / M.AttackRange, 0.25, 1.0);
+end;
+
+procedure TQuakeWorld.DamagePlayer(const Damage: Integer; const Hud: TQuakeHud);
+const
+  ArmorAbsorb: array[0..3] of Single = (0, 0.3, 0.6, 0.8);
+var
+  Save, Take: Integer;
+begin
+  if FPlayerDead or FGodMode or (Damage <= 0) then
+    Exit;
+
+  Save := Ceil(ArmorAbsorb[EnsureRange(FPlayerStats.ArmorType, 0, 3)] * Damage);
+  if Save >= FPlayerStats.Armor then
+  begin
+    Save := FPlayerStats.Armor;
+    FPlayerStats.ArmorType := 0;
+  end;
+  FPlayerStats.Armor := FPlayerStats.Armor - Save;
+  Take := Damage - Save;
+  FPlayerStats.Health := FPlayerStats.Health - Take;
+
+  if Hud <> nil then
+    Hud.DamageFlash(Save, Take);
+
+  if FPlayerStats.Health <= 0 then
+  begin
+    FPlayerStats.Health := 0;
+    FPlayerDead := True;
+    Sounds.Play('sound/player/death1.wav');
+    if Hud <> nil then
+      Hud.ShowMessage('You died', 3.0);
+  end else
+  if Take > 0 then
+    Sounds.Play('sound/player/pain' + IntToStr(1 + Random(6)) + '.wav');
 end;
 
 destructor TQuakeWorld.Destroy;
@@ -299,6 +401,11 @@ begin
     end else
 
     { Keys }
+    if CName = 'item_artifact_envirosuit' then
+    begin
+      Pickup := TQuakePickup.Create(FRootTransform, ikBioSuit, Pos, 'progs/suit.mdl');
+      FPickups.Add(Pickup);
+    end else
     if CName = 'item_key1' then
     begin
       Pickup := TQuakePickup.Create(FRootTransform, ikKeySilver, Pos, 'progs/w_skey.mdl');
@@ -400,7 +507,7 @@ begin
   Result := True;
 end;
 
-procedure TQuakeWorld.CheckPickups;
+procedure TQuakeWorld.CheckPickups(const Hud: TQuakeHud);
 var
   I: Integer;
   P: TQuakePickup;
@@ -417,6 +524,11 @@ begin
     begin
       P.Collected := True;
       Sounds.Play(P.PickupSound);
+      if Hud <> nil then
+      begin
+        Hud.ShowMessage(P.MessageText);
+        Hud.BonusFlash;
+      end;
 
       case P.Kind of
         ikSuperShotgun:
@@ -488,6 +600,8 @@ begin
           FPlayerStats.Keys := FPlayerStats.Keys or 1;
         ikKeyGold:
           FPlayerStats.Keys := FPlayerStats.Keys or 2;
+        ikBioSuit:
+          FPlayerStats.BiosuitTime := 30.0;
       end;
     end;
   end;
@@ -560,7 +674,19 @@ begin
   { Advance pickups }
   for I := 0 to FPickups.Count - 1 do
     FPickups[I].Update(SecondsPassed);
-  CheckPickups;
+  CheckPickups(Hud);
+
+  { Powerup timers }
+  if FPlayerStats.BiosuitTime > 0 then
+  begin
+    if (FPlayerStats.BiosuitTime > 3) and (FPlayerStats.BiosuitTime - SecondsPassed <= 3) then
+    begin
+      Sounds.Play('sound/items/suit2.wav');
+      if Hud <> nil then
+        Hud.ShowMessage('Air supply in Biosuit expiring');
+    end;
+    FPlayerStats.BiosuitTime := Max(0, FPlayerStats.BiosuitTime - SecondsPassed);
+  end;
 
   { Advance triggers }
   CheckTriggers;
@@ -570,6 +696,12 @@ begin
   begin
     M := FMonsters[I];
     M.Update(SecondsPassed, FPlayerPos);
+    if M.AttackLaunched then
+    begin
+      M.AttackLaunched := False;
+      if MonsterSeesPlayer(M) and (Random < MonsterHitChance(M)) then
+        DamagePlayer(M.AttackDamage, Hud);
+    end;
     if (M.State = msDead) and (M.Health = 0) then
     begin
       Inc(FPlayerStats.Kills);
@@ -849,10 +981,14 @@ end;
 
 procedure TQuakeWorld.CheatGodMode(const Hud: TQuakeHud);
 begin
-  FPlayerStats.Health := 999;
-  FPlayerStats.Armor := 999;
+  FGodMode := not FGodMode;
   if Hud <> nil then
-    Hud.ShowMessage('God mode ON');
+  begin
+    if FGodMode then
+      Hud.ShowMessage('God mode ON')
+    else
+      Hud.ShowMessage('God mode OFF');
+  end;
 end;
 
 end.
