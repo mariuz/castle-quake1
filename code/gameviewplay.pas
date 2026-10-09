@@ -564,6 +564,10 @@ begin
     FViewport.Camera.Translation := FWorld.PlayerEyePosition;
   end;
 
+  { Intermission: look from the info_intermission spot }
+  if (FWorld <> nil) and FWorld.Intermission then
+    FViewport.Camera.SetWorldView(FWorld.IntermissionEye, FWorld.IntermissionDir, Vector3(0, 1, 0));
+
   { Compute player facing angle from camera }
   CamDir := FViewport.Camera.Direction;
   Yaw := RadToDeg(ArcTan2(CamDir.X, -CamDir.Z));
@@ -576,7 +580,7 @@ begin
 
     { Toggle weapon visibility depending on camera mode }
     if FWorld.WeaponTransform <> nil then
-      FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson);
+      FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson) and not FWorld.Intermission;
 
     UpdateViewContents(SecondsPassed);
 
@@ -598,7 +602,7 @@ begin
   end;
 
   { Update camera positioning for third-person view }
-  if FCameraMode = cmThirdPerson then
+  if (FCameraMode = cmThirdPerson) and not FWorld.Intermission then
   begin
     CamDir := FViewport.Camera.Direction;
     CamDir.Y := 0;
