@@ -62,8 +62,9 @@ type
     AlertRange: Single;
     Origin: TVector3;
     FacingAngle: Single;
-    AnimFrame: Integer;
-    AnimTimer: Single;
+    AnimTimer: Single; { time spent in the current pain / death state }
+    Animator: TMdlAnimator;
+    SeqStand, SeqRun, SeqAttack, SeqPain, SeqDeath: TMdlSequence;
     AttackCooldown: Single;
     TargetPos: TVector3;
     SightAlerted: Boolean;
@@ -79,6 +80,7 @@ type
     destructor Destroy; override;
     procedure Update(const SecondsPassed: Single; const PlayerPos: TVector3);
     procedure TakeDamage(const Dmg: Integer; const AttackerPos: TVector3);
+    procedure SetupAnimations;
   end;
 
   TQuakeMonsterList = specialize TObjectList<TQuakeMonster>;
@@ -310,7 +312,6 @@ begin
   AttackRange := ARange;
   AlertRange := 800.0;
   State := msIdle;
-  AnimFrame := 0;
   AnimTimer := 0;
   AttackCooldown := 0;
   SightAlerted := False;
@@ -325,6 +326,8 @@ begin
   begin
     Scene := Mdl.CreateScene(0);
     Transform.Add(Scene);
+    Animator := TMdlAnimator.Create(Mdl, Scene);
+    SetupAnimations;
   end;
 
   { Default sound assignments }
@@ -370,8 +373,55 @@ begin
   Parent.Add(Transform);
 end;
 
+procedure TQuakeMonster.SetupAnimations;
+begin
+  { Frame ranges follow the $frame order of the original QuakeC sources.
+    LibreQuake models keep the same order (with generic frame names). }
+  if EntityClassName = 'monster_army' then
+  begin
+    SeqStand := Mdl.Sequence(0, 8, True);
+    SeqDeath := Mdl.Sequence(8, 10, False);
+    SeqPain := Mdl.Sequence(40, 6, False);
+    SeqRun := Mdl.Sequence(73, 8, True);
+    SeqAttack := Mdl.Sequence(81, 9, False);
+  end else
+  if EntityClassName = 'monster_dog' then
+  begin
+    SeqAttack := Mdl.Sequence(0, 8, False);
+    SeqDeath := Mdl.Sequence(8, 9, False);
+    SeqPain := Mdl.Sequence(26, 6, False);
+    SeqRun := Mdl.Sequence(48, 12, True);
+    SeqStand := Mdl.Sequence(69, 9, True);
+  end else
+  if EntityClassName = 'monster_ogre' then
+  begin
+    SeqStand := Mdl.Sequence(0, 9, True);
+    SeqRun := Mdl.Sequence(25, 8, True);
+    SeqAttack := Mdl.Sequence(61, 6, False); { grenade throw }
+    SeqPain := Mdl.Sequence(67, 5, False);
+    SeqDeath := Mdl.Sequence(112, 14, False);
+  end else
+  if EntityClassName = 'monster_knight' then
+  begin
+    SeqStand := Mdl.Sequence(0, 9, True);
+    SeqRun := Mdl.Sequence(9, 8, True);
+    SeqPain := Mdl.Sequence(28, 3, False);
+    SeqAttack := Mdl.Sequence(42, 11, False);
+    SeqDeath := Mdl.Sequence(76, 10, False);
+  end else
+  begin
+    SeqStand := Mdl.Sequence(0, 1, True);
+    SeqRun := SeqStand;
+    SeqAttack := SeqStand;
+    SeqPain := SeqStand;
+    SeqDeath := SeqStand;
+  end;
+  Animator.Play(SeqStand);
+end;
+
 destructor TQuakeMonster.Destroy;
 begin
+  Animator.Free;
   Transform.Free;
   inherited Destroy;
 end;
@@ -389,100 +439,125 @@ begin
     Health := 0;
     State := msDeath;
     AnimTimer := 0;
+    if Animator <> nil then
+      Animator.Play(SeqDeath, True);
     Sounds.PlayAt(DeathSound, Transform);
     Scene.Collides := False; { corpses don't block movement }
   end else
   begin
     State := msPain;
     AnimTimer := 0;
+    if Animator <> nil then
+      Animator.Play(SeqPain, True);
     Sounds.PlayAt(PainSound, Transform);
   end;
 end;
 
 procedure TQuakeMonster.Update(const SecondsPassed: Single; const PlayerPos: TVector3);
-var
-  Delta: TVector3;
-  Dist, Step: Single;
-  TargetYaw: Single;
-begin
-  if State = msDead then
-    Exit;
 
-  { Death animation progression }
-  if State = msDeath then
+  procedure AdvanceState;
+  var
+    Delta: TVector3;
+    Dist, Step: Single;
+    TargetYaw: Single;
   begin
-    AnimTimer := AnimTimer + SecondsPassed;
-    if AnimTimer >= 0.8 then
-      State := msDead;
-    Exit;
-  end;
+    if State = msDead then
+      Exit;
 
-  if State = msPain then
-  begin
-    AnimTimer := AnimTimer + SecondsPassed;
-    if AnimTimer >= 0.3 then
+    { Death animation progression }
+    if State = msDeath then
+    begin
+      AnimTimer := AnimTimer + SecondsPassed;
+      if AnimTimer >= 0.8 then
+        State := msDead;
+      Exit;
+    end;
+
+    if State = msPain then
+    begin
+      AnimTimer := AnimTimer + SecondsPassed;
+      if AnimTimer >= 0.3 then
+        State := msWalk;
+      Exit;
+    end;
+
+    Delta := PlayerPos - Transform.Translation;
+    Dist := Delta.Length;
+
+    { Check wake up / alert }
+    if not SightAlerted and (Dist < AlertRange) then
+    begin
+      SightAlerted := True;
       State := msWalk;
-    Exit;
-  end;
-
-  Delta := PlayerPos - Transform.Translation;
-  Dist := Delta.Length;
-
-  { Check wake up / alert }
-  if not SightAlerted and (Dist < AlertRange) then
-  begin
-    SightAlerted := True;
-    State := msWalk;
-    Sounds.PlayAt(SightSound, Transform);
-  end;
-
-  if not SightAlerted then
-    Exit;
-
-  { Turn toward player }
-  if Dist > 1.0 then
-  begin
-    TargetYaw := RadToDeg(ArcTan2(Delta[0], -Delta[2]));
-    FacingAngle := TargetYaw;
-    Transform.Rotation := Vector4(0, 1, 0, DegToRad(FacingAngle));
-  end;
-
-  { Chasing or attacking }
-  if AttackCooldown > 0 then
-    AttackCooldown := AttackCooldown - SecondsPassed;
-
-  if Dist <= AttackRange then
-  begin
-    { In melee / firing range }
-    if (AttackCooldown <= 0) then
-    begin
-      State := msAttack;
-      AttackCooldown := 1.2;
-      AttackLaunched := True;
-      Sounds.PlayAt(AttackSound, Transform);
-      Lighting.TriggerMuzzleFlash(Transform.Translation + Vector3(0, 24, 0), 1.5);
+      Sounds.PlayAt(SightSound, Transform);
     end;
-  end else
-  begin
-    { Walk toward player }
-    State := msWalk;
-    Step := Speed * SecondsPassed;
-    Delta.Y := 0; { Stay on horizontal plane }
-    if Delta.Length > 0 then
-      Transform.Translation := Transform.Translation + Delta.Normalize * Step;
-  end;
 
-  { Advance walk animation frame }
-  if Mdl <> nil then
-  begin
-    AnimTimer := AnimTimer + SecondsPassed;
-    if AnimTimer >= 0.12 then
+    if not SightAlerted then
+      Exit;
+
+    { Turn toward player }
+    if Dist > 1.0 then
     begin
-      AnimTimer := 0;
-      AnimFrame := AnimFrame + 1;
-      Mdl.ApplyFrame(Scene, AnimFrame);
+      TargetYaw := RadToDeg(ArcTan2(Delta[0], -Delta[2]));
+      FacingAngle := TargetYaw;
+      Transform.Rotation := Vector4(0, 1, 0, DegToRad(FacingAngle));
+    end;
+
+    { Chasing or attacking }
+    if AttackCooldown > 0 then
+      AttackCooldown := AttackCooldown - SecondsPassed;
+
+    if Dist <= AttackRange then
+    begin
+      { In melee / firing range }
+      if (AttackCooldown <= 0) then
+      begin
+        State := msAttack;
+        AttackCooldown := 1.2;
+        AttackLaunched := True;
+        if Animator <> nil then
+          Animator.Play(SeqAttack, True);
+        Sounds.PlayAt(AttackSound, Transform);
+        Lighting.TriggerMuzzleFlash(Transform.Translation + Vector3(0, 24, 0), 1.5);
+      end;
+    end else
+    begin
+      { Walk toward player }
+      State := msWalk;
+      Step := Speed * SecondsPassed;
+      Delta.Y := 0; { Stay on horizontal plane }
+      if Delta.Length > 0 then
+        Transform.Translation := Transform.Translation + Delta.Normalize * Step;
     end;
   end;
+
+const
+  { Beyond this distance the pose snaps to whole keyframes at 10 Hz like the
+    original renderer: smoothing is not visible there, and every pose change
+    costs a mesh update }
+  LerpDistance = 1024.0;
+begin
+  AdvanceState;
+
+  if Animator = nil then
+    Exit;
+  Animator.Interpolate :=
+    PointsDistanceSqr(Transform.Translation, PlayerPos) < Sqr(LerpDistance);
+
+  { Pick the animation for the current state. Pain and death were started
+    by TakeDamage; an attack plays once, then the monster waits standing. }
+  case State of
+    msIdle:
+      Animator.Play(SeqStand);
+    msWalk:
+      Animator.Play(SeqRun);
+    msAttack:
+      if Animator.Finished then
+        Animator.Play(SeqStand);
+    else ;
+  end;
+
+  Animator.Update(SecondsPassed);
 end;
 
 { TQuakeProjectile }

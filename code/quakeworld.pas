@@ -28,6 +28,8 @@ type
     FPlayerFacing: Single;
     FPlayerPitch: Single;
     FWeaponScene: TCastleScene;
+    FWeaponMdl: TQuakeMdl;
+    FWeaponAnim: TMdlAnimator;
     FWeaponTransform: TCastleTransform;
     FWeaponModelName: String;
     FWeaponRecoil: Single;
@@ -224,6 +226,7 @@ end;
 
 destructor TQuakeWorld.Destroy;
 begin
+  FreeAndNil(FWeaponAnim);
   if FWeaponTransform <> nil then
   begin
     if FWeaponTransform.Parent <> nil then
@@ -271,6 +274,8 @@ begin
   if (TargetModel <> FWeaponModelName) or (FWeaponScene = nil) then
   begin
     FWeaponModelName := TargetModel;
+    FreeAndNil(FWeaponAnim);
+    FWeaponMdl := nil;
     if FWeaponScene <> nil then
     begin
       FWeaponTransform.Remove(FWeaponScene);
@@ -282,6 +287,9 @@ begin
     begin
       FWeaponScene := Mdl.CreateScene(0);
       FWeaponTransform.Add(FWeaponScene);
+      FWeaponMdl := Mdl;
+      FWeaponAnim := TMdlAnimator.Create(Mdl, FWeaponScene);
+      FWeaponAnim.Play(Mdl.Sequence(0, 1, True));
     end;
   end;
 end;
@@ -747,6 +755,14 @@ begin
   if FWeaponRecoil > 0 then
     FWeaponRecoil := Max(0, FWeaponRecoil - SecondsPassed * 4.0);
 
+  { Animate the view weapon, back to idle after the attack frames }
+  if FWeaponAnim <> nil then
+  begin
+    if FWeaponAnim.Finished then
+      FWeaponAnim.Play(FWeaponMdl.Sequence(0, 1, True));
+    FWeaponAnim.Update(SecondsPassed);
+  end;
+
   { Update first-person weapon model position }
   if FWeaponTransform <> nil then
   begin
@@ -939,6 +955,11 @@ begin
         end;
       end;
   end;
+
+  { View weapon: frame 0 is the idle pose, the following frames the attack
+    (weaponframe 1.. in QuakeC) }
+  if CanFire and (FWeaponAnim <> nil) and (FWeaponMdl.FrameCount > 1) then
+    FWeaponAnim.Play(FWeaponMdl.Sequence(1, FWeaponMdl.FrameCount - 1, False), True);
 
   if not CanFire and (FPlayerStats.Ammo <= 0) then
     Sounds.Play('sound/weapons/noammo.wav');

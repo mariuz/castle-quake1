@@ -36,6 +36,13 @@ type
 
   TMdlFrameList = specialize TObjectList<TMdlFrame>;
 
+  { Range of keyframes forming one animation (QuakeC $frame groups) }
+  TMdlSequence = record
+    First: Integer;
+    Count: Integer;
+    Loop: Boolean;
+  end;
+
   { Quake 1 Alias MDL model }
   TQuakeMdl = class
   private
@@ -64,6 +71,14 @@ type
     { Set active animation frame on an existing scene }
     procedure ApplyFrame(const Scene: TCastleScene; const FrameIndex: Integer);
 
+    { Show a pose interpolated between two keyframes (Blend 0 = FrameA, 1 = FrameB) }
+    procedure ApplyLerp(const Scene: TCastleScene; const FrameA, FrameB: Integer;
+      const Blend: Single);
+
+    { Sequence of Count frames starting at First, or the first frame alone
+      when the model does not have these frames (e.g. a replacement model). }
+    function Sequence(const First, Count: Integer; const Loop: Boolean): TMdlSequence;
+
     { Find frame index by name prefix, e.g. "stand", "walk", "attack" }
     function FindFrame(const NamePrefix: String): Integer;
     function GetFrameCount: Integer; inline;
@@ -72,6 +87,32 @@ type
     property FrameCount: Integer read GetFrameCount;
     property Frames: TMdlFrameList read FFrames;
     property SkinCount: Integer read FNumSkins;
+  end;
+
+  { Plays a TMdlSequence on one scene, interpolating between keyframes
+    (like r_lerpmodels in later Quake engines) instead of snapping 10 times a second. }
+  TMdlAnimator = class
+  private
+    FMdl: TQuakeMdl;
+    FScene: TCastleScene;
+    FSequence: TMdlSequence;
+    FTime: Single;
+    FLastA, FLastB: Integer;
+    FLastBlend: Single;
+  public
+    { Keyframes per second; Quake animates monsters and weapons at 10 Hz }
+    FramesPerSecond: Single;
+    { When False, the pose snaps to whole keyframes (cheaper: the mesh changes
+      only 10 times a second), like the original renderer. }
+    Interpolate: Boolean;
+    constructor Create(const AMdl: TQuakeMdl; const AScene: TCastleScene);
+    { Start a sequence. When it is already playing, it continues unless Restart. }
+    procedure Play(const Seq: TMdlSequence; const Restart: Boolean = False);
+    { Advance time and update the scene pose }
+    procedure Update(const SecondsPassed: Single);
+    { True when a non-looping sequence reached its last frame }
+    function Finished: Boolean;
+    property Sequence: TMdlSequence read FSequence;
   end;
 
   TQuakeMdlCache = specialize TObjectDictionary<String, TQuakeMdl>;
@@ -336,6 +377,9 @@ var
   TexNode: TImageTextureNode;
   TexProps: TTexturePropertiesNode;
   SkinId: String;
+  NormalNode: TNormalNode;
+  FlatNormals: TVector3List;
+  I: Integer;
 begin
   Result := TCastleScene.Create(nil);
   if FFrames.Count = 0 then
@@ -355,6 +399,22 @@ begin
   Geom.TexCoord := TexCoordNode;
   Geom.SetIndex(FIndices);
   Geom.Solid := False; { two-sided for weapons and cape ribbons }
+
+  { Models are unlit, so normals are not used. Give a constant normal per
+    triangle: otherwise the engine regenerates smooth normals each time
+    the animation changes the vertices. }
+  NormalNode := TNormalNode.Create;
+  FlatNormals := TVector3List.Create;
+  try
+    FlatNormals.Count := FNumTris;
+    for I := 0 to FNumTris - 1 do
+      FlatNormals.L[I] := Vector3(0, 1, 0);
+    NormalNode.SetVector(FlatNormals);
+  finally
+    FlatNormals.Free;
+  end;
+  Geom.Normal := NormalNode;
+  Geom.NormalPerVertex := False;
 
   App := TAppearanceNode.Create;
   UnlitMat := TUnlitMaterialNode.Create;
@@ -385,7 +445,9 @@ begin
   Root.AddChildren(Shape);
 
   Result.Load(Root, True);
-  Result.PreciseCollisions := True;
+  { Bounding box collisions, like Quake entity hulls. A precise triangle
+    octree would have to be rebuilt every time the animated mesh changes. }
+  Result.PreciseCollisions := False;
   Result.Collides := True;
 end;
 
@@ -412,6 +474,138 @@ begin
       CoordNode.SetPoint(FFrames[Idx].Coords);
     end;
   end;
+end;
+
+procedure TQuakeMdl.ApplyLerp(const Scene: TCastleScene; const FrameA, FrameB: Integer;
+  const Blend: Single);
+var
+  Shape: TShapeNode;
+  Geom: TIndexedTriangleSetNode;
+  CoordNode: TCoordinateNode;
+  A, B: TVector3List;
+  Points: TVector3List;
+  I: Integer;
+begin
+  if (Scene = nil) or (Scene.RootNode = nil) or (FFrames.Count = 0) then
+    Exit;
+  if (Blend <= 0) or (FrameA = FrameB) then
+  begin
+    ApplyFrame(Scene, FrameA);
+    Exit;
+  end;
+  if Blend >= 1 then
+  begin
+    ApplyFrame(Scene, FrameB);
+    Exit;
+  end;
+
+  Shape := Scene.RootNode.FindNode(TShapeNode, '') as TShapeNode;
+  if (Shape = nil) or not (Shape.Geometry is TIndexedTriangleSetNode) then
+    Exit;
+  Geom := TIndexedTriangleSetNode(Shape.Geometry);
+  if not (Geom.Coord is TCoordinateNode) then
+    Exit;
+  CoordNode := TCoordinateNode(Geom.Coord);
+
+  A := FFrames[EnsureRange(FrameA, 0, FFrames.Count - 1)].Coords;
+  B := FFrames[EnsureRange(FrameB, 0, FFrames.Count - 1)].Coords;
+  Points := TVector3List.Create;
+  try
+    Points.Count := A.Count;
+    for I := 0 to A.Count - 1 do
+      Points.L[I] := A.L[I] + (B.L[I] - A.L[I]) * Blend;
+    CoordNode.SetPoint(Points);
+  finally
+    Points.Free;
+  end;
+end;
+
+function TQuakeMdl.Sequence(const First, Count: Integer; const Loop: Boolean): TMdlSequence;
+begin
+  if (First >= 0) and (Count > 0) and (First + Count <= FFrames.Count) then
+  begin
+    Result.First := First;
+    Result.Count := Count;
+  end else
+  begin
+    Result.First := 0;
+    Result.Count := 1;
+  end;
+  Result.Loop := Loop;
+end;
+
+{ TMdlAnimator }
+
+constructor TMdlAnimator.Create(const AMdl: TQuakeMdl; const AScene: TCastleScene);
+begin
+  inherited Create;
+  FMdl := AMdl;
+  FScene := AScene;
+  FramesPerSecond := 10.0;
+  Interpolate := True;
+  FSequence.First := 0;
+  FSequence.Count := 1;
+  FSequence.Loop := True;
+  FLastA := -1;
+end;
+
+procedure TMdlAnimator.Play(const Seq: TMdlSequence; const Restart: Boolean);
+begin
+  if Restart or (Seq.First <> FSequence.First) or (Seq.Count <> FSequence.Count) or
+     (Seq.Loop <> FSequence.Loop) then
+  begin
+    FSequence := Seq;
+    FTime := 0;
+  end;
+end;
+
+function TMdlAnimator.Finished: Boolean;
+begin
+  Result := (not FSequence.Loop) and (FTime * FramesPerSecond >= FSequence.Count - 1);
+end;
+
+procedure TMdlAnimator.Update(const SecondsPassed: Single);
+var
+  Pos, Blend: Single;
+  A, B: Integer;
+begin
+  if (FMdl = nil) or (FScene = nil) or (FSequence.Count <= 0) then
+    Exit;
+
+  FTime := FTime + SecondsPassed;
+  if FSequence.Loop then
+    FTime := FloatModulo(FTime, FSequence.Count / FramesPerSecond);
+  Pos := FTime * FramesPerSecond;
+  if FSequence.Loop then
+  begin
+    Pos := FloatModulo(Pos, FSequence.Count);
+    A := Min(Trunc(Pos), FSequence.Count - 1);
+    B := (A + 1) mod FSequence.Count;
+  end else
+  begin
+    Pos := Min(Pos, FSequence.Count - 1);
+    A := Trunc(Pos);
+    B := Min(A + 1, FSequence.Count - 1);
+  end;
+  if (A = B) or not Interpolate then
+    Blend := 0
+  else
+    Blend := Pos - A;
+
+  { Off-screen (frustum culled) models keep their animation time but
+    do not need a new pose; they catch up on the frame they are seen again. }
+  if not FScene.WasVisible then
+    Exit;
+
+  A := FSequence.First + A;
+  B := FSequence.First + B;
+  { Avoid re-uploading an unchanged pose (single-frame idle, finished death) }
+  if (A = FLastA) and (B = FLastB) and SameValue(Blend, FLastBlend, 0.001) then
+    Exit;
+  FLastA := A;
+  FLastB := B;
+  FLastBlend := Blend;
+  FMdl.ApplyLerp(FScene, A, B, Blend);
 end;
 
 function TQuakeMdl.FindFrame(const NamePrefix: String): Integer;
