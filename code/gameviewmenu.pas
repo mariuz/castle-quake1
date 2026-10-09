@@ -73,6 +73,28 @@ begin
     maPlayDemo:
       begin
         ViewDemo.DemoName := Param;
+        ViewDemo.NetHost := '';
+        ViewDemo.HostMap := '';
+        ViewDemo.AutoTestPrefix := '';
+        ViewDemo.AutoTestScript := '';
+        Container.View := ViewDemo;
+      end;
+    maHostGame:
+      begin
+        ViewDemo.DemoName := '';
+        ViewDemo.NetHost := '';
+        ViewDemo.NetPort := 0;
+        ViewDemo.HostMap := Param;
+        ViewDemo.AutoTestPrefix := '';
+        ViewDemo.AutoTestScript := '';
+        Container.View := ViewDemo;
+      end;
+    maJoinGame:
+      begin
+        ViewDemo.DemoName := '';
+        ViewDemo.HostMap := '';
+        ViewDemo.NetHost := Param;
+        ViewDemo.NetPort := 0;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';
         Container.View := ViewDemo;

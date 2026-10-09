@@ -52,6 +52,9 @@ const
 
   StepHeight = 18.0;
 
+  { Client edicts 1..MaxQcClients }
+  MaxQcClients = 8;
+
 type
   { A static entity left by makestatic (torches, decorations) }
   TQcStatic = record
@@ -60,18 +63,38 @@ type
     Frame, Skin: Integer;
   end;
 
-  TQcSoundEvent = procedure(const E: Integer; const Sample: String; const Volume, Attenuation: Single;
+  { One client: a player edict with its own Quake player physics and input }
+  TQcClient = record
+    Active: Boolean;
+    Phys: TQuakePlayerPhysics;
+    Cmd: TQuakeUserCmd;
+    Yaw, Pitch: Single;
+    Fire: Boolean;
+    Impulse: Integer;
+    Name: String;
+  end;
+
+  TQcSoundEvent = procedure(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
     const Origin: TVector3) of object;
   TQcTextEvent = procedure(const S: String) of object;
+  { E is the client edict the text is for, 0 for everyone }
+  TQcClientTextEvent = procedure(const E: Integer; const S: String) of object;
   TQcTempEntityEvent = procedure(const Kind: Integer; const Pos, Pos2: TVector3; const Entity: Integer) of object;
-  TQcDamageEvent = procedure(const Armor, Blood: Integer) of object;
+  TQcDamageEvent = procedure(const E, Armor, Blood: Integer) of object;
   TQcAmbientEvent = procedure(const Origin: TVector3; const Sample: String; const Volume: Single) of object;
+  TQcParticleEvent = procedure(const Org, Dir: TVector3; const Color, Count: Integer) of object;
+  TQcLightStyleEvent = procedure(const Style: Integer; const Value: String) of object;
+  { A complete svc message the progs wrote (raw protocol bytes), for the
+    client edict E (0: everyone) }
+  TQcMessageEvent = procedure(const E: Integer; const Data: TBytes) of object;
 
   TQuakeQcGame = class(TQuakeProgsHost)
   private
     FProgs: TQuakeProgs;
     FBsp: TQuakeBsp;
-    FPhys: TQuakePlayerPhysics;
+    FClients: array[1..MaxQcClients] of TQcClient;
+    FMaxClients: Integer;
+    FDeathmatch: Integer;
     FTime: Single;
     FMapName: String;
     FSkill: Integer;
@@ -80,6 +103,9 @@ type
     FIntermission: Boolean;
     FMessageBytes: array of Integer;  { the svc message being written by the progs }
     FMessageStrings: TStringList;
+    FMessageRaw: TBytes;              { the same message as protocol bytes }
+    FMessageDest: Integer;            { MSG_xxx of its first byte }
+    FLightStyles: array[0..63] of String;
     { Field offsets }
     FFLTime, FFMoveType, FFSolid, FFFlags, FFGroundEntity, FFVelocity, FFAVelocity, FFAngles, FFOrigin,
     FFOldOrigin, FFMins, FFMaxs, FFAbsMin, FFAbsMax, FFTouch, FFBlocked, FFOwner, FFModelIndex, FFModel,
@@ -87,7 +113,7 @@ type
     FFTeleportTime, FFTakeDamage, FFDeadFlag, FFFrame, FFSkin, FFEffects, FFWeaponModel, FFWeaponFrame,
     FFNextThink, FFThink, FFClassName, FFGoalEntity, FFEnemy, FFIdealYaw, FFSpawnFlags, FFTarget,
     FFTargetName, FFMoveDir, FFItems, FFArmorValue, FFCurrentAmmo, FFAmmoShells, FFAmmoNails,
-    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake: Integer;
+    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags: Integer;
     { Function indexes }
     FFnStartFrame, FFnPlayerPreThink, FFnPlayerPostThink, FFnClientConnect, FFnPutClientInServer,
     FFnSetNewParms, FFnSetChangeParms, FFnClientKill, FFnClientDisconnect: Integer;
@@ -98,7 +124,11 @@ type
       entities and the player (Kind = MOVE_xxx) }
     function TraceBox(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
     function PointTrace(const Start, Stop: TVector3; const Ignore: Integer): TQuakeTrace;
-    procedure RefreshPlayerColliders;
+    procedure RefreshPlayerColliders(const Client: Integer);
+    function IsClient(const E: Integer): Boolean;
+    function MessageTarget: Integer;
+    procedure ConnectClientNow(const E: Integer);
+    procedure MoveClient(const E: Integer; const Dt: Single);
     function RunThink(const E: Integer): Boolean;
     procedure Impact(const E1, E2: Integer);
     procedure CallTouch(const E, Other: Integer);
@@ -107,16 +137,20 @@ type
     procedure PhysicsStep(const E: Integer; const Dt: Single);
     procedure PhysicsToss(const E: Integer; const Dt: Single);
     procedure PhysicsNoclip(const E: Integer; const Dt: Single);
-    procedure PlayerTouchTriggers;
+    procedure PlayerTouchTriggers(const Client: Integer);
     procedure HandleMessage;
     function ModelBounds(const Model: String; out AMins, AMaxs: TVector3): Boolean;
   public
     OnSound: TQcSoundEvent;
-    OnCenterPrint, OnPrint, OnStuffCmd: TQcTextEvent;
+    OnPrint: TQcTextEvent;
+    OnCenterPrint, OnStuffCmd: TQcClientTextEvent;
     OnTempEntity: TQcTempEntityEvent;
     OnDamage: TQcDamageEvent;
     OnAmbient: TQcAmbientEvent;
     OnIntermission: TQcTextEvent;
+    OnParticle: TQcParticleEvent;
+    OnLightStyle: TQcLightStyleEvent;
+    OnMessage: TQcMessageEvent;
 
     constructor Create;
     destructor Destroy; override;
@@ -126,13 +160,30 @@ type
     function LoadLevel(const AMapName: String; const ASkill: Integer; const KeepParms: Boolean): Boolean;
 
     { One frame: the player's input, then every entity (SV_Physics).
-      Yaw and Pitch are the view angles in degrees (Quake convention). }
+      Yaw and Pitch are the view angles in degrees (Quake convention).
+      This is the single player form: client 1 }
     procedure Frame(const Cmd: TQuakeUserCmd; const Yaw, Pitch, Dt: Single; const Fire: Boolean;
-      const Impulse: Integer);
+      const Impulse: Integer); overload;
+    { One frame for every connected client with the input given to
+      SetClientInput }
+    procedure Frame(const Dt: Single); overload;
+
+    { Multiplayer: MaxClients edicts are reserved for players (set before
+      LoadLevel); clients connect and leave while the level runs }
+    procedure SetClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
+      const Fire: Boolean; const Impulse: Integer);
+    function ConnectClient(const E: Integer; const AName: String): Boolean;
+    procedure DisconnectClient(const E: Integer);
+    function ClientActive(const E: Integer): Boolean;
+    function ClientPhys(const E: Integer): TQuakePlayerPhysics;
+    function ClientName(const E: Integer): String;
+    function FreeClientSlot: Integer;
 
     { The player's view angles the progs asked for (teleports, spawn);
       False when there was none }
-    function TakeFixAngle(out Angles: TVector3): Boolean;
+    function TakeFixAngle(out Angles: TVector3): Boolean; overload;
+    function TakeFixAngle(const E: Integer; out Angles: TVector3): Boolean; overload;
+    function LightStyleValue(const Style: Integer): String;
 
     { Host overrides (the builtins) }
     procedure SetOrigin(const Progs: TQuakeProgs; const E: Integer; const Org: TVector3); override;
@@ -163,7 +214,9 @@ type
 
     property Progs: TQuakeProgs read FProgs;
     property Bsp: TQuakeBsp read FBsp;
-    property Phys: TQuakePlayerPhysics read FPhys;
+    property Phys: TQuakePlayerPhysics read FClients[1].Phys;
+    property MaxClients: Integer read FMaxClients write FMaxClients;
+    property Deathmatch: Integer read FDeathmatch write FDeathmatch;
     property Time: Single read FTime;
     property MapName: String read FMapName;
     property Skill: Integer read FSkill;
@@ -171,17 +224,31 @@ type
     property Intermission: Boolean read FIntermission;
     function StaticCount: Integer;
     function Static(const I: Integer): TQcStatic;
-    { Player fields for the HUD }
-    function PlayerHealth: Integer;
-    function PlayerArmor: Integer;
-    function PlayerItems: Cardinal;
-    function PlayerAmmo(const Kind: Integer): Integer; { 0 current, 1 shells, 2 nails, 3 rockets, 4 cells }
-    function PlayerWeapon: Cardinal;
-    function PlayerWeaponModel: String;
-    function PlayerWeaponFrame: Integer;
-    function PlayerViewOfs: TVector3;
-    function PlayerDead: Boolean;
-    function PlayerEffects: Integer;
+    { Player fields for the HUD (client 1, or the client edict E) }
+    function PlayerHealth: Integer; overload;
+    function PlayerArmor: Integer; overload;
+    function PlayerItems: Cardinal; overload;
+    function PlayerAmmo(const Kind: Integer): Integer; overload; { 0 current, 1 shells, 2 nails, 3 rockets, 4 cells }
+    function PlayerWeapon: Cardinal; overload;
+    function PlayerWeaponModel: String; overload;
+    function PlayerWeaponFrame: Integer; overload;
+    function PlayerViewOfs: TVector3; overload;
+    function PlayerDead: Boolean; overload;
+    function PlayerEffects: Integer; overload;
+    function PlayerHealth(const E: Integer): Integer; overload;
+    function PlayerArmor(const E: Integer): Integer; overload;
+    function PlayerItems(const E: Integer): Cardinal; overload;
+    function PlayerAmmo(const E, Kind: Integer): Integer; overload;
+    function PlayerWeapon(const E: Integer): Cardinal; overload;
+    function PlayerWeaponModel(const E: Integer): String; overload;
+    function PlayerWeaponFrame(const E: Integer): Integer; overload;
+    function PlayerViewOfs(const E: Integer): TVector3; overload;
+    function PlayerDead(const E: Integer): Boolean; overload;
+    function PlayerEffects(const E: Integer): Integer; overload;
+    function PlayerFrags(const E: Integer): Integer;
+    function PlayerVelocity(const E: Integer): TVector3;
+    function PlayerOnGround(const E: Integer): Boolean;
+    function PlayerWaterLevel(const E: Integer): Integer;
     { Entity fields for rendering }
     function EntityModel(const E: Integer): String;
     function EntityOrigin(const E: Integer): TVector3;
@@ -212,20 +279,63 @@ const
   svc_sellscreen = 33;
 
 constructor TQuakeQcGame.Create;
+var
+  I: Integer;
 begin
   inherited Create;
   FProgs := TQuakeProgs.Create(Self);
-  FPhys := TQuakePlayerPhysics.Create;
+  for I := 1 to MaxQcClients do
+    FClients[I].Phys := TQuakePlayerPhysics.Create;
+  FMaxClients := 1;
   FMessageStrings := TStringList.Create;
 end;
 
 destructor TQuakeQcGame.Destroy;
+var
+  I: Integer;
 begin
   FProgs.Free;
-  FPhys.Free;
+  for I := 1 to MaxQcClients do
+    FClients[I].Phys.Free;
   FBsp.Free;
   FMessageStrings.Free;
   inherited Destroy;
+end;
+
+function TQuakeQcGame.IsClient(const E: Integer): Boolean;
+begin
+  Result := (E >= 1) and (E <= FMaxClients) and FClients[E].Active;
+end;
+
+function TQuakeQcGame.ClientActive(const E: Integer): Boolean;
+begin
+  Result := IsClient(E);
+end;
+
+function TQuakeQcGame.ClientPhys(const E: Integer): TQuakePlayerPhysics;
+begin
+  if (E >= 1) and (E <= MaxQcClients) then
+    Result := FClients[E].Phys
+  else
+    Result := nil;
+end;
+
+function TQuakeQcGame.ClientName(const E: Integer): String;
+begin
+  if (E >= 1) and (E <= MaxQcClients) then
+    Result := FClients[E].Name
+  else
+    Result := '';
+end;
+
+function TQuakeQcGame.FreeClientSlot: Integer;
+var
+  E: Integer;
+begin
+  for E := 1 to Min(FMaxClients, MaxQcClients) do
+    if not FClients[E].Active then
+      Exit(E);
+  Result := 0;
 end;
 
 procedure TQuakeQcGame.CacheOffsets;
@@ -287,6 +397,7 @@ begin
   FFWeapon := FProgs.FieldOfs('weapon');
   FFNetName := FProgs.FieldOfs('netname');
   FFColorMap := FProgs.FieldOfs('colormap');
+  FFFrags := FProgs.FieldOfs('frags');
   FFDmgTake := FProgs.FieldOfs('dmg_take');
 
   FFnStartFrame := FProgs.FunctionIndex('StartFrame');
@@ -340,40 +451,121 @@ begin
   FIntermission := False;
   SetLength(FStatics, 0);
   SetLength(FMessageBytes, 0);
+  SetLength(FMessageRaw, 0);
   FMessageStrings.Clear;
+  for I := 0 to High(FLightStyles) do
+    FLightStyles[I] := '';
+  FMaxClients := EnsureRange(FMaxClients, 1, MaxQcClients);
 
-  { SV_SpawnServer: the client edict, then the map's entities }
-  FProgs.ReserveEdicts(1);
+  { SV_SpawnServer: the client edicts, then the map's entities }
+  FProgs.ReserveEdicts(FMaxClients);
   FTime := 1.0;
   FProgs.Global(FProgs.GTime)^.F := FTime;
   FProgs.Global(FProgs.GlobalOfs('mapname'))^.I := FProgs.NewString(AMapName);
   FProgs.Global(FProgs.GlobalOfs('serverflags'))^.F := 0;
   FProgs.Global(FProgs.GSkill)^.F := ASkill;
+  FProgs.Global(FProgs.GlobalOfs('deathmatch'))^.F := FDeathmatch;
+  FProgs.Global(FProgs.GlobalOfs('coop'))^.F := 0;
   WorldEnt := FBsp.FindEntity('worldspawn');
   if WorldEnt = nil then
     Exit;
   FProgs.SpawnEntities(FBsp.Entities, ASkill);
 
-  { The player (SV_ConnectClient / SV_SpawnServer "spawn"): edict 1 }
-  FProgs.Field(1, FFColorMap)^.F := 1;
-  FProgs.Field(1, FFNetName)^.I := FProgs.NewString('player');
-  if FFnClientConnect > 0 then
-    FProgs.CallWith(FFnClientConnect, 1);
-  if FFnPutClientInServer > 0 then
-    FProgs.CallWith(FFnPutClientInServer, 1);
-  FPhys.Bsp := FBsp;
-  FPhys.Mins := FProgs.FieldVector(1, FFMins);
-  FPhys.Maxs := FProgs.FieldVector(1, FFMaxs);
-  if FPhys.Maxs.Z <= FPhys.Mins.Z then
+  { The players (SV_ConnectClient / SV_SpawnServer "spawn"): single player
+    is always client 1, the connected clients come back on a new level }
+  if FMaxClients = 1 then
   begin
-    FPhys.Mins := Vector3(-16, -16, -24);
-    FPhys.Maxs := Vector3(16, 16, 32);
+    FClients[1].Active := True;
+    if FClients[1].Name = '' then
+      FClients[1].Name := 'player';
   end;
-  FPhys.Teleport(FProgs.FieldVector(1, FFOrigin));
-  LinkEdict(1);
-  WritelnLog('QuakeQcGame', 'Level "%s" spawned by the progs: %d edicts, %d monsters, %d secrets',
-    [AMapName, FProgs.NumEdicts, TotalMonsters, TotalSecrets]);
+  for I := 1 to FMaxClients do
+  begin
+    FClients[I].Phys.Bsp := FBsp;
+    if FClients[I].Active then
+      ConnectClientNow(I);
+  end;
+  WritelnLog('QuakeQcGame', 'Level "%s" spawned by the progs: %d edicts, %d monsters, %d secrets, %d clients',
+    [AMapName, FProgs.NumEdicts, TotalMonsters, TotalSecrets, FMaxClients]);
   Result := True;
+end;
+
+procedure TQuakeQcGame.ConnectClientNow(const E: Integer);
+var
+  P: TQuakePlayerPhysics;
+begin
+  P := FClients[E].Phys;
+  FProgs.Field(E, FFColorMap)^.F := E;
+  FProgs.Field(E, FFNetName)^.I := FProgs.NewString(FClients[E].Name);
+  if FFnClientConnect > 0 then
+    FProgs.CallWith(FFnClientConnect, E);
+  if FFnPutClientInServer > 0 then
+    FProgs.CallWith(FFnPutClientInServer, E);
+  P.Bsp := FBsp;
+  P.Mins := FProgs.FieldVector(E, FFMins);
+  P.Maxs := FProgs.FieldVector(E, FFMaxs);
+  if P.Maxs.Z <= P.Mins.Z then
+  begin
+    P.Mins := Vector3(-16, -16, -24);
+    P.Maxs := Vector3(16, 16, 32);
+  end;
+  P.Teleport(FProgs.FieldVector(E, FFOrigin));
+  LinkEdict(E);
+end;
+
+function TQuakeQcGame.ConnectClient(const E: Integer; const AName: String): Boolean;
+begin
+  Result := (E >= 1) and (E <= FMaxClients) and not FClients[E].Active and (FBsp <> nil) and FProgs.Loaded;
+  if not Result then
+    Exit;
+  FClients[E].Active := True;
+  FClients[E].Name := AName;
+  FClients[E].Cmd := Default(TQuakeUserCmd);
+  FClients[E].Fire := False;
+  FClients[E].Impulse := 0;
+  { A fresh player: the parms of a new game }
+  if FFnSetNewParms > 0 then
+    FProgs.Execute(FFnSetNewParms);
+  FProgs.Global(FProgs.GTime)^.F := FTime;
+  ConnectClientNow(E);
+  WritelnLog('QuakeQcGame', 'Client %d "%s" entered the game', [E, AName]);
+end;
+
+procedure TQuakeQcGame.DisconnectClient(const E: Integer);
+begin
+  if not IsClient(E) then
+    Exit;
+  if FProgs.Loaded and (FFnClientDisconnect > 0) then
+    FProgs.CallWith(FFnClientDisconnect, E);
+  { SV_DropClient: the edict stays reserved but is nothing any more }
+  if FProgs.Loaded then
+  begin
+    FProgs.Field(E, FFSolid)^.F := SOLID_NOT;
+    FProgs.Field(E, FFModel)^.I := 0;
+    FProgs.Field(E, FFModelIndex)^.F := 0;
+    FProgs.Field(E, FFHealth)^.F := 0;
+    FProgs.Field(E, FFFrags)^.F := 0;
+    FProgs.Field(E, FFNextThink)^.F := 0;
+    FProgs.Field(E, FFTakeDamage)^.F := 0;
+    FProgs.Field(E, FFMoveType)^.F := MOVETYPE_NONE;
+    FProgs.Field(E, FFNetName)^.I := 0;
+    FProgs.Field(E, FFColorMap)^.F := 0;
+  end;
+  FClients[E].Active := False;
+  WritelnLog('QuakeQcGame', 'Client %d left the game', [E]);
+end;
+
+procedure TQuakeQcGame.SetClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
+  const Fire: Boolean; const Impulse: Integer);
+begin
+  if (E < 1) or (E > MaxQcClients) then
+    Exit;
+  FClients[E].Cmd := Cmd;
+  FClients[E].Yaw := Yaw;
+  FClients[E].Pitch := Pitch;
+  FClients[E].Fire := Fire;
+  if Impulse <> 0 then
+    FClients[E].Impulse := Impulse;
 end;
 
 { Memory helpers }
@@ -517,21 +709,23 @@ begin
   Result := TraceBox(Start, Stop, TVector3.Zero, TVector3.Zero, MOVE_NORMAL, Ignore);
 end;
 
-procedure TQuakeQcGame.RefreshPlayerColliders;
+procedure TQuakeQcGame.RefreshPlayerColliders(const Client: Integer);
 var
   E, N, NB, Idx, Solid: Integer;
   Model: String;
   BMins, BMaxs: TVector3;
+  FPhys: TQuakePlayerPhysics;
 begin
   { The player physics collide with the pushers at their offsets and the
-    boxes of the solid entities }
+    boxes of the solid entities (the other players among them) }
+  FPhys := FClients[Client].Phys;
   N := 0;
   NB := 0;
   SetLength(FPhys.SolidModels, FProgs.NumEdicts);
   SetLength(FPhys.SolidBoxes, FProgs.NumEdicts);
-  for E := 2 to FProgs.NumEdicts - 1 do
+  for E := 1 to FProgs.NumEdicts - 1 do
   begin
-    if FProgs.EdictFree(E) then
+    if (E = Client) or FProgs.EdictFree(E) then
       Continue;
     Solid := Round(FProgs.Field(E, FFSolid)^.F);
     if Solid = SOLID_BSP then
@@ -685,8 +879,8 @@ begin
         { Carried or pushed }
         FProgs.SetFieldVector(Other, FFOrigin, FProgs.FieldVector(Other, FFOrigin) + Move);
         LinkEdict(Other);
-        if Other = 1 then
-          FPhys.Teleport(FProgs.FieldVector(1, FFOrigin));
+        if IsClient(Other) then
+          FClients[Other].Phys.Teleport(FProgs.FieldVector(Other, FFOrigin));
       end;
     end;
     FProgs.Field(E, FFLTime)^.F := OldLTime + MoveTime;
@@ -798,15 +992,17 @@ begin
   LinkEdict(E);
 end;
 
-procedure TQuakeQcGame.PlayerTouchTriggers;
+procedure TQuakeQcGame.PlayerTouchTriggers(const Client: Integer);
 var
   E: Integer;
   PMins, PMaxs, Mins, Maxs: TVector3;
+  FPhys: TQuakePlayerPhysics;
 begin
   { SV_TouchLinks: the player touches the triggers and items it overlaps }
+  FPhys := FClients[Client].Phys;
   PMins := FPhys.Origin + FPhys.Mins;
   PMaxs := FPhys.Origin + FPhys.Maxs;
-  for E := 2 to FProgs.NumEdicts - 1 do
+  for E := FMaxClients + 1 to FProgs.NumEdicts - 1 do
   begin
     if FProgs.EdictFree(E) or (Round(FProgs.Field(E, FFSolid)^.F) <> SOLID_TRIGGER) then
       Continue;
@@ -815,16 +1011,90 @@ begin
     if (PMins.X > Maxs.X) or (PMaxs.X < Mins.X) or (PMins.Y > Maxs.Y) or (PMaxs.Y < Mins.Y) or
        (PMins.Z > Maxs.Z) or (PMaxs.Z < Mins.Z) then
       Continue;
-    CallTouch(E, 1);
+    CallTouch(E, Client);
   end;
 end;
 
 procedure TQuakeQcGame.Frame(const Cmd: TQuakeUserCmd; const Yaw, Pitch, Dt: Single; const Fire: Boolean;
   const Impulse: Integer);
+begin
+  SetClientInput(1, Cmd, Yaw, Pitch, Fire, Impulse);
+  Frame(Dt);
+end;
+
+procedure TQuakeQcGame.MoveClient(const E: Integer; const Dt: Single);
 var
-  E, I, MoveType, Flags: Integer;
-  Org, Vel, NewOrg: TVector3;
+  I, O, Flags: Integer;
+  Org, NewOrg: TVector3;
   Dead: Boolean;
+  FPhys: TQuakePlayerPhysics;
+  Yaw, Pitch: Single;
+begin
+  { SV_RunClients for one player: input into the edict, PlayerPreThink,
+    the movement, PlayerPostThink }
+  FPhys := FClients[E].Phys;
+  Yaw := FClients[E].Yaw;
+  Pitch := FClients[E].Pitch;
+  Dead := PlayerDead(E);
+  FProgs.Field(E, FFButton0)^.F := Ord(FClients[E].Fire);
+  FProgs.Field(E, FFButton2)^.F := Ord(FClients[E].Cmd.Jump);
+  FProgs.Field(E, FFImpulse)^.F := FClients[E].Impulse;
+  FClients[E].Impulse := 0;
+  FProgs.SetFieldVector(E, FFVAngle, Vector3(Pitch, Yaw, 0));
+  if not Dead then
+    FProgs.SetFieldVector(E, FFAngles, Vector3(-Pitch / 3, Yaw, 0));
+  if FFnPlayerPreThink > 0 then
+    FProgs.CallWith(FFnPlayerPreThink, E);
+  if FProgs.EdictFree(E) or not FClients[E].Active then
+    Exit;
+
+  { Movement with the Quake player physics, unless the progs moved the
+    player (teleport) }
+  Org := FProgs.FieldVector(E, FFOrigin);
+  if PointsDistanceSqr(Org, FPhys.Origin) > 1 then
+    FPhys.Teleport(Org);
+  FPhys.Velocity := FProgs.FieldVector(E, FFVelocity);
+  FPhys.Mins := FProgs.FieldVector(E, FFMins);
+  FPhys.Maxs := FProgs.FieldVector(E, FFMaxs);
+  RefreshPlayerColliders(E);
+  if not Dead and not FIntermission then
+    FPhys.Move(FClients[E].Cmd, Yaw, Pitch, Dt)
+  else
+  begin
+    FPhys.Move(Default(TQuakeUserCmd), Yaw, Pitch, Dt);
+  end;
+  FProgs.SetFieldVector(E, FFOrigin, FPhys.Origin);
+  FProgs.SetFieldVector(E, FFVelocity, FPhys.Velocity);
+  Flags := Round(FProgs.Field(E, FFFlags)^.F);
+  if FPhys.OnGround then
+    Flags := Flags or FL_ONGROUND
+  else
+    Flags := Flags and not FL_ONGROUND;
+  FProgs.Field(E, FFFlags)^.F := Flags;
+  FProgs.Field(E, FFWaterLevel)^.F := FPhys.WaterLevel;
+  FProgs.Field(E, FFWaterType)^.F := FPhys.WaterType;
+  LinkEdict(E);
+  { What the player ran into: doors open, buttons press }
+  for I := 0 to High(FPhys.Touched) do
+    for O := FMaxClients + 1 to FProgs.NumEdicts - 1 do
+      if not FProgs.EdictFree(O) and (Round(FProgs.Field(O, FFSolid)^.F) = SOLID_BSP) and
+         (FProgs.FieldString(O, FFModel) = '*' + IntToStr(FPhys.Touched[I])) then
+        Impact(E, O);
+  PlayerTouchTriggers(E);
+  if FFnPlayerPostThink > 0 then
+    FProgs.CallWith(FFnPlayerPostThink, E);
+  { The progs may have changed the player's velocity (knockback) or origin }
+  NewOrg := FProgs.FieldVector(E, FFOrigin);
+  if PointsDistanceSqr(NewOrg, FPhys.Origin) > 1 then
+    FPhys.Teleport(NewOrg);
+  FPhys.Velocity := FProgs.FieldVector(E, FFVelocity);
+  if FProgs.Field(E, FFTeleportTime)^.F > FTime then
+    FPhys.TeleportTime := FPhys.Time + (FProgs.Field(E, FFTeleportTime)^.F - FTime);
+end;
+
+procedure TQuakeQcGame.Frame(const Dt: Single);
+var
+  E, MoveType: Integer;
 begin
   if (FBsp = nil) or not FProgs.Loaded then
     Exit;
@@ -833,59 +1103,13 @@ begin
   if FFnStartFrame > 0 then
     FProgs.CallWith(FFnStartFrame, 0);
 
-  { The player: input into the edict, PlayerPreThink, the movement, PlayerPostThink }
-  Dead := PlayerDead;
-  FProgs.Field(1, FFButton0)^.F := Ord(Fire and not Dead);
-  FProgs.Field(1, FFButton2)^.F := 0;
-  FProgs.Field(1, FFImpulse)^.F := Impulse;
-  FProgs.SetFieldVector(1, FFVAngle, Vector3(Pitch, Yaw, 0));
-  FProgs.SetFieldVector(1, FFAngles, Vector3(-Pitch / 3, Yaw, 0));
-  if FFnPlayerPreThink > 0 then
-    FProgs.CallWith(FFnPlayerPreThink, 1);
-
-  { Movement with the Quake player physics, unless the progs moved the
-    player (teleport) }
-  Org := FProgs.FieldVector(1, FFOrigin);
-  if PointsDistanceSqr(Org, FPhys.Origin) > 1 then
-    FPhys.Teleport(Org);
-  FPhys.Velocity := FProgs.FieldVector(1, FFVelocity);
-  RefreshPlayerColliders;
-  if not Dead and not FIntermission then
-    FPhys.Move(Cmd, Yaw, Pitch, Dt)
-  else
-  begin
-    FPhys.Move(Default(TQuakeUserCmd), Yaw, Pitch, Dt);
-  end;
-  FProgs.SetFieldVector(1, FFOrigin, FPhys.Origin);
-  FProgs.SetFieldVector(1, FFVelocity, FPhys.Velocity);
-  Flags := Round(FProgs.Field(1, FFFlags)^.F);
-  if FPhys.OnGround then
-    Flags := Flags or FL_ONGROUND
-  else
-    Flags := Flags and not FL_ONGROUND;
-  FProgs.Field(1, FFFlags)^.F := Flags;
-  FProgs.Field(1, FFWaterLevel)^.F := FPhys.WaterLevel;
-  FProgs.Field(1, FFWaterType)^.F := FPhys.WaterType;
-  LinkEdict(1);
-  { What the player ran into: doors open, buttons press }
-  for I := 0 to High(FPhys.Touched) do
-    for E := 2 to FProgs.NumEdicts - 1 do
-      if not FProgs.EdictFree(E) and (Round(FProgs.Field(E, FFSolid)^.F) = SOLID_BSP) and
-         (FProgs.FieldString(E, FFModel) = '*' + IntToStr(FPhys.Touched[I])) then
-        Impact(1, E);
-  PlayerTouchTriggers;
-  if FFnPlayerPostThink > 0 then
-    FProgs.CallWith(FFnPlayerPostThink, 1);
-  { The progs may have changed the player's velocity (knockback) or origin }
-  NewOrg := FProgs.FieldVector(1, FFOrigin);
-  if PointsDistanceSqr(NewOrg, FPhys.Origin) > 1 then
-    FPhys.Teleport(NewOrg);
-  FPhys.Velocity := FProgs.FieldVector(1, FFVelocity);
-  if FProgs.Field(1, FFTeleportTime)^.F > FTime then
-    FPhys.TeleportTime := FPhys.Time + (FProgs.Field(1, FFTeleportTime)^.F - FTime);
+  { The players }
+  for E := 1 to FMaxClients do
+    if FClients[E].Active then
+      MoveClient(E, Dt);
 
   { Everything else (SV_Physics) }
-  for E := 2 to FProgs.NumEdicts - 1 do
+  for E := FMaxClients + 1 to FProgs.NumEdicts - 1 do
   begin
     if FProgs.EdictFree(E) then
       Continue;
@@ -906,12 +1130,28 @@ end;
 
 function TQuakeQcGame.TakeFixAngle(out Angles: TVector3): Boolean;
 begin
-  Result := FProgs.Field(1, FFFixAngle)^.F <> 0;
+  Result := TakeFixAngle(1, Angles);
+end;
+
+function TQuakeQcGame.TakeFixAngle(const E: Integer; out Angles: TVector3): Boolean;
+begin
+  Angles := TVector3.Zero;
+  if not FProgs.Loaded or (E < 1) or (E >= FProgs.NumEdicts) then
+    Exit(False);
+  Result := FProgs.Field(E, FFFixAngle)^.F <> 0;
   if Result then
   begin
-    Angles := FProgs.FieldVector(1, FFAngles);
-    FProgs.Field(1, FFFixAngle)^.F := 0;
+    Angles := FProgs.FieldVector(E, FFAngles);
+    FProgs.Field(E, FFFixAngle)^.F := 0;
   end;
+end;
+
+function TQuakeQcGame.LightStyleValue(const Style: Integer): String;
+begin
+  if (Style >= 0) and (Style <= High(FLightStyles)) then
+    Result := FLightStyles[Style]
+  else
+    Result := '';
 end;
 
 { Builtins }
@@ -920,8 +1160,8 @@ procedure TQuakeQcGame.SetOrigin(const Progs: TQuakeProgs; const E: Integer; con
 begin
   Progs.SetFieldVector(E, FFOrigin, Org);
   LinkEdict(E);
-  if E = 1 then
-    FPhys.Teleport(Org);
+  if IsClient(E) then
+    FClients[E].Phys.Teleport(Org);
 end;
 
 procedure TQuakeQcGame.SetModel(const Progs: TQuakeProgs; const E: Integer; const Model: String);
@@ -943,10 +1183,10 @@ procedure TQuakeQcGame.SetSize(const Progs: TQuakeProgs; const E: Integer; const
 begin
   inherited SetSize(Progs, E, Mins, Maxs);
   LinkEdict(E);
-  if E = 1 then
+  if IsClient(E) then
   begin
-    FPhys.Mins := Mins;
-    FPhys.Maxs := Maxs;
+    FClients[E].Phys.Mins := Mins;
+    FClients[E].Phys.Maxs := Maxs;
   end;
 end;
 
@@ -954,7 +1194,7 @@ procedure TQuakeQcGame.Sound(const Progs: TQuakeProgs; const E, Channel: Integer
   const Volume, Attenuation: Single);
 begin
   if Assigned(OnSound) then
-    OnSound(E, 'sound/' + Sample, Volume, Attenuation, Progs.FieldVector(E, FFOrigin) +
+    OnSound(E, Channel, 'sound/' + Sample, Volume, Attenuation, Progs.FieldVector(E, FFOrigin) +
       (Progs.FieldVector(E, FFMins) + Progs.FieldVector(E, FFMaxs)) * 0.5);
 end;
 
@@ -1170,13 +1410,22 @@ end;
 
 procedure TQuakeQcGame.LightStyle(const Progs: TQuakeProgs; const Style: Integer; const Value: String);
 begin
-  Lighting.SetStyle(Style, Value);
+  if (Style >= 0) and (Style <= High(FLightStyles)) then
+    FLightStyles[Style] := Value;
+  if Lighting <> nil then
+    Lighting.SetStyle(Style, Value);
+  if Assigned(OnLightStyle) then
+    OnLightStyle(Style, Value);
 end;
 
 procedure TQuakeQcGame.Particle(const Progs: TQuakeProgs; const Org, Dir: TVector3; const Color, Count: Integer);
 var
   C: TVector4Byte;
 begin
+  if Assigned(OnParticle) then
+    OnParticle(Org, Dir, Color, Count);
+  if Particles = nil then
+    Exit;
   if (Color >= 64) and (Color <= 79) then
     Particles.SpawnBlood(QuakeToCge(Org), QuakeToCge(Dir))
   else
@@ -1189,7 +1438,7 @@ end;
 procedure TQuakeQcGame.CenterPrint(const Progs: TQuakeProgs; const E: Integer; const S: String);
 begin
   if Assigned(OnCenterPrint) then
-    OnCenterPrint(S);
+    OnCenterPrint(E, S);
 end;
 
 procedure TQuakeQcGame.Print(const Progs: TQuakeProgs; const S: String);
@@ -1220,6 +1469,8 @@ function TQuakeQcGame.Cvar(const Progs: TQuakeProgs; const Name: String): Single
 begin
   if Name = 'skill' then
     Result := FSkill
+  else if Name = 'deathmatch' then
+    Result := FDeathmatch
   else if Name = 'sv_gravity' then
     Result := SvGravity
   else if Name = 'registered' then
@@ -1242,19 +1493,33 @@ end;
 procedure TQuakeQcGame.StuffCmd(const Progs: TQuakeProgs; const E: Integer; const Cmd: String);
 begin
   if Assigned(OnStuffCmd) then
-    OnStuffCmd(Trim(Cmd));
+    OnStuffCmd(E, Trim(Cmd));
 end;
 
 procedure TQuakeQcGame.WriteMessage(const Progs: TQuakeProgs; const Dest, Kind: Integer; const Value: TVector3;
   const S: String);
+var
+  V, I: Integer;
+
+  procedure RawByte(const B: Integer);
+  begin
+    SetLength(FMessageRaw, Length(FMessageRaw) + 1);
+    FMessageRaw[High(FMessageRaw)] := Byte(B and 255);
+  end;
+
 begin
   { The progs write svc messages byte by byte; collect and act on the
-    complete ones }
+    complete ones, and keep the protocol bytes for the network clients }
+  if Length(FMessageBytes) = 0 then
+    FMessageDest := Dest;
   if Kind = 58 then
   begin
     FMessageStrings.Add(S);
     SetLength(FMessageBytes, Length(FMessageBytes) + 1);
     FMessageBytes[High(FMessageBytes)] := -1000 - (FMessageStrings.Count - 1);
+    for I := 1 to Length(S) do
+      RawByte(Ord(S[I]));
+    RawByte(0);
   end else
   begin
     SetLength(FMessageBytes, Length(FMessageBytes) + 1);
@@ -1262,13 +1527,36 @@ begin
       FMessageBytes[High(FMessageBytes)] := Round(Value.X * 8) { coords keep their precision }
     else
       FMessageBytes[High(FMessageBytes)] := Round(Value.X);
+    case Kind of
+      52, 53: RawByte(Round(Value.X));                     { byte, char }
+      54, 59: begin V := Round(Value.X); RawByte(V); RawByte(V shr 8); end; { short, entity }
+      55: begin V := Round(Value.X); RawByte(V); RawByte(V shr 8); RawByte(V shr 16); RawByte(V shr 24); end;
+      56: begin V := Round(Value.X * 8); RawByte(V); RawByte(V shr 8); end; { coord }
+      57: RawByte(Round(Value.X * 256 / 360) and 255);      { angle }
+    end;
   end;
   HandleMessage;
 end;
 
+function TQuakeQcGame.MessageTarget: Integer;
+var
+  MsgEntity: Integer;
+begin
+  { MSG_ONE goes to msg_entity's client, the rest to everyone }
+  Result := 0;
+  if FMessageDest = 1 then
+  begin
+    MsgEntity := FProgs.GlobalOfs('msg_entity');
+    if MsgEntity >= 0 then
+      Result := FProgs.Global(MsgEntity)^.I;
+    if not IsClient(Result) then
+      Result := 0;
+  end;
+end;
+
 procedure TQuakeQcGame.HandleMessage;
 var
-  N: Integer;
+  N, E: Integer;
 
   function Coord(const I: Integer): Single;
   begin
@@ -1277,7 +1565,10 @@ var
 
   procedure Done;
   begin
+    if Assigned(OnMessage) then
+      OnMessage(MessageTarget, FMessageRaw);
     SetLength(FMessageBytes, 0);
+    SetLength(FMessageRaw, 0);
     FMessageStrings.Clear;
   end;
 
@@ -1290,7 +1581,7 @@ begin
       if N >= 6 then
       begin
         if Assigned(OnDamage) then
-          OnDamage(FMessageBytes[1], FMessageBytes[2]);
+          OnDamage(MessageTarget, FMessageBytes[1], FMessageBytes[2]);
         Done;
       end;
     svc_temp_entity:
@@ -1341,8 +1632,11 @@ begin
     svc_setangle:
       if N >= 4 then
       begin
-        FProgs.SetFieldVector(1, FFAngles, Vector3(FMessageBytes[1], FMessageBytes[2], FMessageBytes[3]));
-        FProgs.Field(1, FFFixAngle)^.F := 1;
+        E := MessageTarget;
+        if E = 0 then
+          E := 1;
+        FProgs.SetFieldVector(E, FFAngles, Vector3(FMessageBytes[1], FMessageBytes[2], FMessageBytes[3]));
+        FProgs.Field(E, FFFixAngle)^.F := 1;
         Done;
       end;
     svc_cdtrack:
@@ -1369,58 +1663,128 @@ end;
 
 function TQuakeQcGame.PlayerHealth: Integer;
 begin
-  Result := Round(FProgs.Field(1, FFHealth)^.F);
+  Result := PlayerHealth(1);
 end;
 
 function TQuakeQcGame.PlayerArmor: Integer;
 begin
-  Result := Round(FProgs.Field(1, FFArmorValue)^.F);
+  Result := PlayerArmor(1);
 end;
 
 function TQuakeQcGame.PlayerItems: Cardinal;
 begin
-  Result := Cardinal(Round(FProgs.Field(1, FFItems)^.F));
+  Result := PlayerItems(1);
 end;
 
 function TQuakeQcGame.PlayerAmmo(const Kind: Integer): Integer;
 begin
-  case Kind of
-    1: Result := Round(FProgs.Field(1, FFAmmoShells)^.F);
-    2: Result := Round(FProgs.Field(1, FFAmmoNails)^.F);
-    3: Result := Round(FProgs.Field(1, FFAmmoRockets)^.F);
-    4: Result := Round(FProgs.Field(1, FFAmmoCells)^.F);
-    else Result := Round(FProgs.Field(1, FFCurrentAmmo)^.F);
-  end;
+  Result := PlayerAmmo(1, Kind);
 end;
 
 function TQuakeQcGame.PlayerWeapon: Cardinal;
 begin
-  Result := Cardinal(Round(FProgs.Field(1, FFWeapon)^.F));
+  Result := PlayerWeapon(1);
 end;
 
 function TQuakeQcGame.PlayerWeaponModel: String;
 begin
-  Result := FProgs.FieldString(1, FFWeaponModel);
+  Result := PlayerWeaponModel(1);
 end;
 
 function TQuakeQcGame.PlayerWeaponFrame: Integer;
 begin
-  Result := Round(FProgs.Field(1, FFWeaponFrame)^.F);
+  Result := PlayerWeaponFrame(1);
 end;
 
 function TQuakeQcGame.PlayerViewOfs: TVector3;
 begin
-  Result := FProgs.FieldVector(1, FFViewOfs);
+  Result := PlayerViewOfs(1);
 end;
 
 function TQuakeQcGame.PlayerDead: Boolean;
 begin
-  Result := (FProgs.Field(1, FFDeadFlag)^.F <> 0) or (PlayerHealth <= 0);
+  Result := PlayerDead(1);
 end;
 
 function TQuakeQcGame.PlayerEffects: Integer;
 begin
-  Result := Round(FProgs.Field(1, FFEffects)^.F);
+  Result := PlayerEffects(1);
+end;
+
+function TQuakeQcGame.PlayerHealth(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFHealth)^.F);
+end;
+
+function TQuakeQcGame.PlayerArmor(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFArmorValue)^.F);
+end;
+
+function TQuakeQcGame.PlayerItems(const E: Integer): Cardinal;
+begin
+  Result := Cardinal(Round(FProgs.Field(E, FFItems)^.F));
+end;
+
+function TQuakeQcGame.PlayerAmmo(const E, Kind: Integer): Integer;
+begin
+  case Kind of
+    1: Result := Round(FProgs.Field(E, FFAmmoShells)^.F);
+    2: Result := Round(FProgs.Field(E, FFAmmoNails)^.F);
+    3: Result := Round(FProgs.Field(E, FFAmmoRockets)^.F);
+    4: Result := Round(FProgs.Field(E, FFAmmoCells)^.F);
+    else Result := Round(FProgs.Field(E, FFCurrentAmmo)^.F);
+  end;
+end;
+
+function TQuakeQcGame.PlayerWeapon(const E: Integer): Cardinal;
+begin
+  Result := Cardinal(Round(FProgs.Field(E, FFWeapon)^.F));
+end;
+
+function TQuakeQcGame.PlayerWeaponModel(const E: Integer): String;
+begin
+  Result := FProgs.FieldString(E, FFWeaponModel);
+end;
+
+function TQuakeQcGame.PlayerWeaponFrame(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFWeaponFrame)^.F);
+end;
+
+function TQuakeQcGame.PlayerViewOfs(const E: Integer): TVector3;
+begin
+  Result := FProgs.FieldVector(E, FFViewOfs);
+end;
+
+function TQuakeQcGame.PlayerDead(const E: Integer): Boolean;
+begin
+  Result := (FProgs.Field(E, FFDeadFlag)^.F <> 0) or (PlayerHealth(E) <= 0);
+end;
+
+function TQuakeQcGame.PlayerEffects(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFEffects)^.F);
+end;
+
+function TQuakeQcGame.PlayerFrags(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFFrags)^.F);
+end;
+
+function TQuakeQcGame.PlayerVelocity(const E: Integer): TVector3;
+begin
+  Result := FProgs.FieldVector(E, FFVelocity);
+end;
+
+function TQuakeQcGame.PlayerOnGround(const E: Integer): Boolean;
+begin
+  Result := (Round(FProgs.Field(E, FFFlags)^.F) and FL_ONGROUND) <> 0;
+end;
+
+function TQuakeQcGame.PlayerWaterLevel(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFWaterLevel)^.F);
 end;
 
 function TQuakeQcGame.EntityModel(const E: Integer): String;

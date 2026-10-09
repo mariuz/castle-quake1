@@ -23,6 +23,9 @@ var
   CmdPlayDemo: String;
   CmdQcTest: String;
   CmdQc: String;
+  CmdHost: String;
+  CmdConnect: String;
+  CmdPort: Integer;
 
 procedure ApplicationInitialize;
 
@@ -71,6 +74,24 @@ begin
   end;
 end;
 
+{ "host[:port]" into the client view }
+procedure SetNetAddress(const View: TViewDemo; const Address: String);
+var
+  P: Integer;
+begin
+  View.HostMap := '';
+  View.NetHost := Address;
+  View.NetPort := CmdPort;
+  P := Pos(':', Address);
+  if P > 0 then
+  begin
+    View.NetHost := Copy(Address, 1, P - 1);
+    View.NetPort := StrToIntDef(Copy(Address, P + 1, MaxInt), CmdPort);
+  end;
+  if View.NetHost = '' then
+    View.NetHost := '127.0.0.1';
+end;
+
 procedure ApplicationInitialize;
 var
   I: Integer;
@@ -104,6 +125,21 @@ begin
     if (Parameters[I] = '--qctest') and (I + 1 <= Parameters.High) then
     begin
       CmdQcTest := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-host') or (Parameters[I] = '--host')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdHost := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-connect') or (Parameters[I] = '--connect')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdConnect := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-port') or (Parameters[I] = '--port')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdPort := StrToIntDef(Parameters[I + 1], 0);
       Inc(I);
     end else
     if ((Parameters[I] = '-playdemo') or (Parameters[I] = '--playdemo')) and (I + 1 <= Parameters.High) then
@@ -198,7 +234,34 @@ begin
   ViewQc := TViewQc.Create(Application);
 
   { Handle warp / autotest; a .dem name plays that demo instead of a map,
-    "qc:map" runs the map with its QuakeC }
+    "qc:map" runs the map with its QuakeC, "host:map" hosts a deathmatch
+    game on it, "connect:host[:port]" joins one }
+  if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 5)) = 'host:') then
+  begin
+    ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
+    ViewDemo.NetPort := CmdPort;
+    ViewDemo.AutoTestPrefix := AutoTestPrefix;
+    ViewDemo.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewDemo;
+  end else
+  if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 8)) = 'connect:') then
+  begin
+    SetNetAddress(ViewDemo, Copy(AutoTestMap, 9, MaxInt));
+    ViewDemo.AutoTestPrefix := AutoTestPrefix;
+    ViewDemo.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewDemo;
+  end else
+  if CmdHost <> '' then
+  begin
+    ViewDemo.HostMap := CmdHost;
+    ViewDemo.NetPort := CmdPort;
+    Window.Container.View := ViewDemo;
+  end else
+  if CmdConnect <> '' then
+  begin
+    SetNetAddress(ViewDemo, CmdConnect);
+    Window.Container.View := ViewDemo;
+  end else
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 3)) = 'qc:') then
   begin
     ViewQc.MapName := Copy(AutoTestMap, 4, MaxInt);
