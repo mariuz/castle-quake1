@@ -613,8 +613,8 @@ begin
   if (FWorld <> nil) and (FCameraMode <> cmFreeFly) then
   begin
     BuildUserCmd(Cmd);
-    FDemoJumpTime := Max(0.0, FDemoJumpTime - SecondsPassed);
-    FDemoFireTime := Max(0.0, FDemoFireTime - SecondsPassed);
+    FDemoJumpTime := Math.Max(0.0, FDemoJumpTime - SecondsPassed);
+    FDemoFireTime := Math.Max(0.0, FDemoFireTime - SecondsPassed);
     FWorld.MovePlayer(Cmd, FViewport.Camera.Direction, SecondsPassed, FHud);
     if FWorld.TakePendingYaw(NewYaw) then
       FViewport.Camera.SetWorldView(FViewport.Camera.Translation,
