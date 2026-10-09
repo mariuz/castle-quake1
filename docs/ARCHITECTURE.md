@@ -120,7 +120,7 @@ Player dimensions:
 - Decodes Quake 1 Alias `.mdl` files (`IDPO`, version 6).
 - Converts skins into CGE textures.
 - Constructs `TCastleScene` meshes with `TIndexedTriangleSetNode`.
-- Supports keyframe animation via in-place vertex updating on `TCoordinateNode`.
+- `TMdlAnimator` plays QuakeC frame ranges at 10 Hz and interpolates vertices between keyframes on `TCoordinateNode`.
 
 ---
 
@@ -129,6 +129,7 @@ Player dimensions:
 - 2D sounds for UI and weapon fire (`SoundEngine.Play`).
 - 3D spatial sounds with distance attenuation via `TCastleSoundSource` attached to doors, lifts, and monsters.
 - Background OGG music played on `SoundEngine.LoopingChannel[0]`.
+- `QuakeAmbient`: looping static emitters for ambient entities (Quake's linear `ATTN_STATIC` falloff computed in Pascal, OpenAL used for panning; at most 8 active sources) and BSP leaf ambients (water / wind) driven by the listener leaf's `ambient_level`.
 
 ---
 

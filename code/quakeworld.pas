@@ -10,7 +10,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
-  QuakeParticles, QuakeEntities;
+  QuakeParticles, QuakeEntities, QuakeAmbient;
 
 type
   { World simulation manager }
@@ -23,6 +23,7 @@ type
     FMonsters: TQuakeMonsterList;
     FProjectiles: TQuakeProjectileList;
     FTriggers: TQuakeTriggerList;
+    FAmbient: TQuakeAmbientSounds;
     FPlayerStats: TQuakePlayerStats;
     FPlayerPos: TVector3;
     FPlayerFacing: Single;
@@ -110,6 +111,7 @@ begin
   FMonsters := TQuakeMonsterList.Create(True);
   FProjectiles := TQuakeProjectileList.Create(True);
   FTriggers := TQuakeTriggerList.Create(True);
+  FAmbient := TQuakeAmbientSounds.Create;
 
   FWeaponTransform := TCastleTransform.Create(nil);
   FWeaponScene := nil;
@@ -237,6 +239,7 @@ begin
   FMonsters.Free;
   FProjectiles.Free;
   FTriggers.Free;
+  FreeAndNil(FAmbient);
   FreeAndNil(FGeometry);
   FreeAndNil(FBsp);
   inherited Destroy;
@@ -485,6 +488,7 @@ begin
   if ExtractFileExt(MapPath) = '' then
     MapPath := 'maps/' + MapPath + '.bsp';
 
+  FAmbient.Clear;
   FreeAndNil(FGeometry);
   FreeAndNil(FBsp);
 
@@ -504,6 +508,9 @@ begin
 
   { Spawn world items and monsters }
   SpawnEntities;
+
+  { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
+  FAmbient.Setup(FBsp, FRootTransform);
 
   { Setup first-person weapon model }
   UpdateWeaponModel;
@@ -674,6 +681,9 @@ begin
     8:    FPlayerStats.Ammo := FPlayerStats.Cells;
     else  FPlayerStats.Ammo := 0;
   end;
+
+  { Ambient emitters and leaf ambients follow the listener }
+  FAmbient.Update(SecondsPassed, FPlayerPos);
 
   { Advance geometry submodels and animations }
   if FGeometry <> nil then

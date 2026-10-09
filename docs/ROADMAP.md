@@ -15,7 +15,7 @@ This document outlines the architectural comparison between **Castle Quake** and
 | **Liquid Surfaces** | Translucent water, lava, slime with sine wave turbulence (`R_Turbulent`) | Animated textures and transparent blend mode | GLSL vertex/fragment wave distortion shader. |
 | **Screen Effects** | Palette shifts on damage (red), pickup (gold), water (blue), biosuit (green) | `V_CalcBlend` color shifts (damage, pickup, water/slime/lava, biosuit) and `D_WarpScreen`-style underwater warp | Matches original. |
 | **3D Models** | Alias MDL v6 with discrete keyframes | Alias MDL v6 parser, per-state animation sequences with keyframe interpolation | Matches original (plus lerping, like later Quake engines). |
-| **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | 3D OpenAL audio with `TCastleSoundSource`, OGG background music | Auto-convert 8-bit legacy Quake WAV headers for universal OpenAL compatibility. |
+| **Audio** | 8-bit unsigned PCM mono WAVs, OpenAL 3D spatialization, CD music | PAK WAVs played through OpenAL (`TCastleSoundSource`), static ambient emitters and BSP leaf ambients, OGG background music | Matches original. |
 | **Player Movement** | Custom Quake physics: air acceleration, strafe-jumping, bunny-hopping, water swimming | `TCastleWalkNavigation` with Quake height (40), step climbing (18), gravity | Implement authentic Quake air-acceleration, friction, and swimming physics. |
 | **Weapons & Combat** | 8 weapons: hitscan, spikes, bouncing grenades, rockets, lightning discharge | Axe, Shotgun, Super Shotgun, basic Rocket launcher projectile | Full ballistics (grenade bounce/fuse, spike trails, rocket jumping, lightning discharge). |
 | **Monsters & AI** | 12 monster types + 2 bosses, state machine animations, infighting, sight tracing | Grunt, Dog, Ogre, Knight spawners and tracking | Add Fiend, Scrag, Hell Knight, Shambler, Vore, Tarbaby, Rotfish, and Bosses. |
@@ -38,8 +38,10 @@ This document outlines the architectural comparison between **Castle Quake** and
 - [x] **Model Keyframe Interpolation (Mesh Lerping)**:
   - `TMdlAnimator` plays QuakeC frame ranges at 10 Hz and interpolates vertex positions between keyframes every rendered frame; monsters use stand/run/attack/pain/death sequences and the view weapon plays its firing frames.
   - Distant (beyond 1024 units) and off-screen models skip the per-frame pose update to keep the cost low.
-- [ ] **Ambient Map Sound Emitters**:
-  - Spawn positional looping `TCastleSoundSource` entities for Quake ambient entities (`ambient_suck_wind`, `ambient_drone`, `ambient_drip`, `ambient_comp_hum`).
+- [x] **Ambient Map Sound Emitters**:
+  - Looping positional emitters for every entity QuakeC gives an `ambientsound()` (`ambient_*`, torches and flames, fluorescent lights), with Quake's linear `ATTN_STATIC` falloff; only the 8 loudest hold a sound source.
+  - BSP leaf ambients: water and wind loops faded by the `ambient_level` of the listener's leaf (`S_UpdateAmbientSounds`).
+  - Fixed the `quakepak:` protocol to report MIME types, without which no PAK sound could be decoded.
 
 ### Phase 2: Authentic Physics & Combat
 - [ ] **Quake Movement Physics**:
