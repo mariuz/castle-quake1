@@ -38,8 +38,11 @@ type
     FLeafPlaying: array[0..1] of TCastlePlayingSound;
     FLeafVolume: array[0..1] of Single;
     function GetSound(const Path: String): TCastleSound;
+  public
+    { An emitter at a point (ambientsound in QuakeC); Origin in CGE coordinates }
     procedure AddStatic(const Parent: TCastleTransform; const Origin: TVector3;
       const Path: String; const Volume: Single);
+  private
     procedure UpdateStatics(const ListenerPos: TVector3);
     procedure UpdateLeafAmbients(const SecondsPassed: Single; const ListenerPos: TVector3);
     procedure StopLeafAmbients;

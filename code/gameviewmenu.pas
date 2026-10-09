@@ -9,7 +9,7 @@ uses
   Classes, SysUtils,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse,
   CastleWindow, CastleColors, CastleLog,
-  QuakeSound, QuakeMenu, QuakePak, GameViewPlay, GameViewDemo;
+  QuakeSound, QuakeMenu, QuakePak, GameViewPlay, GameViewDemo, GameViewQc;
 
 type
   TViewMenu = class(TCastleView)
@@ -62,6 +62,13 @@ begin
         Pak.PreferOriginalMaps := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
         ViewPlay.MapName := Param;
         Container.View := ViewPlay;
+      end;
+    maPlayQc:
+      begin
+        ViewQc.MapName := Param;
+        ViewQc.AutoTestPrefix := '';
+        ViewQc.AutoTestScript := '';
+        Container.View := ViewQc;
       end;
     maPlayDemo:
       begin

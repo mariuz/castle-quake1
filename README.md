@@ -103,6 +103,7 @@ castle-engine compile --mode=release
 .\castle-quake1.exe -pak custom.pak                # Load additional PAK file
 .\castle-quake1.exe -game quake -warp start        # Original Quake hub with episode portals
 .\castle-quake1.exe -playdemo demo1.dem            # Play a Quake demo from the PAKs
+.\castle-quake1.exe -qc e1m1                        # QuakeC mode: progs.dat runs the game (mods)
 
 In the Options menu, "World Lighting" switches between Quake's lightmaps (lightstyles and dynamic lights blended in a shader) and dynamic PBR lighting by the map's lights with shadow maps.
 .\castle-quake1.exe --autotest start test_shot     # Headless test and screenshot

@@ -13,7 +13,7 @@ uses
 
 type
   TMenuAction = (
-    maNone, maNewGame, maWarpMap, maPlayDemo, maToggleShadows, maToggleLighting, maToggleCamera,
+    maNone, maNewGame, maWarpMap, maPlayDemo, maPlayQc, maToggleShadows, maToggleLighting, maToggleCamera,
     maToggleSound, maQuit
   );
 
@@ -91,6 +91,7 @@ begin
         if Pak.OriginalFileExists('maps/start.bsp') then
           FItems.Add('Quake: Episode Hub');
         FItems.Add('LibreQuake: Episode Hub');
+        FItems.Add('QuakeC Mode: progs.dat runs the game');
         FItems.Add('Back to Main Menu');
       end;
     smMaps:
@@ -188,6 +189,8 @@ begin
         begin
           if ItemText = 'Quake: Episode Hub' then
             FOnMenuAction(maNewGame, 'quake')
+          else if Pos('QuakeC', ItemText) = 1 then
+            FOnMenuAction(maPlayQc, 'start')
           else
             FOnMenuAction(maNewGame, 'librequake');
         end;
