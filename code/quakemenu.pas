@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
-  CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils,
+  CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils, CastleComponentSerialize,
   QuakeSound, QuakePak, QuakeGeometry;
 
 type
@@ -30,14 +30,20 @@ type
     FShadowsEnabled: Boolean;
     FCameraModeName: String;
     FVolume: Integer;
+    { The editor design (data/ui/menu.castle-user-interface) }
+    FDesign: TCastleUserInterface;
+    FItemsGroup: TCastleVerticalGroup;
+    FShowcaseLabel, FHintLabel: TCastleLabel;
+    FItemLabels: array of TCastleLabel;
     procedure RebuildMenuItems;
     procedure ExecuteSelection;
+    procedure SyncDesign;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
     function Press(const Event: TInputPressRelease): Boolean; override;
-    procedure Render; override;
+    procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
 
     property OnMenuAction: TOnMenuActionEvent read FOnMenuAction write FOnMenuAction;
     property ShadowsEnabled: Boolean read FShadowsEnabled write FShadowsEnabled;
@@ -57,7 +63,56 @@ begin
   FShadowsEnabled := False;
   FCameraModeName := 'First-Person';
   FVolume := 100;
+  { The layout, fonts and colors come from the editor design }
+  FDesign := UserInterfaceLoad('castle-data:/ui/menu.castle-user-interface', Self);
+  InsertFront(FDesign);
+  FItemsGroup := FindRequiredComponent('ItemsGroup') as TCastleVerticalGroup;
+  FShowcaseLabel := FindRequiredComponent('ShowcaseLabel') as TCastleLabel;
+  FHintLabel := FindRequiredComponent('HintLabel') as TCastleLabel;
   RebuildMenuItems;
+  SyncDesign;
+end;
+
+procedure TQuakeMenu.SyncDesign;
+var
+  I: Integer;
+  L: TCastleLabel;
+begin
+  { One label per item in the vertical group, the selected one marked }
+  while Length(FItemLabels) > FItems.Count do
+  begin
+    FItemLabels[High(FItemLabels)].Free;
+    SetLength(FItemLabels, Length(FItemLabels) - 1);
+  end;
+  while Length(FItemLabels) < FItems.Count do
+  begin
+    L := TCastleLabel.Create(Self);
+    L.Name := 'MenuItem' + IntToStr(Length(FItemLabels));
+    FItemsGroup.InsertFront(L);
+    SetLength(FItemLabels, Length(FItemLabels) + 1);
+    FItemLabels[High(FItemLabels)] := L;
+  end;
+  for I := 0 to FItems.Count - 1 do
+  begin
+    if I = FSelectedIdx then
+    begin
+      FItemLabels[I].Caption := '> ' + FItems[I] + ' <';
+      FItemLabels[I].Color := Vector4(1.0, 0.85, 0.15, 1.0);
+    end else
+    begin
+      FItemLabels[I].Caption := FItems[I];
+      FItemLabels[I].Color := Vector4(0.75, 0.75, 0.75, 0.9);
+    end;
+  end;
+  FShowcaseLabel.Exists := FSubMenu = smShowcase;
+  FItemsGroup.Exists := FSubMenu <> smShowcase;
+  FHintLabel.Exists := FSubMenu <> smShowcase;
+end;
+
+procedure TQuakeMenu.Update(const SecondsPassed: Single; var HandleInput: Boolean);
+begin
+  inherited Update(SecondsPassed, HandleInput);
+  SyncDesign;
 end;
 
 destructor TQuakeMenu.Destroy;
@@ -321,62 +376,6 @@ begin
       Exit(True);
     end;
   end;
-end;
-
-procedure TQuakeMenu.Render;
-var
-  CX, CY, StartY: Single;
-  I: Integer;
-  Col: TVector4;
-begin
-  inherited Render;
-
-  CX := RenderRect.Width / 2;
-  CY := RenderRect.Height / 2;
-
-  { Dark vignette backdrop }
-  DrawRectangle(RenderRect, Vector4(0.04, 0.04, 0.05, 0.88));
-
-  { Quake Title }
-  UIFont.Print(CX - 130, CY + 220, Vector4(1.0, 0.45, 0.1, 1.0), 'CASTLE QUAKE');
-  UIFont.Print(CX - 165, CY + 195, Vector4(0.8, 0.8, 0.8, 0.8), 'Castle Game Engine Quake Showcase');
-
-  if FSubMenu = smShowcase then
-  begin
-    UIFont.Print(CX - 280, CY + 140, Vector4(1.0, 0.8, 0.2, 1.0), 'Engine Features Used:');
-    UIFont.Print(CX - 280, CY + 110, Vector4(0.9, 0.9, 0.9, 1.0), '- Full 3D X3D Scene Graphs (TIndexedTriangleSetNode, TShapeNode)');
-    UIFont.Print(CX - 280, CY + 85,  Vector4(0.9, 0.9, 0.9, 1.0), '- Real-Time Dynamic PBR Lighting with Point Lights (TCastlePointLight)');
-    UIFont.Print(CX - 280, CY + 60,  Vector4(0.9, 0.9, 0.9, 1.0), '- Real-Time Dynamic Shadow Mapping');
-    UIFont.Print(CX - 280, CY + 35,  Vector4(0.9, 0.9, 0.9, 1.0), '- Quake 1 Alias MDL 3D Model Loading and Mesh Animation');
-    UIFont.Print(CX - 280, CY + 10,  Vector4(0.9, 0.9, 0.9, 1.0), '- Positional 3D Spatial Audio via OpenAL (TCastleSoundSource)');
-    UIFont.Print(CX - 280, CY - 15,  Vector4(0.9, 0.9, 0.9, 1.0), '- Custom URL Protocols ("quakepak:", "quaketex:") with Streaming Cache');
-    UIFont.Print(CX - 280, CY - 40,  Vector4(0.9, 0.9, 0.9, 1.0), '- First/Third Person & Free-Fly Navigation (TCastleWalkNavigation)');
-    UIFont.Print(CX - 280, CY - 65,  Vector4(0.9, 0.9, 0.9, 1.0), '- Interactive Submodels (doors, elevators, buttons) via TCastleTransform');
-    UIFont.Print(CX - 280, CY - 90,  Vector4(0.9, 0.9, 0.9, 1.0), '- Particle Systems (impact sparks, blood splatters, explosions)');
-    UIFont.Print(CX - 280, CY - 115, Vector4(0.9, 0.9, 0.9, 1.0), '- Dual Asset Support (Quake 1 Demo and LibreQuake open assets)');
-
-    UIFont.Print(CX - 80, CY - 160, Vector4(1.0, 0.5, 0.1, 1.0), '[ Press Enter / Esc to Return ]');
-    Exit;
-  end;
-
-  StartY := CY + 80;
-  for I := 0 to FItems.Count - 1 do
-  begin
-    if I = FSelectedIdx then
-    begin
-      Col := Vector4(1.0, 0.85, 0.15, 1.0);
-      { Cursor indicator }
-      UIFont.Print(CX - 150, StartY - I * 36, Col, '> ' + FItems[I] + ' <');
-    end else
-    begin
-      Col := Vector4(0.75, 0.75, 0.75, 0.9);
-      UIFont.Print(CX - 130, StartY - I * 36, Col, FItems[I]);
-    end;
-  end;
-
-  { Bottom help hint }
-  UIFont.Print(CX - 160, 40, Vector4(0.6, 0.6, 0.6, 0.7),
-    'Use Arrow Keys to Navigate, Enter to Select, Esc to Back');
 end;
 
 end.

@@ -69,4 +69,5 @@ Multiplayer: `-host <map> [-port N] [-coop] [-skill N]` hosts a deathmatch (or c
 - **Units**:
   - `Quake*` for core asset parsing and simulation.
   - `Game*` for CGE views and lifecycle.
+- **UI**: the menu, HUD and console layouts are editor designs in `data/ui/*.castle-user-interface` (open them in the CGE editor); the code finds components by name and only sets captions, colors and visibility.
 - **Paths**: Keep project paths short to avoid Windows path length issues.
