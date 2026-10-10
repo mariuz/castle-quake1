@@ -261,6 +261,13 @@ begin
       begin
         for B := Low(TQuakeBinding) to High(TQuakeBinding) do
           FItems.Add(BindingCaptions[B] + ': ' + BindingDescription(B));
+        FItems.Add('Gamepad: ' + GamepadName);
+        FItems.Add(Format('Gamepad look sensitivity: %.2fx', [GamepadSensitivity]));
+        FItems.Add(Format('Gamepad dead zone: %.2f', [GamepadDeadZone]));
+        if GamepadInvertLook then
+          FItems.Add('Gamepad invert look: [ON]')
+        else
+          FItems.Add('Gamepad invert look: [OFF]');
         FItems.Add('Reset to defaults');
         FItems.Add('Back');
       end;
@@ -272,9 +279,21 @@ begin
   FSelectedIdx := 0;
 end;
 
+{ The value after Current in Values (the first one after the last) }
+function NextInCycle(const Current: Single; const Values: array of Single): Single;
+var
+  I: Integer;
+begin
+  for I := 0 to High(Values) do
+    if Values[I] > Current + 0.001 then
+      Exit(Values[I]);
+  Result := Values[0];
+end;
+
 procedure TQuakeMenu.ExecuteSelection;
 var
   ItemText: String;
+  N, Selected: Integer;
 begin
   if (FSelectedIdx < 0) or (FSelectedIdx >= FItems.Count) then
     Exit;
@@ -391,23 +410,44 @@ begin
       end;
     smControls:
       begin
-        if FSelectedIdx <= Ord(High(TQuakeBinding)) then
+        N := Ord(High(TQuakeBinding)) + 1; { the first item after the bindings }
+        Selected := FSelectedIdx;
+        if FSelectedIdx < N then
         begin
           { The next key or mouse button pressed becomes the binding }
           FBindWaiting := True;
           FBindTarget := TQuakeBinding(FSelectedIdx);
         end else
-        if FSelectedIdx = Ord(High(TQuakeBinding)) + 1 then
+        if FSelectedIdx = N then
+          { The gamepad's name: look again for one connected meanwhile }
+          Controllers.Initialize
+        else
+        if FSelectedIdx = N + 1 then
+          GamepadSensitivity := NextInCycle(GamepadSensitivity, [0.5, 0.75, 1.0, 1.5, 2.0, 3.0])
+        else
+        if FSelectedIdx = N + 2 then
+          GamepadDeadZone := NextInCycle(GamepadDeadZone, [0.1, 0.15, 0.2, 0.25, 0.3, 0.4])
+        else
+        if FSelectedIdx = N + 3 then
+          GamepadInvertLook := not GamepadInvertLook
+        else
+        if FSelectedIdx = N + 4 then
         begin
           ResetBindings;
-          RebuildMenuItems;
-          FSelectedIdx := Ord(High(TQuakeBinding)) + 1;
+          GamepadSensitivity := 1.0;
+          GamepadDeadZone := DefaultGamepadDeadZone;
+          GamepadInvertLook := False;
         end else
         begin
           FSubMenu := smOptions;
           RebuildMenuItems;
           FSelectedIdx := 4;
+          Exit;
         end;
+        if (FSelectedIdx > N) and (FSelectedIdx <= N + 4) then
+          SaveGamepadSettings;
+        RebuildMenuItems;
+        FSelectedIdx := Selected;
       end;
     smShowcase:
       begin

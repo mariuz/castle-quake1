@@ -31,15 +31,21 @@ const
   GamepadFire = gbRightBumper;
   GamepadNextWeapon = gbDPadRight;
   GamepadPrevWeapon = gbDPadLeft;
-  GamepadStickDeadZone = 0.2;
-  GamepadYawSpeed = 160.0;   { degrees per second at full deflection }
+  GamepadYawSpeed = 160.0;   { degrees per second at full deflection, sensitivity 1 }
   GamepadPitchSpeed = 90.0;
+  DefaultGamepadDeadZone = 0.2;
 
 var
   Bindings: array[TQuakeBinding] of TInputShortcut;
   { The same shortcuts as a list (owns them), for the config file; they are
     local shortcuts, apart from the engine's own global ones }
   BindingList: TInputShortcutList;
+  { Gamepad tuning, saved in the user config: the right stick's turn speed
+    multiplier, the part of both sticks' travel ignored around the center,
+    and up / down of the right stick swapped }
+  GamepadSensitivity: Single = 1.0;
+  GamepadDeadZone: Single = DefaultGamepadDeadZone;
+  GamepadInvertLook: Boolean = False;
 
 { Create the bindings with their defaults and load the user's changes
   from UserConfig; detect the controllers }
@@ -56,6 +62,8 @@ function BindingDescription(const B: TQuakeBinding): String;
 function BindingHeld(const B: TQuakeBinding; const Container: TCastleContainer): Boolean;
 { A press event is this binding }
 function BindingEvent(const B: TQuakeBinding; const Event: TInputPressRelease): Boolean;
+{ The gamepad button is down now }
+function GamepadButtonDown(const Button: TGameControllerButton): Boolean;
 { A gamepad button went down since the last UpdateGamepad }
 function GamepadJustPressed(const Button: TGameControllerButton): Boolean;
 { The left stick as movement fractions (-1..1): forward and side }
@@ -65,8 +73,26 @@ procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Si
 { Refresh the just-pressed state of the gamepad buttons; once per frame }
 procedure UpdateGamepad;
 function GamepadConnected: Boolean;
+{ The first controller's name, 'none' without one }
+function GamepadName: String;
+procedure SaveGamepadSettings;
+{ The stick value after the dead zone (rescaled so the edge stays 1) }
+function ApplyDeadZone(const V: Single): Single;
+
+{ Headless tests: a virtual controller (the engine's explicit backend)
+  whose sticks, trigger and buttons the demo script sets }
+procedure UseVirtualGamepad;
+procedure SetVirtualSticks(const Left, Right: TVector2);
+procedure SetVirtualRightTrigger(const Value: Single);
+procedure SetVirtualButton(const Button: TGameControllerButton; const Pressed: Boolean);
+{ 'south', 'east', 'west', 'north', 'lb', 'rb', 'up', 'down', 'left',
+  'right', 'start', 'back'; False when unknown }
+function GamepadButtonByName(const Name: String; out Button: TGameControllerButton): Boolean;
 
 implementation
+
+uses
+  CastleInternalGameControllersExplicit;
 
 var
   WasPressed, JustPressed: array[TGameControllerButton] of Boolean;
@@ -83,6 +109,99 @@ end;
 function GamepadConnected: Boolean;
 begin
   Result := FirstController <> nil;
+end;
+
+function GamepadName: String;
+begin
+  if FirstController = nil then
+    Result := 'none'
+  else
+    Result := FirstController.Name;
+end;
+
+procedure LoadGamepadSettings;
+begin
+  GamepadSensitivity := EnsureRange(UserConfig.GetFloat('gamepad/sensitivity', 1.0), 0.25, 4.0);
+  GamepadDeadZone := EnsureRange(UserConfig.GetFloat('gamepad/dead_zone', DefaultGamepadDeadZone), 0.0, 0.6);
+  GamepadInvertLook := UserConfig.GetValue('gamepad/invert_look', False);
+end;
+
+procedure SaveGamepadSettings;
+begin
+  if not ConfigLoaded then
+    Exit;
+  try
+    UserConfig.SetDeleteFloat('gamepad/sensitivity', GamepadSensitivity, 1.0);
+    UserConfig.SetDeleteFloat('gamepad/dead_zone', GamepadDeadZone, DefaultGamepadDeadZone);
+    UserConfig.SetDeleteValue('gamepad/invert_look', GamepadInvertLook, False);
+    UserConfig.Save;
+  except
+    on E: Exception do
+      WritelnWarning('GameInput', 'Cannot save the user config: ' + E.Message);
+  end;
+end;
+
+
+var
+  VirtualPadReady: Boolean;
+
+function ExplicitBackend: TExplicitControllerManagerBackend;
+begin
+  Result := Controllers.InternalExplicitBackend as TExplicitControllerManagerBackend;
+  { Replace whatever the platform backend had listed (a CI runner may
+    expose a device) with the one virtual controller, once }
+  if not VirtualPadReady then
+  begin
+    Result.SetCount(1);
+    VirtualPadReady := True;
+  end;
+end;
+
+procedure UseVirtualGamepad;
+begin
+  ExplicitBackend;
+  WritelnLog('GameInput', 'Virtual game controller for the demo script');
+end;
+
+procedure SetVirtualSticks(const Left, Right: TVector2);
+begin
+  ExplicitBackend.SetAxisLeft(0, Left);
+  ExplicitBackend.SetAxisRight(0, Right);
+end;
+
+procedure SetVirtualRightTrigger(const Value: Single);
+begin
+  ExplicitBackend.SetAxisRightTrigger(0, Value);
+end;
+
+procedure SetVirtualButton(const Button: TGameControllerButton; const Pressed: Boolean);
+begin
+  ExplicitBackend.SetButton(0, Button, Pressed);
+end;
+
+function GamepadButtonByName(const Name: String; out Button: TGameControllerButton): Boolean;
+var
+  N: String;
+begin
+  N := LowerCase(Trim(Name));
+  Result := True;
+  if (N = 'south') or (N = 'a') then Button := gbSouth
+  else if (N = 'east') or (N = 'b') then Button := gbEast
+  else if (N = 'west') or (N = 'x') then Button := gbWest
+  else if (N = 'north') or (N = 'y') then Button := gbNorth
+  else if N = 'lb' then Button := gbLeftBumper
+  else if N = 'rb' then Button := gbRightBumper
+  else if N = 'up' then Button := gbDPadUp
+  else if N = 'down' then Button := gbDPadDown
+  else if N = 'left' then Button := gbDPadLeft
+  else if N = 'right' then Button := gbDPadRight
+  else if N = 'start' then Button := gbMenu
+  else if N = 'back' then Button := gbView
+  else
+  begin
+    Button := gbSouth;
+    Result := False;
+  end;
 end;
 
 function MakeBinding(const B: TQuakeBinding; const Key1: TKey; const Key2: TKey = keyNone;
@@ -130,6 +249,7 @@ begin
     UserConfig.Load;
     ConfigLoaded := True;
     BindingList.LoadFromConfig(UserConfig, 'bindings');
+    LoadGamepadSettings;
   except
     on E: Exception do
       WritelnWarning('GameInput', 'Cannot load the user config: ' + E.Message);
@@ -245,6 +365,7 @@ var
   Button: TGameControllerButton;
 begin
   C := FirstController;
+
   for Button := Low(TGameControllerButton) to High(TGameControllerButton) do
   begin
     JustPressed[Button] := (C <> nil) and C.Pressed[Button] and not WasPressed[Button];
@@ -252,17 +373,22 @@ begin
   end;
 end;
 
+function GamepadButtonDown(const Button: TGameControllerButton): Boolean;
+begin
+  Result := (FirstController <> nil) and FirstController.Pressed[Button];
+end;
+
 function GamepadJustPressed(const Button: TGameControllerButton): Boolean;
 begin
   Result := JustPressed[Button];
 end;
 
-function DeadZone(const V: Single): Single;
+function ApplyDeadZone(const V: Single): Single;
 begin
-  if Abs(V) < GamepadStickDeadZone then
+  if Abs(V) <= GamepadDeadZone then
     Result := 0
   else
-    Result := Sign(V) * (Abs(V) - GamepadStickDeadZone) / (1 - GamepadStickDeadZone);
+    Result := Sign(V) * Min(1.0, (Abs(V) - GamepadDeadZone) / (1 - GamepadDeadZone));
 end;
 
 procedure GamepadMove(out Forward, Side: Single);
@@ -276,8 +402,8 @@ begin
   if C = nil then
     Exit;
   Stick := C.AxisLeft;
-  Forward := EnsureRange(DeadZone(Stick.Y), -1, 1);
-  Side := EnsureRange(DeadZone(Stick.X), -1, 1);
+  Forward := EnsureRange(ApplyDeadZone(Stick.Y), -1, 1);
+  Side := EnsureRange(ApplyDeadZone(Stick.X), -1, 1);
 end;
 
 procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single);
@@ -291,8 +417,10 @@ begin
   if (C = nil) or (Camera = nil) then
     Exit;
   Stick := C.AxisRight;
-  Yaw := -DeadZone(Stick.X) * GamepadYawSpeed * SecondsPassed;
-  Pitch := DeadZone(Stick.Y) * GamepadPitchSpeed * SecondsPassed;
+  Yaw := -ApplyDeadZone(Stick.X) * GamepadYawSpeed * GamepadSensitivity * SecondsPassed;
+  Pitch := ApplyDeadZone(Stick.Y) * GamepadPitchSpeed * GamepadSensitivity * SecondsPassed;
+  if GamepadInvertLook then
+    Pitch := -Pitch;
   if (Yaw = 0) and (Pitch = 0) then
     Exit;
   Dir := Camera.Direction;

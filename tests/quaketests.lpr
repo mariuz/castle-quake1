@@ -10,7 +10,7 @@ program quaketests;
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
-  CastleKeysMouse, CastleConfig,
+  CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, QuakeWebSocketRelay;
 
 var
@@ -388,6 +388,98 @@ begin
   Check((Bindings[qbJump].Key1 = keySpace) and (Bindings[qbUse].Key1 = keyE), 'reset to defaults');
 end;
 
+procedure TestGamepad;
+var
+  Camera: TCastleCamera;
+  Forward, Side: Single;
+
+  function Yaw: Single;
+  begin
+    Result := RadToDeg(ArcTan2(-Camera.Direction.Z, Camera.Direction.X));
+  end;
+
+  function Pitch: Single;
+  begin
+    Result := RadToDeg(ArcSin(Camera.Direction.Y));
+  end;
+
+  procedure ResetCamera;
+  begin
+    Camera.SetWorldView(TVector3.Zero, Vector3(1, 0, 0), Vector3(0, 1, 0));
+  end;
+
+begin
+  StartTest('Gamepad (virtual controller)');
+  GamepadSensitivity := 1.0;
+  GamepadDeadZone := DefaultGamepadDeadZone;
+  GamepadInvertLook := False;
+  Camera := TCastleCamera.Create(nil);
+  try
+    { Dead zone: inside it nothing, the rest rescaled so the edge stays 1 }
+    CheckNear(0, ApplyDeadZone(0.15), 1e-6, 'inside the dead zone');
+    CheckNear(0.5, ApplyDeadZone(0.6), 1e-5, 'half way past the dead zone');
+    CheckNear(-1, ApplyDeadZone(-1), 1e-6, 'full deflection');
+
+    SetVirtualSticks(Vector2(0.6, 1.0), TVector2.Zero);
+    Check(GamepadConnected, 'the virtual controller counts as connected');
+    GamepadMove(Forward, Side);
+    CheckNear(1, Forward, 1e-5, 'left stick forward');
+    CheckNear(0.5, Side, 1e-5, 'left stick side');
+
+    { Right stick right for 0.5 s: 160 deg/s turns 80 deg to the right }
+    ResetCamera;
+    SetVirtualSticks(TVector2.Zero, Vector2(1, 0));
+    GamepadTurnCamera(Camera, 0.5);
+    CheckNear(-80, Yaw, 0.1, 'turn right at sensitivity 1');
+    GamepadSensitivity := 2.0;
+    ResetCamera;
+    GamepadTurnCamera(Camera, 0.5);
+    CheckNear(-160, Yaw, 0.1, 'turn right at sensitivity 2');
+    GamepadSensitivity := 1.0;
+
+    { Right stick up for 0.25 s looks up 22.5 deg, inverted down }
+    ResetCamera;
+    SetVirtualSticks(TVector2.Zero, Vector2(0, 1));
+    GamepadTurnCamera(Camera, 0.25);
+    CheckNear(22.5, Pitch, 0.1, 'look up');
+    GamepadInvertLook := True;
+    ResetCamera;
+    GamepadTurnCamera(Camera, 0.25);
+    CheckNear(-22.5, Pitch, 0.1, 'inverted look goes down');
+    GamepadInvertLook := False;
+
+    { The pitch stops at 85 deg }
+    ResetCamera;
+    GamepadTurnCamera(Camera, 5);
+    CheckNear(85, Pitch, 0.1, 'pitch clamped');
+
+    { A small dead zone lets a light touch through }
+    GamepadDeadZone := 0.1;
+    ResetCamera;
+    SetVirtualSticks(TVector2.Zero, Vector2(0.15, 0));
+    GamepadTurnCamera(Camera, 1);
+    Check(Abs(Yaw) > 1, Format('light touch turns with dead zone 0.1 (yaw %.2f)', [Yaw]));
+    GamepadDeadZone := DefaultGamepadDeadZone;
+    ResetCamera;
+    GamepadTurnCamera(Camera, 1);
+    CheckNear(0, Yaw, 1e-4, 'light touch ignored with dead zone 0.2');
+    SetVirtualSticks(TVector2.Zero, TVector2.Zero);
+
+    { The tuning is saved in the user config (only what differs from the defaults) }
+    GamepadSensitivity := 2.0;
+    GamepadInvertLook := True;
+    SaveGamepadSettings;
+    CheckNear(2.0, UserConfig.GetFloat('gamepad/sensitivity', 1.0), 1e-5, 'sensitivity saved');
+    Check(UserConfig.GetValue('gamepad/invert_look', False), 'invert look saved');
+    GamepadSensitivity := 1.0;
+    GamepadInvertLook := False;
+    SaveGamepadSettings;
+    Check(not UserConfig.GetValue('gamepad/invert_look', False), 'defaults written back');
+  finally
+    Camera.Free;
+  end;
+end;
+
 procedure TestWebSocket;
 begin
   StartTest('WebSocket handshake');
@@ -428,6 +520,7 @@ begin
   TestDemoRoundTrip;
   TestBindings;
   TestWebSocket;
+  TestGamepad;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then
