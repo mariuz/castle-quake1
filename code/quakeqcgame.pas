@@ -72,6 +72,7 @@ type
     Fire: Boolean;
     Impulse: Integer;
     Name: String;
+    InputDriven: Boolean; { moved by RunClientInput only: Frame never moves it }
   end;
 
   TQcSoundEvent = procedure(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
@@ -174,6 +175,12 @@ type
       LoadLevel); clients connect and leave while the level runs }
     procedure SetClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
       const Fire: Boolean; const Impulse: Integer);
+    { Network: run the client for one input of Dt seconds right now (like
+      SV_RunCmd of QuakeWorld), so the movement is exactly the sum of the
+      inputs the client sent and predicted; from then on Frame does not
+      move this client (a client that sends nothing stands still) }
+    procedure RunClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
+      const Fire: Boolean; const Impulse: Integer; const Dt: Single);
     function ConnectClient(const E: Integer; const AName: String): Boolean;
     procedure DisconnectClient(const E: Integer);
     function ClientActive(const E: Integer): Boolean;
@@ -619,6 +626,7 @@ begin
     FClients[1].Active := True;
     FClients[1].Name := D.GetStr('player', 'player');
     FClients[1].Cmd := Default(TQuakeUserCmd);
+    FClients[1].InputDriven := False;
     FClients[1].Fire := False;
     FClients[1].Impulse := 0;
     PP := FClients[1].Phys;
@@ -671,6 +679,7 @@ begin
   FClients[E].Active := True;
   FClients[E].Name := AName;
   FClients[E].Cmd := Default(TQuakeUserCmd);
+  FClients[E].InputDriven := False;
   FClients[E].Fire := False;
   FClients[E].Impulse := 0;
   { A fresh player: the parms of a new game }
@@ -716,6 +725,18 @@ begin
   FClients[E].Fire := Fire;
   if Impulse <> 0 then
     FClients[E].Impulse := Impulse;
+end;
+
+procedure TQuakeQcGame.RunClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
+  const Fire: Boolean; const Impulse: Integer; const Dt: Single);
+begin
+  if (E < 1) or (E > MaxQcClients) or not FClients[E].Active or (FBsp = nil) or not FProgs.Loaded then
+    Exit;
+  SetClientInput(E, Cmd, Yaw, Pitch, Fire, Impulse);
+  FProgs.Global(FProgs.GlobalOfs('frametime'))^.F := Dt;
+  FProgs.Global(FProgs.GTime)^.F := FTime;
+  MoveClient(E, Dt);
+  FClients[E].InputDriven := True;
 end;
 
 { Memory helpers }
@@ -1253,9 +1274,9 @@ begin
   if FFnStartFrame > 0 then
     FProgs.CallWith(FFnStartFrame, 0);
 
-  { The players }
+  { The players (the network ones move with their inputs, RunClientInput) }
   for E := 1 to FMaxClients do
-    if FClients[E].Active then
+    if FClients[E].Active and not FClients[E].InputDriven then
       MoveClient(E, Dt);
 
   { Everything else (SV_Physics) }
