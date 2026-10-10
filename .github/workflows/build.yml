@@ -29,6 +29,30 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up FPC and Castle Game Engine
+        timeout-minutes: 20
+        run: |
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine
+
+      # tests/quaketests: the BSP tracer, the QuakeC VM, savegame round trips
+      # and the demo writer / reader against the bundled shareware pak
+      - name: Build and run the unit tests
+        run: |
+          cd tests
+          castle-engine compile --mode=debug --verbose
+          ./quaketests ../data/paks
+
   build-linux:
     name: Package Linux
     runs-on: ubuntu-latest
@@ -125,7 +149,7 @@ jobs:
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: [build-linux, build-windows, build-macos]
+    needs: [test, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

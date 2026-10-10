@@ -171,6 +171,8 @@ Player dimensions:
 
 ## 10. Automated Headless Testing
 
+- Unit tests (`tests/quaketests.lpr`): a console program with the Quake units on its search path (`tests/CastleEngineManifest.xml`), loading `quake1_demo.pak` from the directory given as its argument; `Check` / `CheckEquals` helpers count the failures and the exit code is 1 when any failed. Covered: `TQuakeBsp.PointContents` / `TraceHull`, `TQuakeProgs` (function lookups, `anglemod` through `Execute`, `SpawnEntities` counts, `RunFrame`, `SaveState` / `LoadState`), `TQuakeSaveData` and `TQuakeDemoWriter` / `TQuakeDemoReader`. The Build workflow's `test` job runs it on Linux before the packages are released.
+
 Command line parameters:
 - `--autotest <MAP> <PREFIX>`: loads map headlessly, executes demo actions, takes screenshot, and terminates.
 - `--demo "COMMANDS"`:
