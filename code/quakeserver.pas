@@ -477,7 +477,7 @@ end;
 
 procedure TQuakeServer.Update(const SecondsPassed: Single);
 var
-  C, E: Integer;
+  C, E, I: Integer;
   Input: TNetInput;
   Cmd: TQuakeUserCmd;
 begin
@@ -485,18 +485,24 @@ begin
     Exit;
   FNet.Update(SecondsPassed);
 
-  { The clients' input }
+  { The clients' inputs: each one moves its player for the time it lasted
+    (the client predicted the same), a few per tick when they queued up }
   for C := 1 to MaxNetClients do
-    if FNet.ClientReady(C) and FNet.ClientInput(C, Input) then
+    if FNet.ClientReady(C) then
     begin
       E := FNet.ClientEdict(C);
-      Cmd := Default(TQuakeUserCmd);
-      Cmd.ForwardMove := Input.Move.X;
-      Cmd.SideMove := Input.Move.Y;
-      Cmd.UpMove := Input.Move.Z;
-      Cmd.Jump := (Input.Buttons and nbJump) <> 0;
-      FGame.SetClientInput(E, Cmd, Input.Angles.Y, Input.Angles.X, (Input.Buttons and nbFire) <> 0,
-        Input.Impulse);
+      I := 0;
+      while (I < 4) and FNet.ClientInput(C, Input) do
+      begin
+        Inc(I);
+        Cmd := Default(TQuakeUserCmd);
+        Cmd.ForwardMove := Input.Move.X;
+        Cmd.SideMove := Input.Move.Y;
+        Cmd.UpMove := Input.Move.Z;
+        Cmd.Jump := (Input.Buttons and nbJump) <> 0;
+        FGame.RunClientInput(E, Cmd, Input.Angles.Y, Input.Angles.X, (Input.Buttons and nbFire) <> 0,
+          Input.Impulse, Min(Input.Msec, MaxInputMsec) / 1000);
+      end;
     end;
 
   FGame.Frame(Min(SecondsPassed, 0.1));

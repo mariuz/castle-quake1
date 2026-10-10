@@ -30,6 +30,14 @@ type
     TrailTimer: Single;
   end;
 
+  { One input sent to the server, kept until the server reports it applied }
+  TPredictedInput = record
+    Sequence: Word;
+    Cmd: TQuakeUserCmd;
+    Yaw, Pitch, Dt: Single;
+    Origin: TVector3; { predicted after this input }
+  end;
+
   TViewDemo = class(TCastleView)
   private
     FViewport: TCastleViewport;
@@ -42,6 +50,7 @@ type
     FStaticVisuals: array of TDemoVisual;
     FSubmodels: array of TQuakeSubmodel;  { by BSP model index }
     FSubmodelUsed: array of Boolean;
+    FSubmodelOrigin: array of TVector3;   { Quake origin of the shown submodels }
     FWeaponTransform: TCastleTransform;
     FWeapon: TDemoVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -55,6 +64,15 @@ type
     FLoaded: Boolean;
     { Network client }
     FClient: TQuakeNetClient;
+    FRendezvous: TQuakeNetRendezvous;
+    { Client-side prediction: the player's physics run here on the inputs
+      the server has not answered yet (cl_pred of QuakeWorld) }
+    FPredict: TQuakePlayerPhysics;
+    FHistory: array of TPredictedInput;
+    FInputSeq: Word;
+    FPredictValid: Boolean;
+    FReconciledFrames: Cardinal;
+    FPredictError, FPredictErrorMax: Single; { server origin vs. the prediction for the same input }
     FNavigation: TCastleWalkNavigation;
     FImpulse: Integer;
     FFireHeld: Single;
@@ -91,7 +109,11 @@ type
     procedure Leave;
     procedure SetViewAngles(const Yaw, Pitch: Single);
     procedure UpdateNetwork(const SecondsPassed: Single);
-    procedure SendInput;
+    procedure SendInput(const SecondsPassed: Single);
+    procedure PredictInput(const Input: TNetInput; const Dt: Single);
+    procedure ReconcilePrediction;
+    procedure RefreshPredictSolids;
+    function PredictionActive: Boolean;
   public
     { PAK name ('demo1.dem') or URL of the demo to play }
     DemoName: String;
@@ -105,6 +127,16 @@ type
     HostMap: String;
     HostCoop: Boolean;
     HostSkill: Integer;
+    { Rendezvous (UDP hole punching): the host registers as RegisterName
+      at RegisterHost:RegisterPort; a client with NetName set looks the
+      name up at NetHost:NetPort instead of connecting there }
+    RegisterName, RegisterHost: String;
+    RegisterPort: Word;
+    NetName: String;
+    { Run the rendezvous service itself on NetPort (no game) }
+    Rendezvous: Boolean;
+    { Client-side prediction of the local player (default on) }
+    Predict: Boolean;
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -129,6 +161,7 @@ const
 constructor TViewDemo.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  Predict := True;
   FDemo := TQuakeDemoReader.Create;
   FDemo.OnServerInfo := @HandleServerInfo;
   FDemo.OnSound := @HandleSound;
@@ -226,6 +259,20 @@ begin
     if NetPort = 0 then
       NetPort := DefaultNetPort;
     FreeAndNil(ListenServer);
+    FreeAndNil(FRendezvous);
+    FDemo.StartNetwork;
+    if Rendezvous then
+    begin
+      FRendezvous := TQuakeNetRendezvous.Create(NetPort);
+      if not FRendezvous.Valid then
+      begin
+        FHud.ShowMessage('Cannot open UDP port ' + IntToStr(NetPort) + ' for the rendezvous', 3);
+        FreeAndNil(FRendezvous);
+        FDemo.Finished := True;
+      end else
+        FHud.ShowMessage('Rendezvous service on UDP port ' + IntToStr(NetPort) + ' (Escape quits)', 10);
+      Exit;
+    end;
     if HostMap <> '' then
     begin
       ListenServer := TQuakeServer.Create(NetPort, HostMap, MaxNetClients, HostCoop, HostSkill);
@@ -236,11 +283,22 @@ begin
         FDemo.Finished := True;
         Exit;
       end;
+      if RegisterName <> '' then
+        ListenServer.Net.RegisterAt(RegisterHost, RegisterPort, RegisterName);
       NetHost := '127.0.0.1';
+      NetName := '';
     end;
-    FDemo.StartNetwork;
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
+    if NetName <> '' then
+    begin
+      if not FClient.ConnectVia(NetHost, NetPort, NetName) then
+      begin
+        FHud.ShowMessage('Cannot look up ' + NetName + ' at ' + NetHost + ':' + IntToStr(NetPort), 3);
+        FDemo.Finished := True;
+      end else
+        FHud.ShowMessage('Looking up ' + NetName + ' at ' + NetHost + ':' + IntToStr(NetPort) + '...', 5);
+    end else
     if not FClient.Connect(NetHost, NetPort) then
     begin
       FHud.ShowMessage('Cannot connect to ' + NetHost + ':' + IntToStr(NetPort), 3);
@@ -263,6 +321,7 @@ begin
     FreeAndNil(FClient);
   end;
   FreeAndNil(ListenServer);
+  FreeAndNil(FRendezvous);
   ClearLevel;
   if Sounds <> nil then
     Sounds.StopMusic;
@@ -273,7 +332,7 @@ end;
 
 function TViewDemo.NetMode: Boolean;
 begin
-  Result := (NetHost <> '') or (HostMap <> '');
+  Result := (NetHost <> '') or (HostMap <> '') or Rendezvous;
 end;
 
 procedure TViewDemo.SetViewAngles(const Yaw, Pitch: Single);
@@ -288,11 +347,14 @@ begin
   FViewport.Camera.SetWorldView(FViewport.Camera.Translation, QuakeToCge(Dir), Vector3(0, 1, 0));
 end;
 
-procedure TViewDemo.SendInput;
+procedure TViewDemo.SendInput(const SecondsPassed: Single);
 var
   Input: TNetInput;
 begin
   Input := Default(TNetInput);
+  Inc(FInputSeq);
+  Input.Sequence := FInputSeq;
+  Input.Msec := Max(1, Min(Round(SecondsPassed * 1000), MaxInputMsec));
   Input.Angles := FDemo.ViewAngles;
   if AutoTestPrefix = '' then
   begin
@@ -320,12 +382,115 @@ begin
   Input.Impulse := EnsureRange(FImpulse, 0, 255);
   FImpulse := 0;
   FClient.SendInput(Input);
+  PredictInput(Input, SecondsPassed);
+end;
+
+procedure TViewDemo.RefreshPredictSolids;
+var
+  I, N: Integer;
+begin
+  { The brush entities where the server last showed them }
+  N := 0;
+  SetLength(FPredict.SolidModels, Length(FSubmodels));
+  for I := 1 to High(FSubmodels) do
+    if (FSubmodels[I] <> nil) and FSubmodels[I].Transform.Exists then
+    begin
+      FPredict.SolidModels[N].ModelIndex := I;
+      FPredict.SolidModels[N].Offset := FSubmodelOrigin[I];
+      Inc(N);
+    end;
+  SetLength(FPredict.SolidModels, N);
+  SetLength(FPredict.SolidBoxes, 0);
+end;
+
+procedure TViewDemo.PredictInput(const Input: TNetInput; const Dt: Single);
+var
+  H: TPredictedInput;
+begin
+  if not Predict or (FPredict = nil) then
+    Exit;
+  H := Default(TPredictedInput);
+  H.Sequence := Input.Sequence;
+  H.Cmd.ForwardMove := Input.Move.X;
+  H.Cmd.SideMove := Input.Move.Y;
+  H.Cmd.UpMove := Input.Move.Z;
+  H.Cmd.Jump := (Input.Buttons and nbJump) <> 0;
+  H.Yaw := Input.Angles.Y;
+  H.Pitch := Input.Angles.X;
+  H.Dt := Input.Msec / 1000; { what the server runs }
+  if Length(FHistory) >= 128 then
+    Delete(FHistory, 0, 1);
+  SetLength(FHistory, Length(FHistory) + 1);
+  FHistory[High(FHistory)] := H;
+  if FPredictValid then
+  begin
+    RefreshPredictSolids;
+    FPredict.Move(H.Cmd, H.Yaw, H.Pitch, H.Dt);
+    FHistory[High(FHistory)].Origin := FPredict.Origin;
+  end;
+end;
+
+procedure TViewDemo.ReconcilePrediction;
+var
+  V, I: Integer;
+  Acked: Word;
+  CD: TDemoClientData;
+begin
+  if not Predict or (FPredict = nil) or (FClient = nil) or not FClient.HasAckedInput then
+    Exit;
+  if FClient.FramesReceived = FReconciledFrames then
+    Exit; { no new server frame }
+  FReconciledFrames := FClient.FramesReceived;
+  V := FDemo.ViewEntity;
+  if (V <= 0) or (V >= Length(FDemo.Entities)) then
+    Exit;
+  { Start from the server's state and apply what it has not seen yet }
+  Acked := FClient.AckedInput;
+  CD := FDemo.ClientData;
+  if FPredictValid then
+    for I := 0 to High(FHistory) do
+      if FHistory[I].Sequence = Acked then
+      begin
+        FPredictError := (FHistory[I].Origin - FDemo.Entities[V].Msg[0].Origin).Length;
+        FPredictErrorMax := Max(FPredictErrorMax, FPredictError);
+        Break;
+      end;
+  FPredict.Origin := FDemo.Entities[V].Msg[0].Origin;
+  FPredict.Velocity := CD.Velocity;
+  FPredict.OnGround := CD.OnGround;
+  if CD.OnGround then
+    FPredict.GroundEntity := 0
+  else
+    FPredict.GroundEntity := -1;
+  FPredictValid := True;
+  I := 0;
+  while (I < Length(FHistory)) and (SmallInt(FHistory[I].Sequence - Acked) <= 0) do
+    Inc(I);
+  if I > 0 then
+    Delete(FHistory, 0, I);
+  RefreshPredictSolids;
+  for I := 0 to High(FHistory) do
+  begin
+    FPredict.Move(FHistory[I].Cmd, FHistory[I].Yaw, FHistory[I].Pitch, FHistory[I].Dt);
+    FHistory[I].Origin := FPredict.Origin;
+  end;
+end;
+
+function TViewDemo.PredictionActive: Boolean;
+begin
+  Result := Predict and FPredictValid and (FPredict <> nil) and (FDemo.ClientData.Health > 0) and
+    (FDemo.Intermission = 0);
 end;
 
 procedure TViewDemo.UpdateNetwork(const SecondsPassed: Single);
 var
   Data: TNetBytes;
 begin
+  if FRendezvous <> nil then
+  begin
+    FRendezvous.Update(SecondsPassed);
+    Exit;
+  end;
   { The listen server runs here, before its own client reads it }
   if ListenServer <> nil then
     ListenServer.Update(SecondsPassed);
@@ -385,6 +550,10 @@ begin
   end;
   SetLength(FSubmodels, 0);
   SetLength(FSubmodelUsed, 0);
+  SetLength(FSubmodelOrigin, 0);
+  FreeAndNil(FPredict);
+  SetLength(FHistory, 0);
+  FPredictValid := False;
   { At program exit the managers may be gone already }
   if (FAmbient <> nil) and (Sounds <> nil) then
     FAmbient.Clear;
@@ -420,6 +589,17 @@ begin
   { Brush entities are placed by the demo; hidden until it does }
   SetLength(FSubmodels, FBsp.ModelCount);
   SetLength(FSubmodelUsed, FBsp.ModelCount);
+  SetLength(FSubmodelOrigin, FBsp.ModelCount);
+  if NetMode then
+  begin
+    FPredict := TQuakePlayerPhysics.Create;
+    FPredict.Bsp := FBsp;
+    FPredict.Mins := Vector3(-16, -16, -24);
+    FPredict.Maxs := Vector3(16, 16, 32);
+    FPredict.ViewHeight := 22;
+    FPredictValid := False;
+    SetLength(FHistory, 0);
+  end;
   for Sub in FGeometry.Submodels do
   begin
     if (Sub.ModelIndex > 0) and (Sub.ModelIndex < Length(FSubmodels)) then
@@ -643,6 +823,7 @@ begin
     begin
       FSubmodels[Skin].Transform.Exists := True;
       FSubmodels[Skin].Transform.Translation := QuakeToCge(State.Origin);
+      FSubmodelOrigin[Skin] := State.Origin;
       FSubmodelUsed[Skin] := True;
     end;
     Exit;
@@ -839,6 +1020,10 @@ begin
       Img.Free;
       WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, frags %d, time %.1f)',
         [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
+      if NetMode and (FPredict <> nil) and (FDemo.ViewEntity > 0) and (FDemo.ViewEntity < Length(FDemo.Entities)) then
+        WritelnLog('GameViewDemo', 'Prediction %s: predicted %s, server %s, error %.1f (max %.1f), %d inputs pending',
+          [BoolToStr(PredictionActive, 'on', 'off'), FPredict.Origin.ToString,
+           FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.ToString, FPredictError, FPredictErrorMax, Length(FHistory)]);
     end;
   except
     on E: Exception do
@@ -962,7 +1147,10 @@ begin
     FDemo.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
     FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
     if FDemo.Signon = Signons then
-      SendInput;
+    begin
+      ReconcilePrediction;
+      SendInput(SecondsPassed);
+    end;
     FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
     if FDemo.FragsChanged then
     begin
@@ -1000,6 +1188,9 @@ begin
 
   { The view: the view entity's eyes, looking along the recorded angles }
   CD := FDemo.ClientData;
+  if NetMode and PredictionActive then
+    Eye := FPredict.Origin + Vector3(0, 0, CD.ViewHeight)
+  else
   if (FDemo.ViewEntity > 0) and (FDemo.ViewEntity < Length(FDemo.Entities)) then
     Eye := FDemo.Entities[FDemo.ViewEntity].State.Origin + Vector3(0, 0, CD.ViewHeight)
   else

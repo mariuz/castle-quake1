@@ -51,6 +51,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 
 **Multiplayer**
 - Deathmatch and coop over UDP: the host runs the QuakeC rules, NetQuake protocol 15 messages stream the game to every player, the client is the demo player with input. Host from the menu or with `-host`, join with `-connect`.
+- Client-side prediction of your own movement (the server runs exactly the inputs you sent, the client replays the unacknowledged ones) and UDP hole punching through a rendezvous service: `-rendezvous` on a reachable machine, `-host e1m1 -register myname@rendezvous`, `-connect myname@rendezvous`.
 
 **Engine integration**
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.

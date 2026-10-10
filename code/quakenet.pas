@@ -1,7 +1,8 @@
 { Network play: UDP sockets, a small packet protocol (a connect handshake,
   a stop-and-wait reliable channel for the signon, unreliable server
-  frames and client input) and a builder for the NetQuake svc messages the
-  server streams, the same ones TQuakeDemoReader plays. }
+  frames and client input, a rendezvous service for UDP hole punching)
+  and a builder for the NetQuake svc messages the server streams, the
+  same ones TQuakeDemoReader plays. }
 unit QuakeNet;
 
 {$mode objfpc}{$H+}
@@ -23,7 +24,7 @@ uses
 
 const
   DefaultNetPort = 26000;
-  NetProtocolVersion = 1;
+  NetProtocolVersion = 2;
   MaxNetClients = 8;
   MaxPacketSize = 8192;
   ReliableChunkSize = 1200;
@@ -38,6 +39,18 @@ const
   pkInput = 6;      { client -> server }
   pkDisconnect = 7; { either way }
   pkRefuse = 8;     { server -> client: text }
+  { Rendezvous (hole punching): a host registers its name, a client looks
+    it up and both learn each other's public address }
+  pkRegister = 9;   { server -> rendezvous: name }
+  pkLookup = 10;    { client -> rendezvous: name }
+  pkPeer = 11;      { rendezvous -> client: the host's address (empty: unknown name) }
+  pkPunch = 12;     { rendezvous -> server: a client's address }
+  pkHello = 13;     { server -> client: opens the server's NAT mapping, ignored }
+
+  MaxInputMsec = 250;
+  MaxQueuedInputs = 16;     { inputs kept per client until the game runs them }
+  RegisterInterval = 5.0;   { keeps the NAT mapping at the rendezvous alive }
+  RendezvousTimeout = 30.0; { a registration not refreshed for this long is dropped }
 
   { Client input buttons }
   nbFire = 1;
@@ -64,6 +77,19 @@ type
     Move: TVector3;     { forward, side, up (units per second) }
     Buttons: Byte;
     Impulse: Byte;
+    { Counts the client's input packets; the server reports in each frame
+      the last one it applied, for the client-side prediction }
+    Sequence: Word;
+    { How long this input lasted (ms, at most MaxInputMsec): the server runs
+      the player for exactly that, so the client's prediction matches }
+    Msec: Word;
+  end;
+
+  { A received svc block and, for a frame, the input it acknowledges }
+  TNetBlock = record
+    Data: TNetBytes;
+    IsFrame: Boolean;
+    AckedInput: Word;
   end;
 
   TQuakeNetSocket = class
@@ -138,7 +164,7 @@ type
     property Size: Integer read FSize;
   end;
 
-  TNetClientState = (csDisconnected, csConnecting, csConnected);
+  TNetClientState = (csDisconnected, csResolving, csConnecting, csConnected);
 
   { The client side of a connection }
   TQuakeNetClient = class
@@ -150,13 +176,23 @@ type
     FExpectedSeq: Word;
     FLastFrameSeq: Word;
     FHasFrame: Boolean;
-    FBlocks: specialize TQueue<TNetBytes>;
+    FBlocks: specialize TQueue<TNetBlock>;
     FError: String;
+    FRendezvous: TInetSockAddr;
+    FPeerName: String;
+    FAckedInput: Word;
+    FHasAckedInput: Boolean;
+    FFramesReceived: Cardinal;
     procedure SendPacket(const Data: TNetBytes);
+    function OpenSocket: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
     function Connect(const Host: String; const Port: Word): Boolean;
+    { Connect to the host registered as Name at a rendezvous service: the
+      service answers with the host's public address and tells the host to
+      punch a hole towards this client }
+    function ConnectVia(const RendezvousHost: String; const RendezvousPort: Word; const Name: String): Boolean;
     procedure Disconnect;
     procedure Update(const SecondsPassed: Single);
     procedure SendInput(const Input: TNetInput);
@@ -164,6 +200,12 @@ type
     function PollBlock(out Data: TNetBytes): Boolean;
     property State: TNetClientState read FState;
     property Error: String read FError;
+    { The input sequence the server had applied in the last frame block
+      PollBlock returned (HasAckedInput once a frame arrived) }
+    property AckedInput: Word read FAckedInput;
+    property HasAckedInput: Boolean read FHasAckedInput;
+    { Frame blocks returned by PollBlock so far }
+    property FramesReceived: Cardinal read FFramesReceived;
   end;
 
   TNetServerClient = record
@@ -176,8 +218,8 @@ type
     InFlight: Boolean;
     ResendTimer: Single;
     FrameSeq: Word;
-    Input: TNetInput;
-    HasInput: Boolean;
+    Inputs: specialize TList<TNetInput>; { received, not yet handed out }
+    AckedSeq: Word;                      { the last input handed out }
     SignonDone: Boolean;
   end;
 
@@ -191,7 +233,11 @@ type
   private
     FSocket: TQuakeNetSocket;
     FClients: array[1..MaxNetClients] of TNetServerClient;
+    FRendezvous: TInetSockAddr;
+    FRegisterName: String;
+    FRegisterTimer: Single;
     function FindClient(const Addr: TInetSockAddr): Integer;
+    procedure SendRegister;
     procedure SendPacket(const C: Integer; const Data: TNetBytes);
     procedure SendReliableChunk(const C: Integer);
     procedure DropClient(const C: Integer; const Notify: Boolean);
@@ -210,14 +256,48 @@ type
     procedure SendReliable(const C: Integer; const Data: TNetBytes);
     { Send the signon again (a new level): frames wait until it is acked }
     procedure Resignon(const C: Integer);
+    { Register this server as Name at a rendezvous service (every
+      RegisterInterval seconds), so clients behind NATs can ConnectVia it }
+    function RegisterAt(const Host: String; const Port: Word; const Name: String): Boolean;
     procedure Shutdown;
     function ClientActive(const C: Integer): Boolean;
     function ClientEdict(const C: Integer): Integer;
     function ClientReady(const C: Integer): Boolean; { signon delivered }
+    { The next input of the client not yet handed out (oldest first), in
+      the order they were sent; False when there is none }
     function ClientInput(const C: Integer; out Input: TNetInput): Boolean;
     function ClientAddress(const C: Integer): String;
     function ClientCount: Integer;
   end;
+
+  TRendezvousEntry = record
+    Name: String;
+    Addr: TInetSockAddr;
+    Age: Single;
+  end;
+
+  { The rendezvous service: remembers where the registered hosts are
+    reachable (their public address as seen from here) and, on a lookup,
+    gives the client that address and the host the client's, so both
+    NATs open (UDP hole punching). Run it on a machine both can reach. }
+  TQuakeNetRendezvous = class
+  private
+    FSocket: TQuakeNetSocket;
+    FEntries: array of TRendezvousEntry;
+    function Find(const Name: String): Integer;
+  public
+    constructor Create(const Port: Word);
+    destructor Destroy; override;
+    function Valid: Boolean;
+    procedure Update(const SecondsPassed: Single);
+    function Count: Integer;
+  end;
+
+{ 6 bytes: the address and port as they are in the socket address }
+function AddressToBytes(const A: TInetSockAddr): TNetBytes;
+function BytesToAddress(const B: TNetBytes; const Offset: Integer; out A: TInetSockAddr): Boolean;
+function NameBytes(const S: String): TNetBytes;
+function BytesName(const B: TNetBytes; const Offset: Integer): String;
 
 implementation
 
@@ -797,12 +877,47 @@ begin
   Result := Data[1] or (Data[2] shl 8);
 end;
 
+function AddressToBytes(const A: TInetSockAddr): TNetBytes;
+begin
+  SetLength(Result, 6);
+  Move(A.sin_addr.s_addr, Result[0], 4);
+  Move(A.sin_port, Result[4], 2);
+end;
+
+function BytesToAddress(const B: TNetBytes; const Offset: Integer; out A: TInetSockAddr): Boolean;
+begin
+  FillChar(A, SizeOf(A), 0);
+  Result := Length(B) >= Offset + 6;
+  if Result then
+  begin
+    {$ifndef QUAKE_NO_SOCKETS}
+    A.sin_family := AF_INET;
+    {$endif}
+    Move(B[Offset], A.sin_addr.s_addr, 4);
+    Move(B[Offset + 4], A.sin_port, 2);
+  end;
+end;
+
+function NameBytes(const S: String): TNetBytes;
+begin
+  Result := TEncoding.ASCII.GetBytes(Copy(S, 1, 64));
+end;
+
+function BytesName(const B: TNetBytes; const Offset: Integer): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := Offset to High(B) do
+    Result := Result + Chr(B[I]);
+end;
+
 { TQuakeNetClient }
 
 constructor TQuakeNetClient.Create;
 begin
   inherited Create;
-  FBlocks := specialize TQueue<TNetBytes>.Create;
+  FBlocks := specialize TQueue<TNetBlock>.Create;
 end;
 
 destructor TQuakeNetClient.Destroy;
@@ -819,6 +934,23 @@ begin
     FSocket.Send(FServer, Data);
 end;
 
+function TQuakeNetClient.OpenSocket: Boolean;
+begin
+  FreeAndNil(FSocket);
+  FSocket := TQuakeNetSocket.Create(0);
+  Result := FSocket.Valid;
+  if not Result then
+    FError := 'No socket';
+  FTimer := 1; { send at once }
+  FSinceReceive := 0;
+  FExpectedSeq := 0;
+  FHasFrame := False;
+  FHasAckedInput := False;
+  FAckedInput := 0;
+  FFramesReceived := 0;
+  FBlocks.Clear;
+end;
+
 function TQuakeNetClient.Connect(const Host: String; const Port: Word): Boolean;
 begin
   Disconnect;
@@ -828,20 +960,28 @@ begin
     FError := 'Bad address ' + Host;
     Exit(False);
   end;
-  FreeAndNil(FSocket);
-  FSocket := TQuakeNetSocket.Create(0);
-  if not FSocket.Valid then
+  if not OpenSocket then
+    Exit(False);
+  FState := csConnecting;
+  WritelnLog('QuakeNet', 'Connecting to %s', [TQuakeNetSocket.AddressToString(FServer)]);
+  Result := True;
+end;
+
+function TQuakeNetClient.ConnectVia(const RendezvousHost: String; const RendezvousPort: Word;
+  const Name: String): Boolean;
+begin
+  Disconnect;
+  FError := '';
+  if not TQuakeNetSocket.Resolve(RendezvousHost, RendezvousPort, FRendezvous) then
   begin
-    FError := 'No socket';
+    FError := 'Bad rendezvous address ' + RendezvousHost;
     Exit(False);
   end;
-  FState := csConnecting;
-  FTimer := 1; { send at once }
-  FSinceReceive := 0;
-  FExpectedSeq := 0;
-  FHasFrame := False;
-  FBlocks.Clear;
-  WritelnLog('QuakeNet', 'Connecting to %s', [TQuakeNetSocket.AddressToString(FServer)]);
+  if not OpenSocket then
+    Exit(False);
+  FPeerName := Name;
+  FState := csResolving;
+  WritelnLog('QuakeNet', 'Looking up "%s" at %s', [Name, TQuakeNetSocket.AddressToString(FRendezvous)]);
   Result := True;
 end;
 
@@ -862,11 +1002,30 @@ var
   Addr: TInetSockAddr;
   Data, P, Payload: TNetBytes;
   Seq: Word;
+  Block: TNetBlock;
 begin
   if (FState = csDisconnected) or (FSocket = nil) then
     Exit;
   FTimer := FTimer + SecondsPassed;
   FSinceReceive := FSinceReceive + SecondsPassed;
+  if FState = csResolving then
+  begin
+    if FTimer >= 0.5 then
+    begin
+      FTimer := 0;
+      Payload := NameBytes(FPeerName);
+      P := PacketHeader(pkLookup, 0, Length(Payload));
+      if Length(Payload) > 0 then
+        Move(Payload[0], P[3], Length(Payload));
+      FSocket.Send(FRendezvous, P);
+    end;
+    if FSinceReceive > NetTimeout then
+    begin
+      FError := 'No answer from the rendezvous';
+      FState := csDisconnected;
+      Exit;
+    end;
+  end else
   if FState = csConnecting then
   begin
     if FTimer >= 0.5 then
@@ -891,11 +1050,34 @@ begin
 
   while FSocket.Receive(Addr, Data) do
   begin
-    if (Length(Data) < 3) or not TQuakeNetSocket.SameAddress(Addr, FServer) then
+    if Length(Data) < 3 then
+      Continue;
+    if (FState = csResolving) and TQuakeNetSocket.SameAddress(Addr, FRendezvous) then
+    begin
+      if Data[0] = pkPeer then
+      begin
+        FSinceReceive := 0;
+        if BytesToAddress(Data, 3, FServer) then
+        begin
+          FState := csConnecting;
+          FTimer := 1;
+          WritelnLog('QuakeNet', '"%s" is at %s, connecting', [FPeerName, TQuakeNetSocket.AddressToString(FServer)]);
+        end else
+        begin
+          FError := 'No host named "' + FPeerName + '" at the rendezvous';
+          FState := csDisconnected;
+          Exit;
+        end;
+      end;
+      Continue;
+    end;
+    if (FState = csResolving) or not TQuakeNetSocket.SameAddress(Addr, FServer) then
       Continue;
     FSinceReceive := 0;
     Seq := PacketSeq(Data);
     case Data[0] of
+      pkHello:
+        ; { the host's hole punch }
       pkAccept:
         if FState = csConnecting then
         begin
@@ -916,10 +1098,11 @@ begin
           { Stop and wait: only the expected chunk is taken, every one is acked }
           if Seq = FExpectedSeq then
           begin
-            SetLength(Payload, Length(Data) - 3);
-            if Length(Payload) > 0 then
-              Move(Data[3], Payload[0], Length(Payload));
-            FBlocks.Enqueue(Payload);
+            Block := Default(TNetBlock);
+            SetLength(Block.Data, Length(Data) - 3);
+            if Length(Block.Data) > 0 then
+              Move(Data[3], Block.Data[0], Length(Block.Data));
+            FBlocks.Enqueue(Block);
             Inc(FExpectedSeq);
           end;
           P := PacketHeader(pkAck, Seq, 0);
@@ -930,12 +1113,17 @@ begin
           { Old frames out of order are dropped }
           if FHasFrame and (SmallInt(Seq - FLastFrameSeq) <= 0) then
             Continue;
+          if Length(Data) < 5 then
+            Continue;
           FLastFrameSeq := Seq;
           FHasFrame := True;
-          SetLength(Payload, Length(Data) - 3);
-          if Length(Payload) > 0 then
-            Move(Data[3], Payload[0], Length(Payload));
-          FBlocks.Enqueue(Payload);
+          Block := Default(TNetBlock);
+          Block.IsFrame := True;
+          Block.AckedInput := Data[3] or (Data[4] shl 8);
+          SetLength(Block.Data, Length(Data) - 5);
+          if Length(Block.Data) > 0 then
+            Move(Data[5], Block.Data[0], Length(Block.Data));
+          FBlocks.Enqueue(Block);
         end;
       pkDisconnect:
         begin
@@ -959,11 +1147,21 @@ begin
 end;
 
 function TQuakeNetClient.PollBlock(out Data: TNetBytes): Boolean;
+var
+  Block: TNetBlock;
 begin
   Result := FBlocks.Count > 0;
   if Result then
-    Data := FBlocks.Dequeue
-  else
+  begin
+    Block := FBlocks.Dequeue;
+    Data := Block.Data;
+    if Block.IsFrame then
+    begin
+      FAckedInput := Block.AckedInput;
+      FHasAckedInput := True;
+      Inc(FFramesReceived);
+    end;
+  end else
     SetLength(Data, 0);
 end;
 
@@ -976,7 +1174,10 @@ begin
   inherited Create;
   FSocket := TQuakeNetSocket.Create(Port);
   for I := 1 to MaxNetClients do
+  begin
     FClients[I].Reliable := specialize TList<TNetBytes>.Create;
+    FClients[I].Inputs := specialize TList<TNetInput>.Create;
+  end;
   if FSocket.Valid then
     WritelnLog('QuakeNet', 'Server listening on UDP port %d', [Port]);
 end;
@@ -987,7 +1188,10 @@ var
 begin
   Shutdown;
   for I := 1 to MaxNetClients do
+  begin
     FClients[I].Reliable.Free;
+    FClients[I].Inputs.Free;
+  end;
   FSocket.Free;
   inherited Destroy;
 end;
@@ -1051,9 +1255,10 @@ end;
 
 procedure TQuakeNetServer.Update(const SecondsPassed: Single);
 var
-  Addr: TInetSockAddr;
+  Addr, Peer: TInetSockAddr;
   Data, P: TNetBytes;
   C, I, E: Integer;
+  Input: TNetInput;
 begin
   if not FSocket.Valid then
     Exit;
@@ -1119,7 +1324,8 @@ begin
             FClients[C].ReliableSeq := 0;
             FClients[C].InFlight := False;
             FClients[C].FrameSeq := 0;
-            FClients[C].HasInput := False;
+            FClients[C].Inputs.Clear;
+            FClients[C].AckedSeq := 0;
             FClients[C].SignonDone := False;
             WritelnLog('QuakeNet', 'Client %d connected from %s (edict %d)', [C, ClientAddress(C), E]);
             QueueSignon(C);
@@ -1146,14 +1352,66 @@ begin
         if (C > 0) and (Length(Data) >= 3 + SizeOf(TNetInput)) then
         begin
           FClients[C].SinceSeen := 0;
-          Move(Data[3], FClients[C].Input, SizeOf(TNetInput));
-          FClients[C].HasInput := True;
+          Move(Data[3], Input, SizeOf(TNetInput));
+          { Out of order or duplicated packets are dropped; a client that
+            sends faster than the game runs loses its oldest inputs }
+          if (FClients[C].Inputs.Count > 0) and
+             (SmallInt(Input.Sequence - FClients[C].Inputs.Last.Sequence) <= 0) then
+            Continue;
+          if (FClients[C].Inputs.Count = 0) and (SmallInt(Input.Sequence - FClients[C].AckedSeq) <= 0) and
+             (FClients[C].AckedSeq <> 0) then
+            Continue;
+          FClients[C].Inputs.Add(Input);
+          while FClients[C].Inputs.Count > MaxQueuedInputs do
+            FClients[C].Inputs.Delete(0);
         end;
       pkDisconnect:
         if C > 0 then
           DropClient(C, False);
+      pkPunch:
+        { A client behind a NAT is coming: a few packets to it open the way }
+        if (FRegisterName <> '') and TQuakeNetSocket.SameAddress(Addr, FRendezvous) and
+          BytesToAddress(Data, 3, Peer) then
+        begin
+          WritelnLog('QuakeNet', 'Punching towards %s', [TQuakeNetSocket.AddressToString(Peer)]);
+          P := PacketHeader(pkHello, 0, 0);
+          for I := 1 to 3 do
+            FSocket.Send(Peer, P);
+        end;
     end;
   end;
+
+  if FRegisterName <> '' then
+  begin
+    FRegisterTimer := FRegisterTimer + SecondsPassed;
+    if FRegisterTimer >= RegisterInterval then
+      SendRegister;
+  end;
+end;
+
+procedure TQuakeNetServer.SendRegister;
+var
+  P, Payload: TNetBytes;
+begin
+  FRegisterTimer := 0;
+  Payload := NameBytes(FRegisterName);
+  P := PacketHeader(pkRegister, 0, Length(Payload));
+  if Length(Payload) > 0 then
+    Move(Payload[0], P[3], Length(Payload));
+  FSocket.Send(FRendezvous, P);
+end;
+
+function TQuakeNetServer.RegisterAt(const Host: String; const Port: Word; const Name: String): Boolean;
+begin
+  Result := FSocket.Valid and (Name <> '') and TQuakeNetSocket.Resolve(Host, Port, FRendezvous);
+  if not Result then
+  begin
+    WritelnWarning('QuakeNet', 'Cannot register "%s" at %s:%d', [Name, Host, Port]);
+    Exit;
+  end;
+  FRegisterName := Name;
+  WritelnLog('QuakeNet', 'Registering as "%s" at %s', [Name, TQuakeNetSocket.AddressToString(FRendezvous)]);
+  SendRegister;
 end;
 
 procedure TQuakeNetServer.SendFrame(const C: Integer; const Data: TNetBytes);
@@ -1163,8 +1421,11 @@ begin
   if not FClients[C].Active or not FClients[C].SignonDone or (Length(Data) = 0) then
     Exit;
   Inc(FClients[C].FrameSeq);
-  P := PacketHeader(pkFrame, FClients[C].FrameSeq, Length(Data));
-  Move(Data[0], P[3], Length(Data));
+  { The frame carries the sequence of the input it was computed from }
+  P := PacketHeader(pkFrame, FClients[C].FrameSeq, 2 + Length(Data));
+  P[3] := FClients[C].AckedSeq and 255;
+  P[4] := FClients[C].AckedSeq shr 8;
+  Move(Data[0], P[5], Length(Data));
   SendPacket(C, P);
 end;
 
@@ -1239,11 +1500,12 @@ end;
 function TQuakeNetServer.ClientInput(const C: Integer; out Input: TNetInput): Boolean;
 begin
   { Each packet is handed out once: the impulse in it is not repeated }
-  Result := ClientActive(C) and FClients[C].HasInput;
+  Result := ClientActive(C) and (FClients[C].Inputs.Count > 0);
   if Result then
   begin
-    Input := FClients[C].Input;
-    FClients[C].HasInput := False;
+    Input := FClients[C].Inputs[0];
+    FClients[C].Inputs.Delete(0);
+    FClients[C].AckedSeq := Input.Sequence;
   end else
     Input := Default(TNetInput);
 end;
@@ -1264,6 +1526,108 @@ begin
   for C := 1 to MaxNetClients do
     if FClients[C].Active then
       Inc(Result);
+end;
+
+{ TQuakeNetRendezvous }
+
+constructor TQuakeNetRendezvous.Create(const Port: Word);
+begin
+  inherited Create;
+  FSocket := TQuakeNetSocket.Create(Port);
+  if FSocket.Valid then
+    WritelnLog('QuakeNet', 'Rendezvous listening on UDP port %d', [Port]);
+end;
+
+destructor TQuakeNetRendezvous.Destroy;
+begin
+  FSocket.Free;
+  inherited Destroy;
+end;
+
+function TQuakeNetRendezvous.Valid: Boolean;
+begin
+  Result := FSocket.Valid;
+end;
+
+function TQuakeNetRendezvous.Count: Integer;
+begin
+  Result := Length(FEntries);
+end;
+
+function TQuakeNetRendezvous.Find(const Name: String): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FEntries) do
+    if SameText(FEntries[I].Name, Name) then
+      Exit(I);
+  Result := -1;
+end;
+
+procedure TQuakeNetRendezvous.Update(const SecondsPassed: Single);
+var
+  Addr: TInetSockAddr;
+  Data, P, Payload: TNetBytes;
+  Name: String;
+  I: Integer;
+begin
+  if not FSocket.Valid then
+    Exit;
+  I := 0;
+  while I <= High(FEntries) do
+  begin
+    FEntries[I].Age := FEntries[I].Age + SecondsPassed;
+    if FEntries[I].Age > RendezvousTimeout then
+    begin
+      WritelnLog('QuakeNet', 'Rendezvous: "%s" expired', [FEntries[I].Name]);
+      Delete(FEntries, I, 1);
+    end else
+      Inc(I);
+  end;
+
+  while FSocket.Receive(Addr, Data) do
+  begin
+    if Length(Data) < 3 then
+      Continue;
+    Name := BytesName(Data, 3);
+    case Data[0] of
+      pkRegister:
+        if Name <> '' then
+        begin
+          I := Find(Name);
+          if I < 0 then
+          begin
+            SetLength(FEntries, Length(FEntries) + 1);
+            I := High(FEntries);
+            FEntries[I].Name := Name;
+            WritelnLog('QuakeNet', 'Rendezvous: "%s" registered from %s', [Name, TQuakeNetSocket.AddressToString(Addr)]);
+          end;
+          FEntries[I].Addr := Addr;
+          FEntries[I].Age := 0;
+        end;
+      pkLookup:
+        begin
+          I := Find(Name);
+          if I >= 0 then
+          begin
+            { The host's address to the client, the client's to the host }
+            Payload := AddressToBytes(FEntries[I].Addr);
+            P := PacketHeader(pkPeer, 0, Length(Payload));
+            Move(Payload[0], P[3], Length(Payload));
+            FSocket.Send(Addr, P);
+            Payload := AddressToBytes(Addr);
+            P := PacketHeader(pkPunch, 0, Length(Payload));
+            Move(Payload[0], P[3], Length(Payload));
+            FSocket.Send(FEntries[I].Addr, P);
+            WritelnLog('QuakeNet', 'Rendezvous: %s asked for "%s"', [TQuakeNetSocket.AddressToString(Addr), Name]);
+          end else
+          begin
+            P := PacketHeader(pkPeer, 0, 0);
+            FSocket.Send(Addr, P);
+          end;
+        end;
+    end;
+  end;
 end;
 
 end.

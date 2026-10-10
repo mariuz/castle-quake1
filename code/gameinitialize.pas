@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet;
 
 var
   Window: TCastleWindow;
@@ -25,6 +25,9 @@ var
   CmdQc: String;
   CmdHost: String;
   CmdConnect: String;
+  CmdRegister: String;
+  CmdRendezvous: Boolean;
+  CmdNoPredict: Boolean;
   CmdPort: Integer;
   CmdCoop: Boolean;
   CmdSkill: Integer;
@@ -77,22 +80,58 @@ begin
   end;
 end;
 
-{ "host[:port]" into the client view }
-procedure SetNetAddress(const View: TViewDemo; const Address: String);
+{ "host[:port]" into Host and Port (DefaultPort when none) }
+procedure SplitAddress(const Address: String; out Host: String; out Port: Word; const DefaultPort: Word);
 var
   P: Integer;
 begin
-  View.HostMap := '';
-  View.NetHost := Address;
-  View.NetPort := CmdPort;
+  Host := Address;
+  Port := DefaultPort;
   P := Pos(':', Address);
   if P > 0 then
   begin
-    View.NetHost := Copy(Address, 1, P - 1);
-    View.NetPort := StrToIntDef(Copy(Address, P + 1, MaxInt), CmdPort);
+    Host := Copy(Address, 1, P - 1);
+    Port := StrToIntDef(Copy(Address, P + 1, MaxInt), DefaultPort);
   end;
-  if View.NetHost = '' then
-    View.NetHost := '127.0.0.1';
+  if Host = '' then
+    Host := '127.0.0.1';
+end;
+
+{ "host[:port]" or "name@rendezvous[:port]" into the client view }
+procedure SetNetAddress(const View: TViewDemo; const Address: String);
+var
+  P: Integer;
+  Host: String;
+  Port: Word;
+begin
+  View.HostMap := '';
+  View.NetName := '';
+  P := Pos('@', Address);
+  if P > 0 then
+  begin
+    View.NetName := Copy(Address, 1, P - 1);
+    SplitAddress(Copy(Address, P + 1, MaxInt), Host, Port, CmdPort);
+  end else
+    SplitAddress(Address, Host, Port, CmdPort);
+  View.NetHost := Host;
+  View.NetPort := Port;
+end;
+
+{ -register "name@rendezvous[:port]" into the host view }
+procedure SetRegistration(const View: TViewDemo);
+var
+  P: Integer;
+  Host: String;
+  Port: Word;
+begin
+  View.RegisterName := '';
+  P := Pos('@', CmdRegister);
+  if P <= 0 then
+    Exit;
+  View.RegisterName := Copy(CmdRegister, 1, P - 1);
+  SplitAddress(Copy(CmdRegister, P + 1, MaxInt), Host, Port, DefaultNetPort);
+  View.RegisterHost := Host;
+  View.RegisterPort := Port;
 end;
 
 { --export-map <map> <file.x3d|file.gltf>: the level as a scene file }
@@ -173,6 +212,17 @@ begin
     end else
     if (Parameters[I] = '-coop') or (Parameters[I] = '--coop') then
       CmdCoop := True
+    else
+    if ((Parameters[I] = '-register') or (Parameters[I] = '--register')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdRegister := Parameters[I + 1];
+      Inc(I);
+    end else
+    if (Parameters[I] = '-rendezvous') or (Parameters[I] = '--rendezvous') then
+      CmdRendezvous := True
+    else
+    if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
+      CmdNoPredict := True
     else
     if ((Parameters[I] = '-skill') or (Parameters[I] = '--skill')) and (I + 1 <= Parameters.High) then
     begin
@@ -291,12 +341,22 @@ begin
   { Handle warp / autotest; a .dem name plays that demo instead of a map,
     "qc:map" runs the map with its QuakeC, "host:map" hosts a deathmatch
     game on it, "connect:host[:port]" joins one }
+  ViewDemo.Predict := not CmdNoPredict;
+  if (AutoTestMap <> '') and (LowerCase(AutoTestMap) = 'rendezvous') then
+  begin
+    ViewDemo.Rendezvous := True;
+    ViewDemo.NetPort := CmdPort;
+    ViewDemo.AutoTestPrefix := AutoTestPrefix;
+    ViewDemo.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewDemo;
+  end else
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 5)) = 'host:') then
   begin
     ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.NetPort := CmdPort;
+    SetRegistration(ViewDemo);
     ViewDemo.AutoTestPrefix := AutoTestPrefix;
     ViewDemo.AutoTestScript := AutoTestDemo;
     Window.Container.View := ViewDemo;
@@ -308,12 +368,19 @@ begin
     ViewDemo.AutoTestScript := AutoTestDemo;
     Window.Container.View := ViewDemo;
   end else
+  if CmdRendezvous then
+  begin
+    ViewDemo.Rendezvous := True;
+    ViewDemo.NetPort := CmdPort;
+    Window.Container.View := ViewDemo;
+  end else
   if CmdHost <> '' then
   begin
     ViewDemo.HostMap := CmdHost;
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.NetPort := CmdPort;
+    SetRegistration(ViewDemo);
     Window.Container.View := ViewDemo;
   end else
   if CmdConnect <> '' then
