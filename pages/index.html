@@ -81,6 +81,7 @@
       <a class="cta secondary" href="https://github.com/mariuz/castle-quake1/releases">Download for Windows / Linux</a>
     </div>
     <p class="note">The browser version runs via WebAssembly and WebGL 2. Click the viewport canvas to lock mouse look. Desktop releases support loading your own custom PAKs and warp options.</p>
+    <p class="note">Multiplayer in the browser: a desktop host started with <code>-host start -websocket 26001</code> accepts browser players, who open <code>play/?connect=wss://your-host:26001/</code> (the page is served over https, so the relay needs a TLS proxy in front of it).</p>
   </header>
 
   <div class="hero">

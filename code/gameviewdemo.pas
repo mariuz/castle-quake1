@@ -20,7 +20,7 @@ uses
   CastleCameras,
   GameInput,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer;
+  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
 type
   TDemoVisual = record
@@ -66,6 +66,7 @@ type
     { Network client }
     FClient: TQuakeNetClient;
     FRendezvous: TQuakeNetRendezvous;
+    FWsRelay: TQuakeWebSocketRelay;
     { Client-side prediction: the player's physics run here on the inputs
       the server has not answered yet (cl_pred of QuakeWorld) }
     FPredict: TQuakePlayerPhysics;
@@ -111,6 +112,8 @@ type
     procedure Leave;
     procedure SetViewAngles(const Yaw, Pitch: Single);
     procedure UpdateNetwork(const SecondsPassed: Single);
+    function RelayTargetHost: String;
+    function RelayTargetPort: Word;
     procedure SendInput(const SecondsPassed: Single);
     procedure PredictInput(const Input: TNetInput; const Dt: Single);
     procedure ReconcilePrediction;
@@ -137,6 +140,12 @@ type
     NetName: String;
     { Run the rendezvous service itself on NetPort (no game) }
     Rendezvous: Boolean;
+    { Players in the browser: the host also runs a WebSocket relay on this
+      TCP port to its own server (0 = none) }
+    WebSocketPort: Word;
+    { Run only a WebSocket relay to this game server ("host[:port]"),
+      listening on NetPort (TCP) }
+    WsRelayTarget: String;
     { Client-side prediction of the local player (default on) }
     Predict: Boolean;
 
@@ -263,7 +272,23 @@ begin
       NetPort := DefaultNetPort;
     FreeAndNil(ListenServer);
     FreeAndNil(FRendezvous);
+    FreeAndNil(FWsRelay);
     FDemo.StartNetwork;
+    if WsRelayTarget <> '' then
+    begin
+      if NetPort = DefaultNetPort then
+        NetPort := DefaultWebSocketPort;
+      FWsRelay := TQuakeWebSocketRelay.Create(NetPort, RelayTargetHost, RelayTargetPort);
+      if not FWsRelay.Valid then
+      begin
+        FHud.ShowMessage('Cannot open TCP port ' + IntToStr(NetPort) + ' for the WebSocket relay', 3);
+        FreeAndNil(FWsRelay);
+        FDemo.Finished := True;
+      end else
+        FHud.ShowMessage('WebSocket relay on TCP port ' + IntToStr(NetPort) + ' for ' + WsRelayTarget +
+          ' (Escape quits)', 10);
+      Exit;
+    end;
     if Rendezvous then
     begin
       FRendezvous := TQuakeNetRendezvous.Create(NetPort);
@@ -288,6 +313,12 @@ begin
       end;
       if RegisterName <> '' then
         ListenServer.Net.RegisterAt(RegisterHost, RegisterPort, RegisterName);
+      if WebSocketPort > 0 then
+      begin
+        FWsRelay := TQuakeWebSocketRelay.Create(WebSocketPort, '127.0.0.1', NetPort);
+        if not FWsRelay.Valid then
+          FreeAndNil(FWsRelay);
+      end;
       NetHost := '127.0.0.1';
       NetName := '';
     end;
@@ -325,6 +356,7 @@ begin
   end;
   FreeAndNil(ListenServer);
   FreeAndNil(FRendezvous);
+  FreeAndNil(FWsRelay);
   ClearLevel;
   if Sounds <> nil then
     Sounds.StopMusic;
@@ -333,9 +365,31 @@ begin
   inherited Stop;
 end;
 
+function TViewDemo.RelayTargetHost: String;
+var
+  P: Integer;
+begin
+  Result := WsRelayTarget;
+  P := Pos(':', Result);
+  if P > 0 then
+    Result := Copy(Result, 1, P - 1);
+  if (Result = '') or SameText(Result, 'localhost') then
+    Result := '127.0.0.1';
+end;
+
+function TViewDemo.RelayTargetPort: Word;
+var
+  P: Integer;
+begin
+  Result := DefaultNetPort;
+  P := Pos(':', WsRelayTarget);
+  if P > 0 then
+    Result := StrToIntDef(Copy(WsRelayTarget, P + 1, MaxInt), DefaultNetPort);
+end;
+
 function TViewDemo.NetMode: Boolean;
 begin
-  Result := (NetHost <> '') or (HostMap <> '') or Rendezvous;
+  Result := (NetHost <> '') or (HostMap <> '') or Rendezvous or (WsRelayTarget <> '');
 end;
 
 procedure TViewDemo.SetViewAngles(const Yaw, Pitch: Single);
@@ -497,6 +551,10 @@ procedure TViewDemo.UpdateNetwork(const SecondsPassed: Single);
 var
   Data: TNetBytes;
 begin
+  if FWsRelay <> nil then
+    FWsRelay.Update;
+  if WsRelayTarget <> '' then
+    Exit;
   if FRendezvous <> nil then
   begin
     FRendezvous.Update(SecondsPassed);
@@ -1044,6 +1102,9 @@ begin
       Img.Free;
       WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, frags %d, time %.1f)',
         [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
+      if FWsRelay <> nil then
+        WritelnLog('GameViewDemo', 'WebSocket relay: %d clients, %d messages in, %d out',
+          [FWsRelay.ClientCount, FWsRelay.MessagesIn, FWsRelay.MessagesOut]);
       if NetMode and (FPredict <> nil) and (FDemo.ViewEntity > 0) and (FDemo.ViewEntity < Length(FDemo.Entities)) then
         WritelnLog('GameViewDemo', 'Prediction %s: predicted %s, server %s, error %.1f (max %.1f), %d inputs pending',
           [BoolToStr(PredictionActive, 'on', 'off'), FPredict.Origin.ToString,

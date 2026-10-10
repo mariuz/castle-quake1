@@ -52,6 +52,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 
 **Multiplayer**
 - Deathmatch and coop over UDP: the host runs the QuakeC rules, NetQuake protocol 15 messages stream the game to every player, the client is the demo player with input. Host from the menu or with `-host`, join with `-connect`.
+- Browser players: a host started with `-websocket 26001` (or a separate `-wsrelay host:port`) relays WebSocket connections to the game, and the web build joins with `?connect=host` in its URL (an https page needs `wss://`, so a TLS proxy in front of the relay).
 - Client-side prediction of your own movement (the server runs exactly the inputs you sent, the client replays the unacknowledged ones) and UDP hole punching through a rendezvous service: `-rendezvous` on a reachable machine, `-host e1m1 -register myname@rendezvous`, `-connect myname@rendezvous`.
 
 **Engine integration**
@@ -126,6 +127,8 @@ castle-quake1 -game hipnotic -qc start        A mission pack or mod (its pak*.pa
 castle-quake1 -host start                     Host a deathmatch game on UDP port 26000 and play in it
 castle-quake1 -host e1m1 -coop -skill 2       Host a cooperative game
 castle-quake1 -connect 192.168.1.10           Join a game (host[:port])
+castle-quake1 -host start -websocket 26001    Host and accept players from the web build (.../play/?connect=yourhost)
+castle-quake1 -wsrelay 192.168.1.10:26000     Only a WebSocket relay for a game hosted elsewhere
 castle-quake1 --export-map e1m1 e1m1.x3d           Export a level as X3D (or .gltf) for the editor / view3dscene
 castle-quake1 --autotest e1m1 shot --demo "W:1,S,X,W:0.5,S,Q"   Headless test with screenshots
 ```
