@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig,
-  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput;
+  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, QuakeWebSocketRelay;
 
 var
   Checks, Failures: Integer;
@@ -388,6 +388,14 @@ begin
   Check((Bindings[qbJump].Key1 = keySpace) and (Bindings[qbUse].Key1 = keyE), 'reset to defaults');
 end;
 
+procedure TestWebSocket;
+begin
+  StartTest('WebSocket handshake');
+  { The example of RFC 6455 section 1.3 }
+  CheckEqualsStr('s3pPLMBiTxaQ9kYGzzhZRbK+xOo=', WebSocketAcceptKey('dGhlIHNhbXBsZSBub25jZQ=='), 'accept key');
+  CheckEqualsStr('s3pPLMBiTxaQ9kYGzzhZRbK+xOo=', WebSocketAcceptKey(' dGhlIHNhbXBsZSBub25jZQ== '), 'key with spaces');
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -419,6 +427,7 @@ begin
   TestSaveData;
   TestDemoRoundTrip;
   TestBindings;
+  TestWebSocket;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

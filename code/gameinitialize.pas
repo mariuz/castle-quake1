@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, GameInput;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, GameInput, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -27,6 +27,8 @@ var
   CmdConnect: String;
   CmdRegister: String;
   CmdRendezvous: Boolean;
+  CmdWebSocket: Integer;
+  CmdWsRelay: String;
   CmdNoPredict: Boolean;
   CmdPort: Integer;
   CmdCoop: Boolean;
@@ -256,6 +258,16 @@ begin
     if (Parameters[I] = '-rendezvous') or (Parameters[I] = '--rendezvous') then
       CmdRendezvous := True
     else
+    if ((Parameters[I] = '-websocket') or (Parameters[I] = '--websocket')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdWebSocket := StrToIntDef(Parameters[I + 1], DefaultWebSocketPort);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-wsrelay') or (Parameters[I] = '--wsrelay')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdWsRelay := Parameters[I + 1];
+      Inc(I);
+    end else
     if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
       CmdNoPredict := True
     else
@@ -389,6 +401,27 @@ begin
     "qc:map" runs the map with its QuakeC, "host:map" hosts a deathmatch
     game on it, "connect:host[:port]" joins one }
   ViewDemo.Predict := not CmdNoPredict;
+  ViewDemo.WebSocketPort := CmdWebSocket;
+  {$ifdef WASI}
+  { The web page: ?connect=host[:port] (or a ws:// / wss:// URL) joins a
+    game through its WebSocket relay }
+  if PageParameter('connect') <> '' then
+    CmdConnect := PageParameter('connect');
+  {$endif}
+  if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 8)) = 'wsrelay:') then
+  begin
+    ViewDemo.WsRelayTarget := Copy(AutoTestMap, 9, MaxInt);
+    ViewDemo.NetPort := CmdPort;
+    ViewDemo.AutoTestPrefix := AutoTestPrefix;
+    ViewDemo.AutoTestScript := AutoTestDemo;
+    Window.Container.View := ViewDemo;
+  end else
+  if CmdWsRelay <> '' then
+  begin
+    ViewDemo.WsRelayTarget := CmdWsRelay;
+    ViewDemo.NetPort := CmdPort;
+    Window.Container.View := ViewDemo;
+  end else
   if (AutoTestMap <> '') and (LowerCase(AutoTestMap) = 'rendezvous') then
   begin
     ViewDemo.Rendezvous := True;

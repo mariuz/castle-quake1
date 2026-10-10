@@ -9,8 +9,9 @@ unit QuakeNet;
 
 interface
 
-{ WebAssembly (WASI) has no sockets: the unit compiles with a socket that
-  never opens, so hosting and joining just fail there }
+{ WebAssembly (WASI) has no sockets: hosting fails there, and a client's
+  socket is a WebSocket to a Castle Quake WebSocket relay (QuakeWebSocketRelay)
+  carrying the same packets }
 {$if defined(WASI)}
   {$define QUAKE_NO_SOCKETS}
 {$endif}
@@ -24,6 +25,8 @@ uses
 
 const
   DefaultNetPort = 26000;
+  { The WebSocket relay's TCP port (QuakeWebSocketRelay), what the web build joins }
+  DefaultWebSocketPort = 26001;
   NetProtocolVersion = 2;
   MaxNetClients = 8;
   MaxPacketSize = 8192;
@@ -95,8 +98,12 @@ type
   TQuakeNetSocket = class
   private
     FSock: cint;
+    FWeb: TObject; { TQuakeBrowserWebSocket in the web build }
   public
     constructor Create(const Port: Word);
+    { The web build's socket: a WebSocket to the relay at Url; every packet
+      goes there, whatever address Send is given }
+    constructor CreateWebSocket(const Url: String);
     destructor Destroy; override;
     function Valid: Boolean;
     function Send(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
@@ -173,6 +180,7 @@ type
     FServer: TInetSockAddr;
     FState: TNetClientState;
     FTimer, FSinceReceive: Single;
+    FWebSocketUrl: String; { web build: the relay the socket connects to }
     FExpectedSeq: Word;
     FLastFrameSeq: Word;
     FHasFrame: Boolean;
@@ -301,7 +309,17 @@ function BytesName(const B: TNetBytes; const Offset: Integer): String;
 
 implementation
 
+uses
+  QuakeWebSocketClient;
+
 { TQuakeNetSocket }
+
+constructor TQuakeNetSocket.CreateWebSocket(const Url: String);
+begin
+  inherited Create;
+  FSock := -1;
+  FWeb := TQuakeBrowserWebSocket.Create(Url);
+end;
 
 {$ifdef QUAKE_NO_SOCKETS}
 
@@ -309,35 +327,40 @@ constructor TQuakeNetSocket.Create(const Port: Word);
 begin
   inherited Create;
   FSock := -1;
-  WritelnWarning('QuakeNet', 'No sockets on this platform: cannot open UDP port %d', [Port]);
+  WritelnWarning('QuakeNet', 'No UDP sockets on this platform: cannot open UDP port %d', [Port]);
 end;
 
 destructor TQuakeNetSocket.Destroy;
 begin
+  FreeAndNil(FWeb);
   inherited Destroy;
 end;
 
 function TQuakeNetSocket.Valid: Boolean;
 begin
-  Result := False;
+  { A WebSocket counts while it is connecting or open }
+  Result := (FWeb <> nil) and (TQuakeBrowserWebSocket(FWeb).State <= 1);
 end;
 
 function TQuakeNetSocket.Send(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
 begin
-  Result := False;
+  Result := (FWeb <> nil) and TQuakeBrowserWebSocket(FWeb).Send(Data);
 end;
 
 function TQuakeNetSocket.Receive(out Addr: TInetSockAddr; out Data: TNetBytes): Boolean;
 begin
+  { Everything on the WebSocket comes from the one server (address zero) }
   FillChar(Addr, SizeOf(Addr), 0);
   SetLength(Data, 0);
-  Result := False;
+  Result := (FWeb <> nil) and TQuakeBrowserWebSocket(FWeb).Receive(Data);
 end;
 
 class function TQuakeNetSocket.Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
 begin
+  { The relay knows the server: the client only needs a stand-in address,
+    the same one Receive reports }
   FillChar(Addr, SizeOf(Addr), 0);
-  Result := False;
+  Result := Host <> '';
 end;
 
 class function TQuakeNetSocket.SameAddress(const A, B: TInetSockAddr): Boolean;
@@ -347,7 +370,7 @@ end;
 
 class function TQuakeNetSocket.AddressToString(const A: TInetSockAddr): String;
 begin
-  Result := '';
+  Result := 'the server (through the WebSocket relay)';
 end;
 
 {$else}
@@ -387,6 +410,7 @@ destructor TQuakeNetSocket.Destroy;
 begin
   if FSock >= 0 then
     CloseSocket(FSock);
+  FreeAndNil(FWeb);
   inherited Destroy;
 end;
 
@@ -937,7 +961,11 @@ end;
 function TQuakeNetClient.OpenSocket: Boolean;
 begin
   FreeAndNil(FSocket);
+  {$ifdef QUAKE_NO_SOCKETS}
+  FSocket := TQuakeNetSocket.CreateWebSocket(FWebSocketUrl);
+  {$else}
   FSocket := TQuakeNetSocket.Create(0);
+  {$endif}
   Result := FSocket.Valid;
   if not Result then
     FError := 'No socket';
@@ -960,6 +988,12 @@ begin
     FError := 'Bad address ' + Host;
     Exit(False);
   end;
+  { The web build reaches the server through a WebSocket relay, on the
+    WebSocket port unless one was given }
+  if Port = DefaultNetPort then
+    FWebSocketUrl := WebSocketUrl(Host, DefaultWebSocketPort)
+  else
+    FWebSocketUrl := WebSocketUrl(Host, Port);
   if not OpenSocket then
     Exit(False);
   FState := csConnecting;
@@ -1006,6 +1040,18 @@ var
 begin
   if (FState = csDisconnected) or (FSocket = nil) then
     Exit;
+  {$ifdef QUAKE_NO_SOCKETS}
+  { The web build's WebSocket closed or could not open }
+  if not FSocket.Valid then
+  begin
+    if FState = csConnected then
+      FError := 'The WebSocket relay closed the connection'
+    else
+      FError := 'Cannot reach the WebSocket relay ' + FWebSocketUrl;
+    FState := csDisconnected;
+    Exit;
+  end;
+  {$endif}
   FTimer := FTimer + SecondsPassed;
   FSinceReceive := FSinceReceive + SecondsPassed;
   if FState = csResolving then
