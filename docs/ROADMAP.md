@@ -110,3 +110,34 @@ This document outlines the architectural comparison between **Castle Quake** and
 - [x] **Multiplayer / Deathmatch**:
   - Network multiplayer support over WebSockets / UDP.
   - Done, over UDP. `QuakeServer` hosts a deathmatch game: the level runs in `QuakeQcGame` with `deathmatch 1` (the real progs rules: respawns on fire, frags, DM items and spawn points), and every client is one of its player edicts with its own Quake player physics, input and triggers (`SetClientInput`, `ConnectClient` / `DisconnectClient`, `PlayerPreThink` / `PlayerPostThink` per player, the players collide with each other). What happens is streamed as NetQuake protocol 15 messages (`TQuakeNetMessage`): the signon (serverinfo with the precache lists, lightstyles, statics, stats, names and frags) reliably, then each frame the time, the client's `svc_clientdata` and every visible entity unreliably, with the frame's sounds, particles and the svc messages the progs wrote (temp entities, damage, intermission, setangle). `QuakeNet` is the transport (`TQuakeNetSocket` non-blocking UDP, `TQuakeNetServer` with a stop-and-wait reliable channel and timeouts, `TQuakeNetClient`). The client is the demo player: `TQuakeDemoReader` in network mode parses the same messages from the connection, and `TViewDemo` sends the mouse look, movement, fire, jump and impulses back as `TNetInput`, shows the scoreboard on frag changes and respawns by firing. The host plays through a local client of its own listen server. Menu "Multiplayer" (host start / e1m1, join localhost), `-host <map> [-port N]`, `-connect host[:port]`, headless `--autotest host:<map>` and `--autotest connect:<host>` with the demo actions. Verified with two headless processes on one machine: both players spawn, see each other's entities and the scoreboard, move, fire, and the client is told when the host quits. Coop too: `-coop` (and "Host Coop" in the menu) hosts with `coop 1`, `deathmatch 0` and `-skill N`: the monsters, items and level flow of single player shared by everyone, respawning on fire at the coop spawn points. Not done: WebSockets, NAT traversal, prediction (the client moves at the server's rate, which is fine on a LAN).
+
+### Phase 6: Inspectable in Castle Game Engine
+Everything is built in code today: no editor designs, almost no component has a `Name`, transforms are created without an owner, and nothing is a `TCastleBehavior`. The CGE editor cannot open the UI and the runtime inspector (F8 in debug builds) shows an anonymous tree of class names. These items make the running game something you can click through and tweak in the engine's own tools.
+- [ ] **Named Components and Owned Hierarchy**:
+  - Give every map scene, submodel, monster, pickup, projectile, gib, light and sound source a `Name` (`door_7`, `monster_ogre_3`, `light_12`, `pickup_health_4`), owned by a per-level root transform, so the F8 inspector shows a real scene tree where a monster or a door can be selected and its transform watched live.
+- [ ] **Entities as Behaviors**:
+  - Wrap `TQuakeMonster`, `TQuakeSubmodel`, `TQuakePickup` and the trigger volumes in `TCastleBehavior` subclasses attached to their transforms, with published properties (health, state, target name, wait, key needed, spawnflags). The inspector shows and edits them while playing; the editor can place them later.
+- [ ] **UI Designs in the Editor**:
+  - Move the menu, HUD, console and intermission layouts into `.castle-user-interface` designs under `data/` loaded with `DesignUrl`, so fonts, colors and positions are edited in the CGE editor instead of hardcoded.
+- [ ] **Map Export to X3D / glTF**:
+  - `--export-map e1m1 out.x3d`: the generated geometry with lightmaps, submodels, lights and entity markers, to open a level in the editor or `view3dscene` and inspect it offline.
+- [ ] **Debug Overlays and Console Commands**:
+  - Wireframes of the clipping hulls and trigger boxes, monster paths and sight lines, the current PVS leaf, `edicts` listing in QuakeC mode, frame timing; toggled from the console and the demo script.
+- [ ] **Split `quakeworld.pas`**:
+  - The native gameplay (3500 lines) into units per subsystem (player, weapons, monsters glue, movers and triggers, pickups, savegame, recording) so each piece can be read and unit-tested on its own.
+
+### Phase 7: Beyond the Shareware
+- [ ] **Multiplayer Prediction and Connectivity**:
+  - Client-side prediction of the local player's movement (the client runs the Quake physics on its own input and reconciles with the server's `svc_clientdata`), and NAT-friendly connections (hole punching or a WebSocket relay for the web build).
+- [ ] **Mission Packs and the `-game` Switch in QuakeC Mode**:
+  - Run `hipnotic` and `rogue` (their `progs.dat`, extra entities, HUD pictures and items) and honour `-game` in QuakeC mode like the native hub does.
+- [ ] **Full Registered Content**:
+  - All four episodes with the rune flow on every episode gate, the Shub-Niggurath ending and the end-of-game text, verified with the headless tests.
+- [ ] **Audio Polish**:
+  - Music tracks per map from the entity `sounds` key, underwater low-pass filtering, and the CD-track handling of `svc_cdtrack`.
+- [ ] **Rendering Polish**:
+  - Skybox support, lava and slime particle effects, water seen from inside (`r_wateralpha` style translucency both ways), and the fullbright texture pixels of Quake's palette.
+- [ ] **Automated Test Coverage in CI**:
+  - Unit tests for the BSP tracer, the QuakeC VM (opcode tests and known `progs.dat` spawn counts), savegame round-trips and the demo writer / reader, run by the Build workflow so regressions are caught before a release.
+- [ ] **Input**:
+  - Gamepad support and key rebinding through CGE's input system, saved in the user config.
