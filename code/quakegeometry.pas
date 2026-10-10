@@ -99,6 +99,9 @@ type
     TargetName: String;
     Sounds: Integer;
     SpawnFlags: Integer;
+    { func_door locked with a key: 1 silver, 2 gold (DOOR_SILVER_KEY,
+      DOOR_GOLD_KEY spawnflags); it opens by touch with the key and stays open }
+    KeyNeeded: Integer;
     { func_plat that rests at the bottom (ClosedPos = top, OpenPos = bottom) and
       rises when stood on; returns down 3 seconds after reaching the top }
     IsAutoPlat: Boolean;
@@ -1060,6 +1063,16 @@ begin
 
         WaitVal := Ent.GetFloat('wait', 3.0);
         Sub.WaitTime := WaitVal;
+        if CName = 'func_door' then
+        begin
+          if (Ent.SpawnFlags and 8) <> 0 then
+            Sub.KeyNeeded := 1
+          else if (Ent.SpawnFlags and 16) <> 0 then
+            Sub.KeyNeeded := 2;
+          { Key doors never close again (door spawn: if self.items, wait = -1) }
+          if Sub.KeyNeeded <> 0 then
+            Sub.WaitTime := -1;
+        end;
 
         LipVal := Ent.GetFloat('lip', 8.0);
         AngleVal := Ent.Angle;
