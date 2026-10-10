@@ -53,6 +53,43 @@ jobs:
           castle-engine compile --mode=debug --verbose
           ./quaketests ../data/paks
 
+  scenarios:
+    name: Gameplay scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up FPC and Castle Game Engine
+        timeout-minutes: 20
+        run: |
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine
+
+      - name: Install a virtual display and Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libopenal1 python3-pil
+
+      # tests/scenarios.py: finishing E1M1, a save / load in the middle of a
+      # fight, a host and a client in a deathmatch, QuakeC mode; their logs
+      # are checked and screenshots compared with tests/reference/*.png
+      - name: Build and run the gameplay scenarios
+        run: |
+          castle-engine compile --mode=release --verbose
+          python3 tests/scenarios.py
+
+      - name: Upload the scenario screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenarios
+          path: castle-engine-output/scenarios
+          if-no-files-found: ignore
+
   build-linux:
     name: Package Linux
     runs-on: ubuntu-latest
@@ -149,7 +186,7 @@ jobs:
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: [test, build-linux, build-windows, build-macos]
+    needs: [test, scenarios, build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

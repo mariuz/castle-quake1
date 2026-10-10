@@ -1100,8 +1100,9 @@ begin
     begin
       SaveImage(Img, OutPath);
       Img.Free;
-      WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, frags %d, time %.1f)',
-        [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
+      WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, ammo %d, frags %d, time %.1f)',
+        [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.ClientData.Ammo,
+         FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
       if FWsRelay <> nil then
         WritelnLog('GameViewDemo', 'WebSocket relay: %d clients, %d messages in, %d out',
           [FWsRelay.ClientCount, FWsRelay.MessagesIn, FWsRelay.MessagesOut]);

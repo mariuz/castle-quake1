@@ -176,6 +176,8 @@ Player dimensions:
 
 ## 11. Automated Headless Testing
 
+- Gameplay scenarios (`tests/scenarios.py`): each scenario lists the processes to start (game arguments with `{out}` for the output directory, and a start delay so a client follows its host) and a check function over their logs; the log lines it parses are the play view's `View:` line, the multiplayer client's screenshot line (signon, health, ammo, frags) and prediction line, and the save / load lines of `TQuakeWorld`. Screenshots are scaled to 160x90; the 3D view (top 3/4) must have a mean brightness above 4 and the listed ones must be within a mean absolute RGB difference of 5 from `tests/reference/<scenario>_<shot>.png`. Random views (the intermission spot, deathmatch spawns, monsters in a fight) are only checked for not being black.
+
 - Unit tests (`tests/quaketests.lpr`): a console program with the Quake units on its search path (`tests/CastleEngineManifest.xml`), loading `quake1_demo.pak` from the directory given as its argument; `Check` / `CheckEquals` helpers count the failures and the exit code is 1 when any failed. Covered: `TQuakeBsp.PointContents` / `TraceHull`, `TQuakeProgs` (function lookups, `anglemod` through `Execute`, `SpawnEntities` counts, `RunFrame`, `SaveState` / `LoadState`), `TQuakeSaveData` and `TQuakeDemoWriter` / `TQuakeDemoReader`. The Build workflow's `test` job runs it on Linux before the packages are released.
 
 Command line parameters:

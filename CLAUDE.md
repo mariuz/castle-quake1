@@ -76,6 +76,10 @@ Multiplayer: `-host <map> [-port N] [-coop] [-skill N]` hosts a deathmatch (or c
 
 The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compiler) and Pas2js. Locally, with that toolchain first in PATH and `PPC_CONFIG_PATH` set: `castle-engine compile --target=web --mode=release`, then serve `castle-engine-output/web/dist/` over HTTP. The trunk compiler can stop with "Compilation raised exception internally" on an incremental rebuild: delete `castle-engine-output/compilation/wasm32-wasip1` and build again. WebAssembly cannot catch exceptions, so code for the web must not raise (check before calling).
 
+## Gameplay Scenarios
+
+`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays four scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
+
 ## Unit Tests
 
 `tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the QuakeC VM, savegame round trips and the demo writer / reader against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
