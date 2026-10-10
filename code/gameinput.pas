@@ -141,17 +141,26 @@ begin
   end;
 end;
 
-procedure UseVirtualGamepad;
-begin
-  (Controllers.InternalExplicitBackend as TExplicitControllerManagerBackend).SetCount(1);
-  WritelnLog('GameInput', 'Virtual game controller for the demo script');
-end;
+
+var
+  VirtualPadReady: Boolean;
 
 function ExplicitBackend: TExplicitControllerManagerBackend;
 begin
   Result := Controllers.InternalExplicitBackend as TExplicitControllerManagerBackend;
-  if Controllers.Count = 0 then
+  { Replace whatever the platform backend had listed (a CI runner may
+    expose a device) with the one virtual controller, once }
+  if not VirtualPadReady then
+  begin
     Result.SetCount(1);
+    VirtualPadReady := True;
+  end;
+end;
+
+procedure UseVirtualGamepad;
+begin
+  ExplicitBackend;
+  WritelnLog('GameInput', 'Virtual game controller for the demo script');
 end;
 
 procedure SetVirtualSticks(const Left, Right: TVector2);
