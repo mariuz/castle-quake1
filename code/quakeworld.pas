@@ -84,6 +84,25 @@ type
     FIntermissionExitTime: Single;
     FIntermissionMap: String;
     FIntermissionEye, FIntermissionDir: TVector3; { CGE coordinates }
+    { intermission_running: 1 the tallies, 2 the episode text, 3 the text once
+      all four runes are held; the next map after the last one shown }
+    FIntermissionStage: Integer;
+    { The ending: the player telefragged Shub-Niggurath (finale_1 .. finale_4
+      of oldone.qc), then the game is over }
+    FFinaleStage: Integer;
+    FFinaleTime: Single;
+    FFinaleBoss: TQuakeMonster;
+    FGameOver: Boolean;
+    { misc_teleporttrain (end.bsp): the spiked ball along its path_corners,
+      the destination of the teleporter into Shub-Niggurath }
+    FTrain: TCastleTransform;
+    FTrainName: String;
+    FTrainCorners: array of TVector3;
+    FTrainWaits: array of Single;
+    FTrainNext: Integer;
+    FTrainOrigin: TVector3;
+    FTrainSpeed, FTrainWait: Single;
+    FTrainAngles: TVector3;
     { Demo recording }
     FRecorder: TQuakeDemoWriter;
     FRecordUrl: String;
@@ -91,6 +110,15 @@ type
     FRecordHud: TQuakeHud;
     FLockedTimer: Single;       { attack_finished of the last locked door message }
     procedure UpdateDebugOverlay;
+    procedure BeginIntermissionView;
+    function EpisodeText: String;
+    procedure StartShubFinale(const Boss: TQuakeMonster);
+    procedure UpdateFinale;
+    procedure SpawnTeleportTrain(const Ent: TQuakeEntity);
+    procedure UpdateTeleportTrain(const SecondsPassed: Single);
+    { tdeath: whatever stands where the player teleported to dies; Shub-Niggurath
+      starts the ending }
+    procedure Telefrag(const Dest: TVector3);
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
@@ -254,6 +282,8 @@ type
     property Skill: Integer read FSkill write FSkill;
     property ServerFlags: Integer read FServerFlags write FServerFlags;
     property Intermission: Boolean read FIntermission;
+    { The ending was played and dismissed: back to the menu }
+    property GameOver: Boolean read FGameOver;
     property IntermissionEye: TVector3 read FIntermissionEye;
     property IntermissionDir: TVector3 read FIntermissionDir;
     property Monsters: TQuakeMonsterList read FMonsters;

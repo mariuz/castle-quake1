@@ -65,6 +65,10 @@ type
     FInterShown: Single;      { value of the stage being counted }
     FInterTick: Single;
     FInterReady: Boolean;     { the player may continue }
+    { Finale (svc_finale): the text typed out over the finale picture }
+    FFinale: Boolean;
+    FFinaleText: String;
+    FFinaleClock: Single;
     function CalcBlend: TVector4;
   public
     { Demo recording: centerprints }
@@ -99,6 +103,9 @@ type
     procedure StartIntermission(const ATitle: String; const ATime: Single;
       const AKills, ATotalKills, ASecrets, ATotalSecrets: Integer);
     procedure StopIntermission;
+    { The episode or ending text (SCR_DrawCenterString during cl.intermission 2),
+      typed out at 8 characters per second over gfx/finale.lmp }
+    procedure StartFinale(const AText: String);
     property Intermission: Boolean read FIntermission;
     { Set by the world once the intermission may be left }
     property IntermissionReady: Boolean read FInterReady write FInterReady;
@@ -353,6 +360,20 @@ end;
 procedure TQuakeHud.StopIntermission;
 begin
   FIntermission := False;
+  FFinale := False;
+  FFinaleText := '';
+end;
+
+procedure TQuakeHud.StartFinale(const AText: String);
+begin
+  FIntermission := True;
+  FFinale := True;
+  FFinaleText := AText;
+  FFinaleClock := 0;
+  FInterReady := False;
+  FDamageShift.Percent := 0;
+  FBonusShift.Percent := 0;
+  FContentsShift.Percent := 0;
 end;
 
 procedure TQuakeHud.UpdateIntermission(const SecondsPassed: Single);
@@ -360,6 +381,11 @@ var
   Target, Before: Single;
 begin
   FInterClock := FInterClock + SecondsPassed;
+  if FFinale then
+  begin
+    FFinaleClock := FFinaleClock + SecondsPassed;
+    Exit;
+  end;
   if FInterStage > 2 then
     Exit;
   { Short pause before the counting starts }
@@ -446,6 +472,32 @@ var
       DrawText(X + 6, Y, Fallback, True);
   end;
 
+  { SCR_DrawCenterString of the finale: lines from y = 48, typed out at
+    scr_printspeed (8 characters a second) }
+  procedure DrawFinale;
+  var
+    Lines: TStringArray;
+    I, Remaining: Integer;
+    Line: String;
+    Pic: TDrawableImage;
+  begin
+    Pic := QuakePic('gfx/finale.lmp');
+    if Pic <> nil then
+      DrawPic(160 - Pic.Width / 2, 16, 'gfx/finale.lmp')
+    else
+      DrawText(160, 16, 'FINALE', True);
+    Remaining := Trunc(FFinaleClock * 8);
+    Lines := FFinaleText.Split([#10]);
+    for I := 0 to High(Lines) do
+    begin
+      if Remaining <= 0 then
+        Break;
+      Line := Copy(Lines[I], 1, Remaining);
+      Remaining := Remaining - Length(Lines[I]);
+      DrawText(160, 48 + I * 8, Line, True);
+    end;
+  end;
+
 var
   Complete: TDrawableImage;
   I, Secs: Integer;
@@ -456,6 +508,12 @@ begin
   OffY := (RenderRect.Height - 200 * Scale) / 2;
 
   DrawRectangle(RenderRect, Vector4(0, 0, 0, 0.35));
+
+  if FFinale then
+  begin
+    DrawFinale;
+    Exit;
+  end;
 
   { Values counted so far: finished stages show their total }
   Shown[0] := Trunc(FInterTime);

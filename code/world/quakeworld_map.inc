@@ -196,6 +196,10 @@ begin
       FLightningEvents.Add(Ent.TargetName)
     else
 
+    if CName = 'misc_teleporttrain' then
+      SpawnTeleportTrain(Ent)
+    else
+
     { Triggers }
     if (CName = 'trigger_teleport') or (CName = 'trigger_changelevel') or
        (CName = 'trigger_multiple') or (CName = 'trigger_once') or
@@ -289,6 +293,17 @@ begin
   FPlayerStats.Secrets := 0;
   FPlayerStats.TotalSecrets := 0;
   FIntermission := False;
+  FIntermissionStage := 0;
+  FFinaleStage := 0;
+  FFinaleBoss := nil;
+  FGameOver := False;
+  if FTrain <> nil then
+  begin
+    if FTrain.Parent <> nil then
+      FTrain.Parent.Remove(FTrain);
+    FreeAndNil(FTrain);
+  end;
+  SetLength(FTrainCorners, 0);
   if FHud <> nil then
     FHud.StopIntermission;
 
