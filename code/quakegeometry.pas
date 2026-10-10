@@ -45,6 +45,8 @@ type
     { Shader uniforms of the sky effect (only when IsSky), owned by the X3D graph }
     SkyTimeField: TSFFloat;
     SkyEyeField: TSFVec3f;
+    { Time uniform of the liquid warp effect (only when IsLiquid) }
+    LiquidTimeField: TSFFloat;
     constructor Create(const ATexName: String);
     destructor Destroy; override;
     procedure AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
@@ -140,7 +142,8 @@ type
     FAnimTextures: TQuakeAnimTexList;
     FSkyTimeFields: TSFFloatList;
     FSkyEyeFields: TSFVec3fList;
-    FSkyTime: Single;
+    FLiquidTimeFields: TSFFloatList;
+    FSkyTime, FLiquidTime: Single;
     FLightmapSets: array of TQuakeLightmapSet;
     FLastStyles: array[0..63] of Single;
     FDLightsOn: Boolean;
@@ -209,6 +212,18 @@ const
     '  vec4 back = texture2D(sky_back, (vec2(sky_time * 8.0) + dir) / 128.0);' + LineEnding +
     '  vec4 front = texture2D(sky_front, (vec2(sky_time * 16.0) + dir) / 128.0);' + LineEnding +
     '  fragment_color = vec4(mix(back.rgb, front.rgb, front.a), 1.0);' + LineEnding +
+    '}' + LineEnding;
+
+  { EmitWaterPolys / R_Turbulent: the texture coordinates of water, slime,
+    lava and teleporters ripple with turbsin (8 texels of a 64 texel
+    texture, period 2 pi) }
+  LiquidFragmentShader =
+    'uniform float liquid_time;' + LineEnding +
+    'void PLUG_texture_coord_shift(inout vec2 tex_coord)' + LineEnding +
+    '{' + LineEnding +
+    '  vec2 uv = tex_coord;' + LineEnding +
+    '  tex_coord.x = uv.x + 0.125 * sin(uv.y * 8.0 + liquid_time);' + LineEnding +
+    '  tex_coord.y = uv.y + 0.125 * sin(uv.x * 8.0 + liquid_time);' + LineEnding +
     '}' + LineEnding;
 
   { R_BuildLightMap in a shader: the lightmaps of the face's lightstyle
@@ -341,7 +356,7 @@ var
   PhysMat: TPhysicalMaterialNode;
   LMCoordAttrib, StylesAttrib: TFloatVertexAttributeNode;
   UseLightmap, UseSkyShader: Boolean;
-  SkyEffect: TEffectNode;
+  SkyEffect, LiquidEffect: TEffectNode;
   VertexPart, FragmentPart: TEffectPartNode;
 begin
   if Coords.Count = 0 then
@@ -466,6 +481,17 @@ begin
   begin
     UnlitMat.Transparency := 0.35;
     Appearance.AlphaMode := amBlend;
+    { The turbulent texture warp }
+    LiquidEffect := TEffectNode.Create;
+    LiquidEffect.Language := slGLSL;
+    LiquidEffect.UniformMissing := umIgnore;
+    LiquidTimeField := TSFFloat.Create(LiquidEffect, True, 'liquid_time', 0);
+    LiquidEffect.AddCustomField(LiquidTimeField);
+    FragmentPart := TEffectPartNode.Create;
+    FragmentPart.ShaderType := stFragment;
+    FragmentPart.Contents := LiquidFragmentShader;
+    LiquidEffect.SetParts([FragmentPart]);
+    Appearance.SetEffects([LiquidEffect]);
   end else
     Appearance.AlphaMode := amOpaque;
 
@@ -736,6 +762,7 @@ begin
   FSubmodels := TQuakeSubmodelList.Create(True);
   FAnimTextures := TQuakeAnimTexList.Create(True);
   FSkyTimeFields := TSFFloatList.Create;
+  FLiquidTimeFields := TSFFloatList.Create;
   FSkyEyeFields := TSFVec3fList.Create;
 end;
 
@@ -745,6 +772,7 @@ begin
   FSubmodels.Free;
   FAnimTextures.Free;
   FSkyTimeFields.Free;
+  FLiquidTimeFields.Free;
   FSkyEyeFields.Free;
   inherited Destroy;
 end;
@@ -975,6 +1003,8 @@ begin
           FSkyTimeFields.Add(Batch.SkyTimeField);
           FSkyEyeFields.Add(Batch.SkyEyeField);
         end;
+        if Batch.LiquidTimeField <> nil then
+          FLiquidTimeFields.Add(Batch.LiquidTimeField);
       end;
     end;
   finally
@@ -1236,6 +1266,9 @@ begin
     FSkyTimeFields[I].Send(FSkyTime);
     FSkyEyeFields[I].Send(EyePos);
   end;
+  FLiquidTime := FloatModulo(FLiquidTime + SecondsPassed, 2 * Pi);
+  for I := 0 to FLiquidTimeFields.Count - 1 do
+    FLiquidTimeFields[I].Send(FLiquidTime);
 end;
 
 function TQuakeGeometry.IsGeometryScene(const T: TCastleTransform): Boolean;

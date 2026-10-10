@@ -8,9 +8,17 @@ unit QuakeNet;
 
 interface
 
+{ WebAssembly (WASI) has no sockets: the unit compiles with a socket that
+  never opens, so hosting and joining just fail there }
+{$if defined(WASI)}
+  {$define QUAKE_NO_SOCKETS}
+{$endif}
+
 uses
-  SysUtils, Classes, Generics.Collections, Math, Sockets,
-  ctypes, {$ifdef UNIX} BaseUnix, {$else} WinSock2, {$endif}
+  SysUtils, Classes, Generics.Collections, Math,
+  {$ifndef QUAKE_NO_SOCKETS}
+  Sockets, ctypes, {$ifdef UNIX} BaseUnix, {$else} WinSock2, {$endif}
+  {$endif}
   CastleVectors, CastleLog;
 
 const
@@ -37,6 +45,18 @@ const
 
 type
   TNetBytes = TBytes;
+
+  {$ifdef QUAKE_NO_SOCKETS}
+  { The shape of the socket address, so the rest of the unit is the same }
+  TInetSockAddr = record
+    sin_family: Word;
+    sin_port: Word;
+    sin_addr: record
+      s_addr: Cardinal;
+    end;
+  end;
+  cint = LongInt;
+  {$endif}
 
   { One frame of a client's wishes }
   TNetInput = record
@@ -203,6 +223,55 @@ implementation
 
 { TQuakeNetSocket }
 
+{$ifdef QUAKE_NO_SOCKETS}
+
+constructor TQuakeNetSocket.Create(const Port: Word);
+begin
+  inherited Create;
+  FSock := -1;
+  WritelnWarning('QuakeNet', 'No sockets on this platform: cannot open UDP port %d', [Port]);
+end;
+
+destructor TQuakeNetSocket.Destroy;
+begin
+  inherited Destroy;
+end;
+
+function TQuakeNetSocket.Valid: Boolean;
+begin
+  Result := False;
+end;
+
+function TQuakeNetSocket.Send(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
+begin
+  Result := False;
+end;
+
+function TQuakeNetSocket.Receive(out Addr: TInetSockAddr; out Data: TNetBytes): Boolean;
+begin
+  FillChar(Addr, SizeOf(Addr), 0);
+  SetLength(Data, 0);
+  Result := False;
+end;
+
+class function TQuakeNetSocket.Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
+begin
+  FillChar(Addr, SizeOf(Addr), 0);
+  Result := False;
+end;
+
+class function TQuakeNetSocket.SameAddress(const A, B: TInetSockAddr): Boolean;
+begin
+  Result := (A.sin_addr.s_addr = B.sin_addr.s_addr) and (A.sin_port = B.sin_port);
+end;
+
+class function TQuakeNetSocket.AddressToString(const A: TInetSockAddr): String;
+begin
+  Result := '';
+end;
+
+{$else}
+
 constructor TQuakeNetSocket.Create(const Port: Word);
 var
   Addr: TInetSockAddr;
@@ -315,6 +384,8 @@ begin
   Result := Format('%d.%d.%d.%d:%d', [(IP shr 24) and 255, (IP shr 16) and 255, (IP shr 8) and 255, IP and 255,
     ntohs(A.sin_port)]);
 end;
+
+{$endif}
 
 { TQuakeNetMessage }
 
