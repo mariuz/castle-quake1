@@ -5,7 +5,7 @@ A port of **Quake 1** to the [Castle Game Engine](https://castle-engine.io/) (Ob
 ![Rocket explosion in E1M1](docs/screenshots/rocket-explosion.jpg)
 
 - 🌐 **[Play in the browser (WebAssembly)](https://mariuz.github.io/castle-quake1/)**
-- 📦 **[Windows and Linux releases](https://github.com/mariuz/castle-quake1/releases)**
+- 📦 **[Windows, Linux and macOS releases](https://github.com/mariuz/castle-quake1/releases)**
 - 📖 **[Architecture and engine mapping](docs/ARCHITECTURE.md)**
 - 🗺️ **[Quake 1 comparison and roadmap](docs/ROADMAP.md)**
 
@@ -101,6 +101,9 @@ $CASTLE_ENGINE_PATH/tools/build-tool/castle-engine compile --mode=release
 ./castle-quake1
 ```
 
+### macOS
+The releases include app bundles for Intel and Apple Silicon Macs. They are not signed or notarized: on the first start use right-click > Open, or `xattr -dr com.apple.quarantine "Castle Quake.app"`. Building locally is the same `castle-engine compile` with the engine set up for macOS.
+
 ### Web
 The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js and deploys it to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/).
 
@@ -126,7 +129,7 @@ The Options menu switches the world lighting between Quake's lightmaps and dynam
 
 ## Continuous Integration
 
-- `.github/workflows/build.yml`: Windows x86_64 and Linux x86_64 packages on GitHub's runners (FPC and the CGE snapshot set up by `castle-build-ci`). A tag `v*`, or a manual run with a `release_tag`, creates the GitHub Release with the packages.
+- `.github/workflows/build.yml`: Windows x86_64, Linux x86_64 and macOS x86_64 / aarch64 (app bundle zips) packages on GitHub's runners (FPC and the CGE snapshot set up by `castle-build-ci`). A tag `v*`, or a manual run with a `release_tag`, creates the GitHub Release with the packages.
 - `.github/workflows/web.yml`: the WebAssembly build and the GitHub Pages deployment.
 
 ---
