@@ -172,7 +172,9 @@ begin
 
     Result := D.SaveToUrl(Url);
     if Result then
-      WritelnLog('QuakeWorld', 'Saved game to "%s"', [Url]);
+      WritelnLog('QuakeWorld', 'Saved game to "%s" (health %d, armor %d, shells %d, kills %d/%d, monsters %d)',
+        [Url, FPlayerStats.Health, FPlayerStats.Armor, FPlayerStats.Shells, FPlayerStats.Kills,
+         FPlayerStats.TotalKills, FMonsters.Count]);
   finally
     D.Free;
   end;
@@ -319,7 +321,9 @@ begin
     ApplyEpisodeGates;
     UpdateSolids;
     UpdateWeaponModel;
-    WritelnLog('QuakeWorld', 'Loaded game from "%s"', [Url]);
+    WritelnLog('QuakeWorld', 'Loaded game from "%s" (health %d, armor %d, shells %d, kills %d/%d, monsters %d)',
+      [Url, FPlayerStats.Health, FPlayerStats.Armor, FPlayerStats.Shells, FPlayerStats.Kills,
+       FPlayerStats.TotalKills, FMonsters.Count]);
     Result := True;
   finally
     D.Free;

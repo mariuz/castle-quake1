@@ -26,3 +26,6 @@ test_output/
 # Unit test program
 tests/quaketests
 tests/quaketests.exe
+
+# Python bytecode of the test scripts
+__pycache__/

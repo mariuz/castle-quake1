@@ -382,11 +382,12 @@ begin
       Img.Free;
       WritelnLog('GameViewPlay', 'Saved screenshot to "%s"', [OutPath]);
       if FWorld <> nil then
-        WritelnLog('GameViewPlay', 'View: eye %s, yaw %.0f, pitch %.0f, weapon %d, ammo %d',
-          [CgeToQuake(FViewport.Camera.Translation).ToString,
+        WritelnLog('GameViewPlay', 'View: map %s, eye %s, yaw %.0f, pitch %.0f, weapon %d, ammo %d, health %d, kills %d/%d, intermission %s',
+          [FWorld.MapName, CgeToQuake(FViewport.Camera.Translation).ToString,
            RadToDeg(ArcTan2(-FViewport.Camera.Direction.Z, FViewport.Camera.Direction.X)),
            RadToDeg(ArcSin(Clamped(FViewport.Camera.Direction.Y, -1.0, 1.0))),
-           FWorld.Stats.CurrentWeapon, FWorld.Stats.Ammo]);
+           FWorld.Stats.CurrentWeapon, FWorld.Stats.Ammo, FWorld.Stats.Health,
+           FWorld.Stats.Kills, FWorld.Stats.TotalKills, BoolToStr(FWorld.Intermission, 'yes', 'no')]);
     end;
   except
     on E: Exception do
