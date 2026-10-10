@@ -655,7 +655,7 @@ begin
         Sounds.Play('sound/weapons/r_exp3.wav');
       end;
     TE_LAVASPLASH:
-      Particles.SpawnExplosion(P);
+      Particles.SpawnLavaSplash(P);
     TE_TELEPORT:
       Particles.SpawnTeleport(P);
     TE_LIGHTNING1, TE_LIGHTNING2, TE_LIGHTNING3, TE_BEAM:

@@ -498,6 +498,11 @@ begin
     M.Update(SecondsPassed, FMonsterEnv);
     if M.GibPending then
       GibMonster(M);
+    if M.LavaSplashPending then
+    begin
+      M.LavaSplashPending := False;
+      Particles.SpawnLavaSplash(QuakeToCge(M.Origin));
+    end;
     if M.ExplodePending then
       MonsterExplode(M);
     if M.DeathTargetPending then

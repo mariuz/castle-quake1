@@ -62,6 +62,9 @@ type
 
     { Spawn teleport particle fountain }
     procedure SpawnTeleport(const Pos: TVector3);
+    { R_LavaSplash (TE_LAVASPLASH): a 16 x 16 field of lava drops rising
+      from the pool, Chthon's entrance }
+    procedure SpawnLavaSplash(const Pos: TVector3);
 
     { One puff of a projectile trail (CGE coordinates) }
     procedure SpawnRocketTrail(const Pos: TVector3);
@@ -313,6 +316,33 @@ begin
       Vector3(0.2, 0.9, 0.95));
     FParticles.Add(P);
   end;
+end;
+
+procedure TQuakeParticleManager.SpawnLavaSplash(const Pos: TVector3);
+var
+  I, J: Integer;
+  Dir, Vel: TVector3;
+  P: TQuakeParticle;
+  Speed: Single;
+begin
+  if Assigned(OnEffect) then
+    OnEffect('lavasplash', Pos, TVector3.Zero);
+  if FParent = nil then
+    Exit;
+  { Every second cell of the original's grid: 64 drops }
+  for I := -8 to 7 do
+    for J := -8 to 7 do
+      if ((I + J) and 1) = 0 then
+      begin
+        { Quake: dir = (j*8 + rand*8, i*8 + rand*8, 256), vel = 50 + rand*64 along dir }
+        Dir := Vector3(J * 8 + Random * 8, 256, -(I * 8 + Random * 8));
+        Speed := 50 + Random * 64;
+        Vel := Dir.Normalize * Speed;
+        P := TQuakeParticle.Create(FParent, Pos + Vector3(Dir.X, 0, Dir.Z), Vel, pkSparks,
+          2 + Random * 0.64, 2.5, 1.0, Vector3(1.0, 0.45 + Random * 0.3, 0.1));
+        P.Gravity := 0.05 * 800;
+        FParticles.Add(P);
+      end;
 end;
 
 procedure TQuakeParticleManager.SpawnRocketTrail(const Pos: TVector3);

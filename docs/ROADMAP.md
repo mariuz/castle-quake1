@@ -145,8 +145,9 @@ Everything is built in code today: no editor designs, almost no component has a 
 - [x] **Audio Polish**:
   - Music tracks per map from the entity `sounds` key, underwater low-pass filtering, and the CD-track handling of `svc_cdtrack`.
   - Done: `TQuakeSounds.PlayTrack` plays `data/music/trackNN.ogg` for the worldspawn `sounds` key of the map in every mode (track 2 when the file is missing), `svc_cdtrack` switches the track in the demo / network client and in QuakeC mode (the finale's track 3), and under water every OpenAL source gets an EFX low-pass filter (`SetUnderwater`, high-frequency gain 0.2; no-op without EFX or on the web).
-- [ ] **Rendering Polish**:
+- [x] **Rendering Polish**:
   - Skybox support, lava and slime particle effects, water seen from inside (`r_wateralpha` style translucency both ways), and the fullbright texture pixels of Quake's palette.
+  - Done: a worldspawn `sky` key with `gfx/env/<name>{rt,bk,lf,ft,up,dn}.tga` in the paks renders the sky surfaces through a six face skybox shader (the face orientation of the original skybox code), else the scrolling two layer sky stays. World textures carry the fullbright palette entries (224..255) in their alpha channel and the lightmap shader keeps those texels at full color. `R_LavaSplash` is a particle effect (`SpawnLavaSplash`) played when Chthon rises, for `TE_LAVASPLASH` in demos, network play and QuakeC mode, and recorded in demos; slime has no effect of its own in Quake. Liquid surfaces are two sided with `r_wateralpha` 0.65 by default, from above and from inside, and the console `wateralpha <0..1>` changes it live. Verified headless with a test pak (a labeled skybox on E1M1), the E1M1 water from inside and Chthon's rise.
 - [ ] **Automated Test Coverage in CI**:
   - Unit tests for the BSP tracer, the QuakeC VM (opcode tests and known `progs.dat` spawn counts), savegame round-trips and the demo writer / reader, run by the Build workflow so regressions are caught before a release.
 - [ ] **Input**:

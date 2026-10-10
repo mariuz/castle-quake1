@@ -146,10 +146,13 @@ type
     FSkyTimeFields: TSFFloatList;
     FSkyEyeFields: TSFVec3fList;
     FLiquidTimeFields: TSFFloatList;
+    FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
+    FLiquidAlpha: Single;
     FSkyTime, FLiquidTime: Single;
     FLightmapSets: array of TQuakeLightmapSet;
     FLastStyles: array[0..63] of Single;
     FDLightsOn: Boolean;
+    procedure SetLiquidAlpha(const Value: Single);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
       var OutBatches: TQuakeGeomBatchDict);
@@ -182,6 +185,9 @@ type
     function FindSubmodel(const AName: String): TQuakeSubmodel;
 
     property SceneWorld: TCastleScene read FSceneWorld;
+    { r_wateralpha: opacity of water, slime and lava surfaces, both from
+      above and from inside (the surfaces are two sided), default 0.65 }
+    property LiquidAlpha: Single read FLiquidAlpha write SetLiquidAlpha;
     property WorldTransform: TCastleTransform read FWorldTransform;
     property Submodels: TQuakeSubmodelList read FSubmodels;
   end;
@@ -191,6 +197,15 @@ var
     (lightstyles, dynamic lights), False = lit materials under the engine's
     real-time lights. Takes effect when a map is loaded. }
   WorldLightmaps: Boolean = True;
+
+var
+  { The skybox of the map being built (gfx/env/<name>), '' for the scrolling sky }
+  SkyboxName: String;
+  { r_wateralpha for the maps built from now on }
+  DefaultLiquidAlpha: Single = 0.65;
+
+{ The six faces of a skybox are in the paks }
+function SkyboxAvailable(const Name: String): Boolean;
 
 implementation
 
@@ -222,6 +237,44 @@ const
     '  vec4 back = texture2D(sky_back, (vec2(sky_time * 8.0) + dir) / 128.0);' + LineEnding +
     '  vec4 front = texture2D(sky_front, (vec2(sky_time * 16.0) + dir) / 128.0);' + LineEnding +
     '  fragment_color = vec4(mix(back.rgb, front.rgb, front.a), 1.0);' + LineEnding +
+    '}' + LineEnding;
+
+  { A six face skybox (the "sky" worldspawn key of the engines after
+    GLQuake: gfx/env/<name>rt|bk|lf|ft|up|dn.tga) sampled by the view
+    direction in Quake axes, the faces oriented like Sky_ProjectPoly /
+    vec_to_st of the original skybox code }
+  SkyboxFragmentShader =
+    'uniform sampler2D skybox_rt;' + LineEnding +
+    'uniform sampler2D skybox_bk;' + LineEnding +
+    'uniform sampler2D skybox_lf;' + LineEnding +
+    'uniform sampler2D skybox_ft;' + LineEnding +
+    'uniform sampler2D skybox_up;' + LineEnding +
+    'uniform sampler2D skybox_dn;' + LineEnding +
+    'uniform vec3 sky_eye;' + LineEnding +
+    'varying highp vec3 quake_sky_position;' + LineEnding +
+    'void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)' + LineEnding +
+    '{' + LineEnding +
+    '  highp vec3 d = quake_sky_position - sky_eye;' + LineEnding +
+    '  highp vec3 v = vec3(d.x, -d.z, d.y);' + LineEnding +
+    '  highp vec3 a = abs(v);' + LineEnding +
+    '  highp float s, t;' + LineEnding +
+    '  vec4 c;' + LineEnding +
+    '  if (a.x >= a.y && a.x >= a.z)' + LineEnding +
+    '  {' + LineEnding +
+    '    if (v.x > 0.0) { s = -v.y / v.x; t = v.z / v.x; c = texture2D(skybox_rt, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '    else { s = -v.y / v.x; t = -v.z / v.x; c = texture2D(skybox_bk, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '  }' + LineEnding +
+    '  else if (a.y >= a.z)' + LineEnding +
+    '  {' + LineEnding +
+    '    if (v.y > 0.0) { s = v.x / v.y; t = v.z / v.y; c = texture2D(skybox_lf, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '    else { s = v.x / v.y; t = -v.z / v.y; c = texture2D(skybox_ft, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '  }' + LineEnding +
+    '  else' + LineEnding +
+    '  {' + LineEnding +
+    '    if (v.z > 0.0) { s = -v.y / v.z; t = -v.x / v.z; c = texture2D(skybox_up, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '    else { s = v.y / v.z; t = -v.x / v.z; c = texture2D(skybox_dn, vec2((s + 1.0) * 0.5, (t + 1.0) * 0.5)); }' + LineEnding +
+    '  }' + LineEnding +
+    '  fragment_color = vec4(c.rgb, 1.0);' + LineEnding +
     '}' + LineEnding;
 
   { EmitWaterPolys / R_Turbulent: the texture coordinates of water, slime,
@@ -286,7 +339,9 @@ const
     '    if (rad > 0.0)' + LineEnding +
     '      light += max(rad - distance(quake_pos_v, quake_dlights[i].xyz), 0.0) / 255.0;' + LineEnding +
     '  }' + LineEnding +
-    '  fragment_color.rgb *= min(light, 1.0) * 2.0;' + LineEnding +
+    '  /* The fullbright palette entries (alpha 255 of the texture) keep their color */' + LineEnding +
+    '  fragment_color.rgb *= mix(min(light, 1.0) * 2.0, 1.0, fragment_color.a);' + LineEnding +
+    '  fragment_color.a = 1.0;' + LineEnding +
     '}' + LineEnding;
 
   { Both layers repeat after 128 texels: 16 s for the back one, 8 s for the front one.
@@ -300,6 +355,27 @@ begin
   Result.RepeatS := True;
   Result.RepeatT := True;
   Result.TextureProperties := TexProps;
+end;
+
+const
+  SkyboxSuffixes: array[0..5] of String = ('rt', 'bk', 'lf', 'ft', 'up', 'dn');
+
+function SkyboxAvailable(const Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := Name <> '';
+  for I := 0 to 5 do
+    if Result and not Pak.FileExists('gfx/env/' + Name + SkyboxSuffixes[I] + '.tga') then
+      Result := False;
+end;
+
+function CreateSkyboxTexture(const Name, Suffix: String): TImageTextureNode;
+begin
+  Result := TImageTextureNode.Create;
+  Result.SetUrl(['quakepak:/gfx/env/' + Name + Suffix + '.tga']);
+  Result.RepeatS := False;
+  Result.RepeatT := False;
 end;
 
 { TQuakeGeomBatch }
@@ -365,9 +441,10 @@ var
   UnlitMat: TUnlitMaterialNode;
   PhysMat: TPhysicalMaterialNode;
   LMCoordAttrib, StylesAttrib: TFloatVertexAttributeNode;
-  UseLightmap, UseSkyShader: Boolean;
+  UseLightmap, UseSkyShader, UseSkybox: Boolean;
   SkyEffect, LiquidEffect: TEffectNode;
   VertexPart, FragmentPart: TEffectPartNode;
+  I: Integer;
 begin
   if Coords.Count = 0 then
     Exit;
@@ -401,8 +478,9 @@ begin
   TexProps.AnisotropicDegree := 4;
 
   { Sky layers exist only for standard 256x128 sky miptexes (see TQuakeBsp.CacheSkyLayers) }
-  UseSkyShader := IsSky and
-    Palette.HasCachedImage('map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX);
+  UseSkybox := IsSky and SkyboxAvailable(SkyboxName);
+  UseSkyShader := UseSkybox or (IsSky and
+    Palette.HasCachedImage('map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX));
 
   if not UseSkyShader then
   begin
@@ -439,14 +517,23 @@ begin
 
   if UseSkyShader then
   begin
-    { No regular texture: the sky effect computes the color from both layers }
+    { No regular texture: the sky effect computes the color from both layers
+      of the scrolling sky, or from the six faces of the skybox }
     SkyEffect := TEffectNode.Create;
     SkyEffect.Language := slGLSL;
     SkyEffect.UniformMissing := umIgnore;
-    SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_back', [],
-      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
-    SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_front', [],
-      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_FRONT_SUFFIX, TexProps)));
+    if UseSkybox then
+    begin
+      for I := 0 to 5 do
+        SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'skybox_' + SkyboxSuffixes[I], [],
+          CreateSkyboxTexture(SkyboxName, SkyboxSuffixes[I])));
+    end else
+    begin
+      SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_back', [],
+        CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
+      SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_front', [],
+        CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_FRONT_SUFFIX, TexProps)));
+    end;
     SkyTimeField := TSFFloat.Create(SkyEffect, True, 'sky_time', 0);
     SkyEffect.AddCustomField(SkyTimeField);
     SkyEyeField := TSFVec3f.Create(SkyEffect, True, 'sky_eye', TVector3.Zero);
@@ -457,7 +544,10 @@ begin
     VertexPart.Contents := SkyVertexShader;
     FragmentPart := TEffectPartNode.Create;
     FragmentPart.ShaderType := stFragment;
-    FragmentPart.Contents := SkyFragmentShader;
+    if UseSkybox then
+      FragmentPart.Contents := SkyboxFragmentShader
+    else
+      FragmentPart.Contents := SkyFragmentShader;
     SkyEffect.SetParts([VertexPart, FragmentPart]);
     Appearance.SetEffects([SkyEffect]);
     Geometry.TexCoord := TexCoordNode;
@@ -489,7 +579,7 @@ begin
 
   if IsLiquid and (UnlitMat <> nil) then
   begin
-    UnlitMat.Transparency := 0.35;
+    UnlitMat.Transparency := 1 - DefaultLiquidAlpha;
     Appearance.AlphaMode := amBlend;
     { The turbulent texture warp }
     LiquidEffect := TEffectNode.Create;
@@ -776,7 +866,19 @@ begin
   FAnimTextures := TQuakeAnimTexList.Create(True);
   FSkyTimeFields := TSFFloatList.Create;
   FLiquidTimeFields := TSFFloatList.Create;
+  FLiquidMaterials := specialize TList<TUnlitMaterialNode>.Create;
+  FLiquidAlpha := DefaultLiquidAlpha;
   FSkyEyeFields := TSFVec3fList.Create;
+end;
+
+procedure TQuakeGeometry.SetLiquidAlpha(const Value: Single);
+var
+  M: TUnlitMaterialNode;
+begin
+  FLiquidAlpha := Value;
+  DefaultLiquidAlpha := Value;
+  for M in FLiquidMaterials do
+    M.Transparency := 1 - FLiquidAlpha;
 end;
 
 destructor TQuakeGeometry.Destroy;
@@ -786,6 +888,7 @@ begin
   FAnimTextures.Free;
   FSkyTimeFields.Free;
   FLiquidTimeFields.Free;
+  FLiquidMaterials.Free;
   FSkyEyeFields.Free;
   inherited Destroy;
 end;
@@ -1016,6 +1119,8 @@ begin
           FSkyTimeFields.Add(Batch.SkyTimeField);
           FSkyEyeFields.Add(Batch.SkyEyeField);
         end;
+        if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
+          FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
         if Batch.LiquidTimeField <> nil then
           FLiquidTimeFields.Add(Batch.LiquidTimeField);
       end;
@@ -1175,6 +1280,19 @@ var
 begin
   if (FBsp = nil) or (Parent = nil) then
     Exit;
+
+  { The map's skybox, when its six faces are in the paks }
+  SkyboxName := '';
+  if FBsp.FindEntity('worldspawn') <> nil then
+    SkyboxName := LowerCase(Trim(FBsp.FindEntity('worldspawn').GetField('sky', '')));
+  if (SkyboxName <> '') and not SkyboxAvailable(SkyboxName) then
+  begin
+    WritelnLog('QuakeGeometry', 'Skybox "%s" not found (gfx/env/%0:s{rt,bk,lf,ft,up,dn}.tga), using the sky texture',
+      [SkyboxName]);
+    SkyboxName := '';
+  end else
+  if SkyboxName <> '' then
+    WritelnLog('QuakeGeometry', 'Skybox "%s"', [SkyboxName]);
 
   { Build static world model (Model 0) }
   RootWorld := TX3DRootNode.Create;

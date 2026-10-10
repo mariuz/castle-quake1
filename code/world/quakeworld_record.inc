@@ -79,6 +79,8 @@ begin
     FRecorder.WriteTempEntity(TE_EXPLOSION, CgeToQuake(Pos))
   else if Kind = 'teleport' then
     FRecorder.WriteTempEntity(TE_TELEPORT, CgeToQuake(Pos))
+  else if Kind = 'lavasplash' then
+    FRecorder.WriteTempEntity(TE_LAVASPLASH, CgeToQuake(Pos))
   else if Kind = 'puff' then
     FRecorder.WriteTempEntity(TE_GUNSHOT, CgeToQuake(Pos))
   else if Kind = 'blood' then

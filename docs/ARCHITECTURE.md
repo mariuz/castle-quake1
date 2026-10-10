@@ -121,6 +121,8 @@ Player dimensions:
 
 ---
 
+- Skybox: `TQuakeGeometry.AddToWorld` reads the worldspawn `sky` key; when `gfx/env/<name>rt|bk|lf|ft|up|dn.tga` are in the paks (`SkyboxAvailable`) the sky batches get the `SkyboxFragmentShader` with six `sampler2D` uniforms (`quakepak:` URLs) instead of the two layer sky, picking the face from the view direction in Quake axes with the `vec_to_st` orientation of the original skybox code. Fullbright: `TQuakePalette.DecodeIndexed` with `FullbrightAlpha` writes alpha 255 for palette entries 224..255 (world textures only) and the lightmap shader mixes those texels to full color (`fragment_color.a`), the alpha mode staying opaque. Liquids: two sided, `DefaultLiquidAlpha` (0.65) as `1 - Transparency` of their unlit material, `LiquidAlpha` changes the live materials (console `wateralpha`). `TQuakeParticleManager.SpawnLavaSplash` is `R_LavaSplash` on every second cell of its 16 x 16 grid.
+
 ## 6. QuakeLight: Real-Time Dynamic Lighting
 
 - Maps Quake `light` entities to real-time `TCastlePointLight` nodes.

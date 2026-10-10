@@ -649,7 +649,8 @@ begin
 
     if Palette.HasPalette and (Mip.Width > 0) and (Mip.Height > 0) then
     begin
-      Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1);
+      { World textures carry the fullbright mask in their alpha channel }
+      Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, True);
       Palette.CacheImage(ImageId, Img);
       if Pos('sky', NameStr) = 1 then
         CacheSkyLayers(Mip);

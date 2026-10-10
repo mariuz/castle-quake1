@@ -733,13 +733,14 @@ begin
         Lighting.TriggerMuzzleFlash(P, 6.0);
         Sounds.Play('sound/weapons/r_exp3.wav');
       end;
-    TE_TAREXPLOSION, TE_LAVASPLASH:
+    TE_TAREXPLOSION:
       begin
         Particles.SpawnExplosion(P);
         Lighting.TriggerMuzzleFlash(P, 6.0);
-        if Kind = TE_TAREXPLOSION then
-          Sounds.Play('sound/weapons/r_exp3.wav');
+        Sounds.Play('sound/weapons/r_exp3.wav');
       end;
+    TE_LAVASPLASH:
+      Particles.SpawnLavaSplash(P);
     TE_TELEPORT:
       Particles.SpawnTeleport(P);
     TE_LIGHTNING1, TE_LIGHTNING2, TE_LIGHTNING3, TE_BEAM:
