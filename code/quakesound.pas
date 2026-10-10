@@ -75,13 +75,19 @@ begin
   if not FSoundCache.TryGetValue(NormPath, Result) then
   begin
     Result := TCastleSound.Create(nil);
-    try
-      Result.Url := 'quakepak:/' + NormPath;
-    except
-      on E: Exception do
-        { A missing sample is not fatal (no paks, or a mod without it) }
-        WritelnWarning('QuakeSound', 'Cannot load "%s": %s', [APath, E.Message]);
-    end;
+    { A missing sample is not fatal (no paks, or a mod without it): it is
+      checked first, because on WebAssembly an exception cannot be caught
+      and ends the program }
+    if Pak.FileExists(NormPath) then
+    begin
+      try
+        Result.Url := 'quakepak:/' + NormPath;
+      except
+        on E: Exception do
+          WritelnWarning('QuakeSound', 'Cannot load "%s": %s', [APath, E.Message]);
+      end;
+    end else
+      WritelnWarning('QuakeSound', 'Missing sound "%s"', [APath]);
     FSoundCache.Add(NormPath, Result);
   end;
 end;
