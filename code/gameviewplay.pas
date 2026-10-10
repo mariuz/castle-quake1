@@ -13,7 +13,7 @@ uses
   X3DNodes, X3DFields, CastleRenderOptions,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
-  QuakePhysics, QuakeSaveGame;
+  QuakePhysics, QuakeSaveGame, QuakeDebug;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -38,6 +38,7 @@ type
     FAutoTestShots: Integer;
     FDemoCommands: TStringList;
     FDemoIndex: Integer;
+    FShowFps: Boolean;
     FDemoTimer: Single;
     FUnderwaterEffect: TScreenEffectNode;
     FUnderwaterTime: TSFFloat;
@@ -538,6 +539,11 @@ begin
     LogSceneTree(FViewport.Items, 'GameViewPlay');
     Inc(FDemoIndex);
   end else
+  if Action = 'D' then { Debug overlay: D:all, D:triggers;monsters, D:off }
+  begin
+    FWorld.DebugModes := ParseDebugModes(Param, FWorld.DebugModes);
+    Inc(FDemoIndex);
+  end else
   if Action = 'L' then { Load game from a slot }
   begin
     LoadGameSlot(Param);
@@ -610,6 +616,10 @@ var
   NewYaw: Single;
 begin
   inherited Update(SecondsPassed, HandleInput);
+  if FShowFps then
+    FHud.FpsText := 'FPS: ' + Container.Fps.ToString
+  else
+    FHud.FpsText := '';
 
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
@@ -821,6 +831,17 @@ begin
     else
       LoadGameSlot('quick');
   end else
+  if Cmd = 'debug' then
+  begin
+    { Debug overlay: debug triggers,monsters,movers,leaf | all | off }
+    FWorld.DebugModes := ParseDebugModes(Args, FWorld.DebugModes);
+    FConsole.Print('Debug overlay: ' + DebugModesToString(FWorld.DebugModes));
+  end else
+  if Cmd = 'fps' then
+  begin
+    FShowFps := not FShowFps;
+    FConsole.Print('FPS display: ' + BoolToStr(FShowFps, 'on', 'off'));
+  end else
   if Cmd = 'lightmaps' then
   begin
     { 1 = Quake lightmaps blended in the shader, 0 = dynamic PBR lighting;
@@ -889,6 +910,8 @@ begin
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
     FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
+    FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
+    FConsole.Print('  fps            - Show the frame rate in the stats line');
     FConsole.Print('  quit           - Exit game');
   end else
     FConsole.Print('Unknown command: ' + Cmd);

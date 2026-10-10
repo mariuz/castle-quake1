@@ -69,6 +69,8 @@ type
   public
     { Demo recording: centerprints }
     OnMessage: procedure(const S: String) of object;
+    { Appended to the stats line (the console's fps command) }
+    FpsText: String;
   private
     procedure UpdateIntermission(const SecondsPassed: Single);
     procedure RenderIntermission;
@@ -281,6 +283,8 @@ begin
     Secs := Trunc(Stats.LevelTime) mod 60;
     FStatsLabel.Caption := Format('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d',
       [Stats.Kills, Stats.TotalKills, Stats.Secrets, Stats.TotalSecrets, Mins, Secs]);
+    if FpsText <> '' then
+      FStatsLabel.Caption := FStatsLabel.Caption + '   ' + FpsText;
   end else
     FStatsLabel.Caption := '';
 end;

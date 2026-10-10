@@ -68,6 +68,8 @@ type
     procedure SaveGameSlot(const Slot: String);
     procedure LoadGameSlot(const Slot: String);
     procedure StartRecording(const Url: String);
+    { Log every used edict: classname, model, origin, health (the edicts command) }
+    procedure LogEdicts;
     procedure StopRecording;
     procedure RecordLevel;
     procedure RecordFrame(const Yaw, Pitch: Single);
@@ -364,6 +366,24 @@ begin
 end;
 
 { Demo recording }
+
+procedure TViewQc.LogEdicts;
+var
+  E, N: Integer;
+  O: TVector3;
+begin
+  N := 0;
+  for E := 0 to FGame.Progs.NumEdicts - 1 do
+    if not FGame.Progs.EdictFree(E) then
+    begin
+      O := FGame.EntityOrigin(E);
+      WritelnLog('GameViewQc', 'edict %3d %-24s %-20s (%.0f %.0f %.0f) health %d', [E,
+        FGame.Progs.FieldString(E, FGame.Progs.FClassName), FGame.EntityModel(E), O.X, O.Y, O.Z,
+        Round(FGame.Progs.Field(E, FGame.Progs.FHealth)^.F)]);
+      Inc(N);
+    end;
+  WritelnLog('GameViewQc', '%d edicts in use of %d', [N, FGame.Progs.NumEdicts]);
+end;
 
 procedure TViewQc.StartRecording(const Url: String);
 begin
@@ -952,6 +972,8 @@ begin
       FScriptJump := 0.1
     else if Action = 'I' then
       LogSceneTree(FViewport.Items, 'GameViewQc')
+    else if Action = 'E' then
+      LogEdicts
     else if Action = 'O' then
       SaveGameSlot(Param)
     else if Action = 'L' then

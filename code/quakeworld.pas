@@ -11,7 +11,7 @@ uses
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors, CastleQuaternions,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
   QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters, QuakePak, QuakeSaveGame, QuakeDemo,
-  QuakeBehaviors;
+  QuakeBehaviors, QuakeDebug;
 
 type
   { World simulation manager }
@@ -26,6 +26,7 @@ type
     FGibs: TQuakeGibList;
     FTriggers: TQuakeTriggerList;
     FTriggerRoot: TCastleTransform; { the triggers' transforms for the inspector }
+    FDebug: TQuakeDebugOverlay;
     FAmbient: TQuakeAmbientSounds;
     FPlayerStats: TQuakePlayerStats;
     FPlayerPos: TVector3;
@@ -89,6 +90,7 @@ type
     FRecordMuzzle: Boolean;
     FRecordHud: TQuakeHud;
     FLockedTimer: Single;       { attack_finished of the last locked door message }
+    procedure UpdateDebugOverlay;
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
@@ -255,6 +257,10 @@ type
     property IntermissionEye: TVector3 read FIntermissionEye;
     property IntermissionDir: TVector3 read FIntermissionDir;
     property Monsters: TQuakeMonsterList read FMonsters;
+  public
+    { Debug overlay over the level: trigger volumes, monster boxes and
+      sight lines, mover bounds, the player's BSP leaf and box }
+    DebugModes: TQuakeDebugModes;
     property Pickups: TQuakePickupList read FPickups;
     property WeaponTransform: TCastleTransform read FWeaponTransform;
     property Bsp: TQuakeBsp read FBsp;
@@ -1568,6 +1574,73 @@ begin
   UseTargets(Sub.Target);
 end;
 
+procedure TQuakeWorld.UpdateDebugOverlay;
+var
+  T: TQuakeTrigger;
+  M: TQuakeMonster;
+  Sub: TQuakeSubmodel;
+  P: TQuakeProjectile;
+  AMins, AMaxs, Eye: TVector3;
+  Leaf: Integer;
+  L: TBSPLeaf;
+begin
+  if DebugModes = [] then
+  begin
+    if FDebug <> nil then
+    begin
+      FDebug.Clear;
+      FDebug.Commit;
+    end;
+    Exit;
+  end;
+  if (FBsp = nil) or (FGeometry = nil) then
+    Exit;
+  if FDebug = nil then
+    FDebug := TQuakeDebugOverlay.Create(FRootTransform);
+  FDebug.Clear;
+  Eye := FPhys.Origin + Vector3(0, 0, FPhys.ViewHeight);
+
+  if dbTriggers in DebugModes then
+    for T in FTriggers do
+      if T.Removed then
+        FDebug.AddBox(T.Mins, T.Maxs, DebugColorTriggerDone)
+      else
+        FDebug.AddBox(T.Mins, T.Maxs, DebugColorTrigger);
+
+  if dbMonsters in DebugModes then
+    for M in FMonsters do
+      if M.Transform.Exists and M.IsSolid then
+      begin
+        if M.SightAlerted then
+        begin
+          FDebug.AddBox(M.Origin + M.Def.Mins, M.Origin + M.Def.Maxs, DebugColorMonsterAlert);
+          FDebug.AddLine(M.Center, Eye, DebugColorMonsterAlert);
+        end else
+          FDebug.AddBox(M.Origin + M.Def.Mins, M.Origin + M.Def.Maxs, DebugColorMonster);
+      end;
+
+  if dbMovers in DebugModes then
+    for Sub in FGeometry.Submodels do
+      if SubmodelBounds(Sub, AMins, AMaxs) then
+        FDebug.AddBox(AMins, AMaxs, DebugColorMover);
+
+  if dbLeaf in DebugModes then
+  begin
+    Leaf := FBsp.PointLeaf(Eye);
+    if (Leaf >= 0) and (Leaf < Length(FBsp.Leaves)) then
+    begin
+      L := FBsp.Leaves[Leaf];
+      FDebug.AddBox(Vector3(L.Mins[0], L.Mins[1], L.Mins[2]), Vector3(L.Maxs[0], L.Maxs[1], L.Maxs[2]),
+        DebugColorLeaf);
+    end;
+    PlayerBox(AMins, AMaxs);
+    FDebug.AddBox(AMins, AMaxs, DebugColorPlayer);
+    for P in FProjectiles do
+      FDebug.AddMarker(P.Origin, 8, DebugColorProjectile);
+  end;
+  FDebug.Commit;
+end;
+
 procedure TQuakeWorld.UpdateSolids;
 var
   Sub: TQuakeSubmodel;
@@ -1931,6 +2004,7 @@ begin
   FProjectiles.Free;
   FGibs.Free;
   FreeAndNil(FTriggerRoot);
+  FreeAndNil(FDebug);
   FTriggers.Free;
   FreeAndNil(FAmbient);
   FreeAndNil(FPhys);
@@ -2709,6 +2783,7 @@ begin
   { Update HUD }
   if Hud <> nil then
     Hud.Update(SecondsPassed, FPlayerStats);
+  UpdateDebugOverlay;
 end;
 
 procedure TQuakeWorld.SelectWeapon(const Slot: Integer; const Hud: TQuakeHud);
