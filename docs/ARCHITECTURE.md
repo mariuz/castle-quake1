@@ -112,13 +112,18 @@ Player dimensions:
 ## 5. QuakeBsp & QuakeGeometry: 3D Map Generation
 
 - Reads Quake BSP version 29 lumps:
-  - Faces, vertices, edges, surfedges, planes, texinfo, miptex, models, entities.
+  - Faces, vertices, edges, surfedges, planes, texinfo, miptex, models, entities, nodes, leaves, marksurfaces, visibility, clipnodes, lightmaps.
 - Triangles grouped by texture into `TQuakeGeomBatch`es.
 - Interactive submodels (`func_door`, `func_plat`, `func_button`):
   - Model 0 is static world geometry.
   - Models 1..N are separate `TCastleScene`s attached to `TCastleTransform` with automated sliding, elevation, sound, and collision detection.
 - Animated textures (`+0`..`+9`):
   - Cycled every 0.2s by updating `TImageTextureNode.SetUrl`.
+- PVS culling (`TQuakeGeometry.BuildClusters`, `UpdateVisibility`):
+  - The world model is split into clusters along the BSP tree: a subtree with at most `ClusterMaxFaces` (256) faces is one cluster, a bigger node keeps its own faces in a cluster and splits further. Each cluster has its own texture batches (one lightmap atlas for all), so a frame draws some hundred shapes instead of one per texture.
+  - A cluster's leaves are the ones listing its faces in the marksurfaces lump; it is drawn when one of them is in the PVS of the camera's leaf (`TQuakeBsp.LeafPVS` decompresses the row once per leaf change), else its shapes get `Visible := False` (rendering only: collisions and raycasts still see them).
+  - Maps are not vised through water, so with translucent liquids (`LiquidAlpha < 1`) the leaves on both sides of each liquid surface are linked (the leaf behind each liquid face, and the leaves listing the same face) and the PVS of the linked leaves of every visible leaf is added (one hop).
+  - Everything is drawn from a solid leaf (outside the map), without vis data, or with `WorldPvsCulling = False` (console `novis 1`, demo action `N:0`). The views call `UpdateVisibility` with the camera position every frame (third person, free fly and the intermission camera included); it does work only when the leaf changes. Demo action `Z` logs the frame times between two `Z`s with the PVS counts.
 
 ---
 

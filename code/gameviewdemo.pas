@@ -1301,6 +1301,7 @@ begin
     end;
 
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
+  FGeometry.UpdateVisibility(FViewport.Camera.Translation);
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);

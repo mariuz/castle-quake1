@@ -103,6 +103,49 @@ begin
   end;
 end;
 
+procedure TestPvs;
+var
+  Bsp: TQuakeBsp;
+  Bits: TBytes;
+  StartLeaf, FromLeaf, ToLeaf, Mismatches, Seen: Integer;
+  InRow: Boolean;
+begin
+  StartTest('PVS rows (e1m1)');
+  Bsp := TQuakeBsp.Create;
+  try
+    Check(Bsp.LoadFromPak('maps/e1m1.bsp'), 'e1m1.bsp loads');
+    Check(Length(Bsp.MarkSurfaces) > Bsp.VisLeafCount, 'marksurfaces loaded');
+    StartLeaf := Bsp.PointLeaf(Bsp.FindEntity('info_player_start').Origin + Vector3(0, 0, 22));
+    Check(StartLeaf > 0, 'start leaf');
+    Check(Bsp.LeafPVS(StartLeaf, Bits), 'start leaf has a PVS row');
+    Seen := 0;
+    for ToLeaf := 1 to Bsp.VisLeafCount do
+      if (Bits[(ToLeaf - 1) div 8] and (1 shl ((ToLeaf - 1) and 7))) <> 0 then
+        Inc(Seen);
+    Check((Seen > 1) and (Seen < Bsp.VisLeafCount div 2),
+      Format('the start sees part of the map (%d of %d leaves)', [Seen, Bsp.VisLeafCount]));
+    Check(not Bsp.LeafPVS(0, Bits), 'the solid leaf has no row');
+
+    { The decompressed rows agree with LeafVisible }
+    Mismatches := 0;
+    FromLeaf := 1;
+    while FromLeaf <= Bsp.VisLeafCount do
+    begin
+      if Bsp.LeafPVS(FromLeaf, Bits) then
+        for ToLeaf := 1 to Bsp.VisLeafCount do
+        begin
+          InRow := (Bits[(ToLeaf - 1) div 8] and (1 shl ((ToLeaf - 1) and 7))) <> 0;
+          if InRow <> Bsp.LeafVisible(FromLeaf, ToLeaf) then
+            Inc(Mismatches);
+        end;
+      Inc(FromLeaf, 37);
+    end;
+    CheckEquals(0, Mismatches, 'LeafPVS matches LeafVisible');
+  finally
+    Bsp.Free;
+  end;
+end;
+
 procedure TestProgsVm;
 var
   Progs: TQuakeProgs;
@@ -514,6 +557,7 @@ begin
   Palette.LoadFromPak;
 
   TestBspTracer;
+  TestPvs;
   TestProgsVm;
   TestProgsStateRoundTrip;
   TestSaveData;

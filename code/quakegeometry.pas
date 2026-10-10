@@ -77,6 +77,20 @@ type
 
   TQuakeGeomBatchDict = specialize TObjectDictionary<String, TQuakeGeomBatch>;
 
+  TQuakeIntArray = array of Integer;
+
+  { A part of the world (a BSP subtree) shown when one of the leaves
+    listing its faces is in the camera's potentially visible set }
+  TQuakeVisCluster = class
+  public
+    Leaves: array of Integer; { none = always visible }
+    Shapes: specialize TList<TShapeNode>;
+    Visible: Boolean;
+    constructor Create;
+    destructor Destroy; override;
+  end;
+  TQuakeVisClusterList = specialize TObjectList<TQuakeVisCluster>;
+
   { Movable submodel instance (func_door, func_plat, func_button, etc.) }
   TQuakeSubmodel = class
   public
@@ -152,10 +166,21 @@ type
     FLightmapSets: array of TQuakeLightmapSet;
     FLastStyles: array[0..63] of Single;
     FDLightsOn: Boolean;
+    FClusters: TQuakeVisClusterList;
+    FLiquidLinks: array of array of Integer; { per leaf: leaves across its liquid surfaces }
+    FVisBits, FExtraBits, FRowBits: TBytes;
+    FCameraLeaf: Integer;
+    FVisLiquidSeeThrough: Boolean;
+    FVisibleClusters, FVisibleShapes, FShapeCount: Integer;
     procedure SetLiquidAlpha(const Value: Single);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
+    procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
+      const Atlas: TQuakeLightmapAtlas);
+    procedure FinishBatches(const Batches: TQuakeGeomBatchDict;
+      const LMSet: TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
+    procedure BuildClusters(out FaceCluster: TQuakeIntArray);
     procedure BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
-      var OutBatches: TQuakeGeomBatchDict);
+      var OutBatches: TQuakeGeomBatchDict; const Clustered: Boolean = False);
     procedure SetupSubmodels(const Parent: TCastleTransform);
     procedure RegisterAnimNode(const TexName: String; const Node: TImageTextureNode);
   public
@@ -178,6 +203,12 @@ type
       EyePos is the viewer position, used to project the sky layers. }
     procedure Update(const SecondsPassed: Single; const EyePos: TVector3);
 
+    { Show only the world clusters in the potentially visible set of the
+      leaf containing the camera (CGE coordinates); recomputed when the
+      camera changes leaves. Everything shows outside the map, without
+      vis data or when WorldPvsCulling is off. }
+    procedure UpdateVisibility(const CameraPos: TVector3);
+
     { True if T is the world scene or the scene of a brush entity (door, plat...) }
     function IsGeometryScene(const T: TCastleTransform): Boolean;
 
@@ -190,6 +221,13 @@ type
     property LiquidAlpha: Single read FLiquidAlpha write SetLiquidAlpha;
     property WorldTransform: TCastleTransform read FWorldTransform;
     property Submodels: TQuakeSubmodelList read FSubmodels;
+    { PVS statistics: the camera's leaf (-1 = not culled), the world
+      clusters and shapes drawn and in total }
+    property CameraLeaf: Integer read FCameraLeaf;
+    property VisibleClusters: Integer read FVisibleClusters;
+    property VisibleShapes: Integer read FVisibleShapes;
+    property ShapeCount: Integer read FShapeCount;
+    function ClusterCount: Integer;
   end;
 
 var
@@ -197,6 +235,13 @@ var
     (lightstyles, dynamic lights), False = lit materials under the engine's
     real-time lights. Takes effect when a map is loaded. }
   WorldLightmaps: Boolean = True;
+
+  { r_novis off: draw only the world in the camera's potentially visible set }
+  WorldPvsCulling: Boolean = True;
+
+const
+  { Faces of a BSP subtree grouped into one PVS cluster }
+  ClusterMaxFaces = 256;
 
 var
   { The skybox of the map being built (gfx/env/<name>), '' for the scrolling sky }
@@ -869,6 +914,26 @@ begin
   FLiquidMaterials := specialize TList<TUnlitMaterialNode>.Create;
   FLiquidAlpha := DefaultLiquidAlpha;
   FSkyEyeFields := TSFVec3fList.Create;
+  FClusters := TQuakeVisClusterList.Create(True);
+  FCameraLeaf := -2;
+end;
+
+function TQuakeGeometry.ClusterCount: Integer;
+begin
+  Result := FClusters.Count;
+end;
+
+constructor TQuakeVisCluster.Create;
+begin
+  inherited Create;
+  Shapes := specialize TList<TShapeNode>.Create;
+  Visible := True;
+end;
+
+destructor TQuakeVisCluster.Destroy;
+begin
+  Shapes.Free;
+  inherited Destroy;
 end;
 
 procedure TQuakeGeometry.SetLiquidAlpha(const Value: Single);
@@ -890,6 +955,7 @@ begin
   FLiquidTimeFields.Free;
   FLiquidMaterials.Free;
   FSkyEyeFields.Free;
+  FClusters.Free;
   inherited Destroy;
 end;
 
@@ -939,11 +1005,9 @@ begin
             (Pos('skip', LName) > 0) or (Pos('hint', LName) > 0);
 end;
 
-procedure TQuakeGeometry.BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
-  var OutBatches: TQuakeGeomBatchDict);
+procedure TQuakeGeometry.AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
+  const Atlas: TQuakeLightmapAtlas);
 var
-  Mdl: TBSPModel;
-  FaceIdx, EndFace: Integer;
   Face: TBSPFace;
   TexInfo: TBSPTexInfo;
   MipName: String;
@@ -955,9 +1019,6 @@ var
   FaceS, FaceT: array of Single;
   PolyNormal: TVector3;
   RawVert: TVector3;
-  BatchPair: specialize TPair<String, TQuakeGeomBatch>;
-  Atlas: TQuakeLightmapAtlas;
-  LMSet: TQuakeLightmapSet;
   NumStyles, K: Integer;
   FaceStyles: TVector4;
   MinS, MaxS, MinT, MaxT: Single;
@@ -968,7 +1029,359 @@ var
   SrcPtr: PByte;
   Row, Col: Integer;
   SLux, TLux: Single;
+begin
+  Face := FBsp.Faces[FaceIdx];
+  VertCount := Face.NumEdges;
+  if VertCount < 3 then
+    Exit;
+
+  if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
+  begin
+    TexInfo := FBsp.TexInfos[Face.TexInfoId];
+    if (TexInfo.Miptex >= 0) and (TexInfo.Miptex < FBsp.Miptexes.Count) then
+      MipName := FBsp.Miptexes[TexInfo.Miptex].Name
+    else
+      MipName := 'default';
+  end else
+    MipName := 'default';
+
+  if IsInvisibleToolTexture(MipName) then
+    Exit;
+
+  if not Batches.TryGetValue(MipName, Batch) then
+  begin
+    Batch := TQuakeGeomBatch.Create(MipName);
+    Batches.Add(MipName, Batch);
+  end;
+
+  SetLength(PolyVerts, VertCount);
+  SetLength(PolyUVs, VertCount);
+  SetLength(PolyLMUVs, VertCount);
+  SetLength(FaceS, VertCount);
+  SetLength(FaceT, VertCount);
+
+  PolyNormal := QuakeToCge(FBsp.GetFaceNormal(FaceIdx));
+
+  MinS := 1e30; MaxS := -1e30;
+  MinT := 1e30; MaxT := -1e30;
+
+  for V := 0 to VertCount - 1 do
+  begin
+    RawVert := FBsp.GetFaceVertex(FaceIdx, V);
+    PolyVerts[V] := QuakeToCge(RawVert);
+    PolyUVs[V] := FBsp.GetFaceTexCoord(RawVert, Face.TexInfoId);
+
+    if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
+    begin
+      FaceS[V] := RawVert[0] * TexInfo.VecS[0] + RawVert[1] * TexInfo.VecS[1] +
+                  RawVert[2] * TexInfo.VecS[2] + TexInfo.VecS[3];
+      FaceT[V] := RawVert[0] * TexInfo.VecT[0] + RawVert[1] * TexInfo.VecT[1] +
+                  RawVert[2] * TexInfo.VecT[2] + TexInfo.VecT[3];
+    end else
+    begin
+      FaceS[V] := 0;
+      FaceT[V] := 0;
+    end;
+
+    if FaceS[V] < MinS then MinS := FaceS[V];
+    if FaceS[V] > MaxS then MaxS := FaceS[V];
+    if FaceT[V] < MinT then MinT := FaceT[V];
+    if FaceT[V] > MaxT then MaxT := FaceT[V];
+  end;
+
+  BMinS := Floor(MinS / 16.0);
+  BMinT := Floor(MinT / 16.0);
+  BMaxS := Ceil(MaxS / 16.0);
+  BMaxT := Ceil(MaxT / 16.0);
+  SurfW := (BMaxS - BMinS) + 1;
+  SurfH := (BMaxT - BMinT) + 1;
+  SurfSize := SurfW * SurfH;
+
+  { One lightmap per lightstyle slot in use (255 ends the list) }
+  NumStyles := 0;
+  while (NumStyles < 4) and (Face.Styles[NumStyles] <> 255) do
+    Inc(NumStyles);
+  FaceStyles := Vector4(Face.Styles[0], Face.Styles[1], Face.Styles[2], Face.Styles[3]);
+  HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and (NumStyles > 0) and
+                 (SurfW > 0) and (SurfH > 0) and (SurfW <= 256) and (SurfH <= 256) and
+                 (Face.LightmapOffset + SurfSize * NumStyles <= LongInt(FBsp.LightmapsSize)) and
+                 (not Batch.IsSky) and (not Batch.IsLiquid);
+
+  AllocOk := False;
+  if HasLightmap then
+  begin
+    AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
+    if AllocOk then
+    begin
+      for K := 0 to NumStyles - 1 do
+      begin
+        SrcPtr := FBsp.Lightmaps + Face.LightmapOffset + K * SurfSize;
+        for Row := 0 to SurfH - 1 do
+          for Col := 0 to SurfW - 1 do
+            Atlas.SetTexel(K, AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
+      end;
+
+      for V := 0 to VertCount - 1 do
+      begin
+        SLux := (FaceS[V] - BMinS * 16.0) / 16.0;
+        TLux := (FaceT[V] - BMinT * 16.0) / 16.0;
+        PolyLMUVs[V] := Vector2(
+          (AtlasX + SLux + 0.5) / Atlas.Width,
+          (AtlasY + TLux + 0.5) / Atlas.Height
+        );
+      end;
+    end;
+  end;
+
+  if not AllocOk then
+  begin
+    { Full brightness from the gray block, style 0 }
+    for V := 0 to VertCount - 1 do
+      PolyLMUVs[V] := Vector2(2.0 / Atlas.Width, 2.0 / Atlas.Height);
+    FaceStyles := Vector4(0, 255, 255, 255);
+  end;
+
+  Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal, FaceStyles);
+end;
+
+procedure TQuakeGeometry.FinishBatches(const Batches: TQuakeGeomBatchDict;
+  const LMSet: TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
+var
+  BatchPair: specialize TPair<String, TQuakeGeomBatch>;
+  Batch: TQuakeGeomBatch;
+begin
+  for BatchPair in Batches do
+  begin
+    Batch := BatchPair.Value;
+    Batch.CreateNodes(FBsp.MapName, LMSet);
+    if Batch.Shape <> nil then
+    begin
+      RootNode.AddChildren(Batch.Shape);
+      if Cluster <> nil then
+        Cluster.Shapes.Add(Batch.Shape);
+      if Batch.TexNode <> nil then
+        RegisterAnimNode(Batch.TextureName, Batch.TexNode);
+      if Batch.SkyTimeField <> nil then
+      begin
+        FSkyTimeFields.Add(Batch.SkyTimeField);
+        FSkyEyeFields.Add(Batch.SkyEyeField);
+      end;
+      if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
+        FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
+      if Batch.LiquidTimeField <> nil then
+        FLiquidTimeFields.Add(Batch.LiquidTimeField);
+    end;
+  end;
+end;
+
+function IndexIntArray(const A: array of Integer; const Value: Integer): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to High(A) do
+    if A[I] = Value then
+      Exit(I);
+  Result := -1;
+end;
+
+procedure TQuakeGeometry.BuildClusters(out FaceCluster: TQuakeIntArray);
+var
+  SubtreeFaces: array of Integer;
+  Mdl: TBSPModel;
+  LeafIdx, M, F, C, Other: Integer;
+  Leaf: TBSPLeaf;
+  LeafLists: array of TIntegerList;
+  LiquidOther: array of Integer;
+  LiquidLeaves: array of TIntegerList;
+  TexInfoId: Integer;
+  MipIdx: Integer;
+
+  function CountFaces(const Node: Integer): Integer;
+  begin
+    if (Node < 0) or (Node >= Length(FBsp.Nodes)) then
+      Exit(0);
+    Result := FBsp.Nodes[Node].NumFaces +
+      CountFaces(FBsp.Nodes[Node].Children[0]) + CountFaces(FBsp.Nodes[Node].Children[1]);
+    SubtreeFaces[Node] := Result;
+  end;
+
+  procedure AssignNodeFaces(const Node, ClusterIdx: Integer);
+  var
+    I: Integer;
+  begin
+    for I := FBsp.Nodes[Node].FirstFace to FBsp.Nodes[Node].FirstFace + FBsp.Nodes[Node].NumFaces - 1 do
+      if (I >= 0) and (I < Length(FaceCluster)) then
+        FaceCluster[I] := ClusterIdx;
+  end;
+
+  procedure Collect(const Node, ClusterIdx: Integer);
+  begin
+    if (Node < 0) or (Node >= Length(FBsp.Nodes)) then
+      Exit;
+    AssignNodeFaces(Node, ClusterIdx);
+    Collect(FBsp.Nodes[Node].Children[0], ClusterIdx);
+    Collect(FBsp.Nodes[Node].Children[1], ClusterIdx);
+  end;
+
+  function NewCluster: Integer;
+  begin
+    FClusters.Add(TQuakeVisCluster.Create);
+    Result := FClusters.Count - 1;
+  end;
+
+  { Subtrees with few faces become one cluster; a bigger node keeps its
+    own faces in a cluster and splits further }
+  procedure Split(const Node: Integer);
+  begin
+    if (Node < 0) or (Node >= Length(FBsp.Nodes)) then
+      Exit;
+    if SubtreeFaces[Node] <= ClusterMaxFaces then
+    begin
+      if SubtreeFaces[Node] > 0 then
+        Collect(Node, NewCluster);
+      Exit;
+    end;
+    if FBsp.Nodes[Node].NumFaces > 0 then
+      AssignNodeFaces(Node, NewCluster);
+    Split(FBsp.Nodes[Node].Children[0]);
+    Split(FBsp.Nodes[Node].Children[1]);
+  end;
+
+  { The leaf behind a liquid face, seen from FromLeaf; -1 when solid }
+  function OtherLeaf(const Face, FromLeaf: Integer): Integer;
+  var
+    Center, N: TVector3;
+    I, Cnt, Candidate, Sign: Integer;
+  begin
+    Result := -1;
+    Cnt := FBsp.GetFaceVertexCount(Face);
+    if Cnt <= 0 then
+      Exit;
+    Center := TVector3.Zero;
+    for I := 0 to Cnt - 1 do
+      Center := Center + FBsp.GetFaceVertex(Face, I);
+    Center := Center / Cnt;
+    N := FBsp.GetFaceNormal(Face);
+    for Sign := -1 to 1 do
+      if Sign <> 0 then
+      begin
+        Candidate := FBsp.PointLeaf(Center + N * (2 * Sign));
+        if (Candidate > 0) and (Candidate <> FromLeaf) and (Candidate <= FBsp.VisLeafCount) and
+           (FBsp.Leaves[Candidate].Contents <> CONTENTS_SOLID) then
+          Exit(Candidate);
+      end;
+  end;
+
+  procedure Link(const A, B: Integer);
+  begin
+    if (A <= 0) or (A > High(FLiquidLinks)) or (B <= 0) or (B > High(FLiquidLinks)) then
+      Exit;
+    if IndexIntArray(FLiquidLinks[A], B) < 0 then
+    begin
+      SetLength(FLiquidLinks[A], Length(FLiquidLinks[A]) + 1);
+      FLiquidLinks[A][High(FLiquidLinks[A])] := B;
+    end;
+  end;
+
+begin
+  SetLength(FaceCluster, FBsp.FaceCount);
+  for F := 0 to High(FaceCluster) do
+    FaceCluster[F] := -1;
+  if (FBsp.ModelCount = 0) or (Length(FBsp.Nodes) = 0) then
+    Exit;
+  Mdl := FBsp.Models[0];
+  if (Mdl.HeadNodes[0] < 0) or (Mdl.HeadNodes[0] >= Length(FBsp.Nodes)) then
+    Exit;
+
+  SetLength(SubtreeFaces, Length(FBsp.Nodes));
+  CountFaces(Mdl.HeadNodes[0]);
+  Split(Mdl.HeadNodes[0]);
+
+  { Faces outside the tree (none in well formed maps) stay always visible }
+  C := -1;
+  for F := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
+    if (F >= 0) and (F < Length(FaceCluster)) and (FaceCluster[F] < 0) then
+    begin
+      if C < 0 then
+        C := NewCluster;
+      FaceCluster[F] := C;
+    end;
+
+  { A cluster is seen from the leaves listing its faces. The two sides of
+    a liquid surface are separate faces, each listed by the leaf it faces:
+    those two leaves see each other's PVS through it. }
+  SetLength(LeafLists, FClusters.Count);
+  for C := 0 to High(LeafLists) do
+    LeafLists[C] := TIntegerList.Create;
+  SetLength(FLiquidLinks, FBsp.VisLeafCount + 1);
+  SetLength(LiquidOther, FBsp.FaceCount);
+  SetLength(LiquidLeaves, FBsp.FaceCount);
+  for F := 0 to FBsp.FaceCount - 1 do
+  begin
+    LiquidOther[F] := -1;
+    TexInfoId := FBsp.Faces[F].TexInfoId;
+    if (TexInfoId >= 0) and (TexInfoId < Length(FBsp.TexInfos)) then
+    begin
+      MipIdx := FBsp.TexInfos[TexInfoId].Miptex;
+      if (MipIdx >= 0) and (MipIdx < FBsp.Miptexes.Count) and
+         (Copy(FBsp.Miptexes[MipIdx].Name, 1, 1) = '*') then
+        LiquidOther[F] := -2; { liquid, other leaf not looked up yet }
+    end;
+  end;
+  try
+    for LeafIdx := 1 to FBsp.VisLeafCount do
+    begin
+      Leaf := FBsp.Leaves[LeafIdx];
+      for M := Leaf.FirstMarkSurface to Leaf.FirstMarkSurface + Leaf.NumMarkSurfaces - 1 do
+      begin
+        if M >= Length(FBsp.MarkSurfaces) then
+          Break;
+        F := FBsp.MarkSurfaces[M];
+        if F >= Length(FaceCluster) then
+          Continue;
+        C := FaceCluster[F];
+        if (C >= 0) and ((LeafLists[C].Count = 0) or (LeafLists[C].Last <> LeafIdx)) then
+          LeafLists[C].Add(LeafIdx);
+        if LiquidOther[F] <> -1 then
+        begin
+          if LiquidOther[F] = -2 then
+            LiquidOther[F] := OtherLeaf(F, LeafIdx);
+          Other := LiquidOther[F];
+          Link(LeafIdx, Other);
+          Link(Other, LeafIdx);
+          { Leaves listing the same liquid face }
+          if LiquidLeaves[F] = nil then
+            LiquidLeaves[F] := TIntegerList.Create;
+          for Other in LiquidLeaves[F] do
+          begin
+            Link(LeafIdx, Other);
+            Link(Other, LeafIdx);
+          end;
+          LiquidLeaves[F].Add(LeafIdx);
+        end;
+      end;
+    end;
+    for C := 0 to FClusters.Count - 1 do
+      FClusters[C].Leaves := LeafLists[C].ToArray;
+  finally
+    for C := 0 to High(LeafLists) do
+      LeafLists[C].Free;
+    for F := 0 to High(LiquidLeaves) do
+      LiquidLeaves[F].Free;
+  end;
+end;
+
+procedure TQuakeGeometry.BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
+  var OutBatches: TQuakeGeomBatchDict; const Clustered: Boolean);
+var
+  Mdl: TBSPModel;
+  FaceIdx, C: Integer;
+  Atlas: TQuakeLightmapAtlas;
+  LMSet: TQuakeLightmapSet;
   AtlasW, AtlasH: Integer;
+  FaceCluster: TQuakeIntArray;
+  ClusterBatches: array of TQuakeGeomBatchDict;
+  TotalShapes: Integer;
 begin
   if (ModelIdx < 0) or (ModelIdx >= FBsp.ModelCount) then
     Exit;
@@ -986,147 +1399,132 @@ begin
   Atlas := TQuakeLightmapAtlas.Create(AtlasW, AtlasH);
   try
     Mdl := FBsp.Models[ModelIdx];
-    EndFace := Mdl.FirstFace + Mdl.NumFaces;
-
-    for FaceIdx := Mdl.FirstFace to EndFace - 1 do
+    if Clustered then
     begin
-      Face := FBsp.Faces[FaceIdx];
-      VertCount := Face.NumEdges;
-      if VertCount < 3 then
-        Continue;
-
-      if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
-      begin
-        TexInfo := FBsp.TexInfos[Face.TexInfoId];
-        if (TexInfo.Miptex >= 0) and (TexInfo.Miptex < FBsp.Miptexes.Count) then
-          MipName := FBsp.Miptexes[TexInfo.Miptex].Name
-        else
-          MipName := 'default';
-      end else
-        MipName := 'default';
-
-      if IsInvisibleToolTexture(MipName) then
-        Continue;
-
-      if not OutBatches.TryGetValue(MipName, Batch) then
-      begin
-        Batch := TQuakeGeomBatch.Create(MipName);
-        OutBatches.Add(MipName, Batch);
+      { The world split by BSP subtrees, each with its own texture batches,
+        so the shapes outside the camera's PVS can be hidden }
+      BuildClusters(FaceCluster);
+      SetLength(ClusterBatches, FClusters.Count);
+      for C := 0 to High(ClusterBatches) do
+        ClusterBatches[C] := TQuakeGeomBatchDict.Create([doOwnsValues]);
+      try
+        for FaceIdx := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
+          if (FaceCluster[FaceIdx] >= 0) then
+            AddFace(FaceIdx, ClusterBatches[FaceCluster[FaceIdx]], Atlas)
+          else
+            AddFace(FaceIdx, OutBatches, Atlas);
+        LMSet := CreateLightmapSet(Atlas);
+        for C := 0 to High(ClusterBatches) do
+          FinishBatches(ClusterBatches[C], LMSet, RootNode, FClusters[C]);
+        FinishBatches(OutBatches, LMSet, RootNode, nil);
+      finally
+        for C := 0 to High(ClusterBatches) do
+          ClusterBatches[C].Free;
       end;
-
-      SetLength(PolyVerts, VertCount);
-      SetLength(PolyUVs, VertCount);
-      SetLength(PolyLMUVs, VertCount);
-      SetLength(FaceS, VertCount);
-      SetLength(FaceT, VertCount);
-
-      PolyNormal := QuakeToCge(FBsp.GetFaceNormal(FaceIdx));
-
-      MinS := 1e30; MaxS := -1e30;
-      MinT := 1e30; MaxT := -1e30;
-
-      for V := 0 to VertCount - 1 do
-      begin
-        RawVert := FBsp.GetFaceVertex(FaceIdx, V);
-        PolyVerts[V] := QuakeToCge(RawVert);
-        PolyUVs[V] := FBsp.GetFaceTexCoord(RawVert, Face.TexInfoId);
-
-        if (Face.TexInfoId >= 0) and (Face.TexInfoId < Length(FBsp.TexInfos)) then
-        begin
-          FaceS[V] := RawVert[0] * TexInfo.VecS[0] + RawVert[1] * TexInfo.VecS[1] +
-                      RawVert[2] * TexInfo.VecS[2] + TexInfo.VecS[3];
-          FaceT[V] := RawVert[0] * TexInfo.VecT[0] + RawVert[1] * TexInfo.VecT[1] +
-                      RawVert[2] * TexInfo.VecT[2] + TexInfo.VecT[3];
-        end else
-        begin
-          FaceS[V] := 0;
-          FaceT[V] := 0;
-        end;
-
-        if FaceS[V] < MinS then MinS := FaceS[V];
-        if FaceS[V] > MaxS then MaxS := FaceS[V];
-        if FaceT[V] < MinT then MinT := FaceT[V];
-        if FaceT[V] > MaxT then MaxT := FaceT[V];
-      end;
-
-      BMinS := Floor(MinS / 16.0);
-      BMinT := Floor(MinT / 16.0);
-      BMaxS := Ceil(MaxS / 16.0);
-      BMaxT := Ceil(MaxT / 16.0);
-      SurfW := (BMaxS - BMinS) + 1;
-      SurfH := (BMaxT - BMinT) + 1;
-      SurfSize := SurfW * SurfH;
-
-      { One lightmap per lightstyle slot in use (255 ends the list) }
-      NumStyles := 0;
-      while (NumStyles < 4) and (Face.Styles[NumStyles] <> 255) do
-        Inc(NumStyles);
-      FaceStyles := Vector4(Face.Styles[0], Face.Styles[1], Face.Styles[2], Face.Styles[3]);
-      HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and (NumStyles > 0) and
-                     (SurfW > 0) and (SurfH > 0) and (SurfW <= 256) and (SurfH <= 256) and
-                     (Face.LightmapOffset + SurfSize * NumStyles <= LongInt(FBsp.LightmapsSize)) and
-                     (not Batch.IsSky) and (not Batch.IsLiquid);
-
-      AllocOk := False;
-      if HasLightmap then
-      begin
-        AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
-        if AllocOk then
-        begin
-          for K := 0 to NumStyles - 1 do
-          begin
-            SrcPtr := FBsp.Lightmaps + Face.LightmapOffset + K * SurfSize;
-            for Row := 0 to SurfH - 1 do
-              for Col := 0 to SurfW - 1 do
-                Atlas.SetTexel(K, AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
-          end;
-
-          for V := 0 to VertCount - 1 do
-          begin
-            SLux := (FaceS[V] - BMinS * 16.0) / 16.0;
-            TLux := (FaceT[V] - BMinT * 16.0) / 16.0;
-            PolyLMUVs[V] := Vector2(
-              (AtlasX + SLux + 0.5) / Atlas.Width,
-              (AtlasY + TLux + 0.5) / Atlas.Height
-            );
-          end;
-        end;
-      end;
-
-      if not AllocOk then
-      begin
-        { Full brightness from the gray block, style 0 }
-        for V := 0 to VertCount - 1 do
-          PolyLMUVs[V] := Vector2(2.0 / Atlas.Width, 2.0 / Atlas.Height);
-        FaceStyles := Vector4(0, 255, 255, 255);
-      end;
-
-      Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal, FaceStyles);
-    end;
-
-    LMSet := CreateLightmapSet(Atlas);
-    for BatchPair in OutBatches do
+      TotalShapes := 0;
+      for C := 0 to FClusters.Count - 1 do
+        Inc(TotalShapes, FClusters[C].Shapes.Count);
+      FVisibleClusters := FClusters.Count;
+      FVisibleShapes := TotalShapes;
+      FShapeCount := TotalShapes;
+      WritelnLog('QuakeGeometry', 'World split into %d PVS clusters, %d shapes, %d leaves',
+        [FClusters.Count, TotalShapes, FBsp.VisLeafCount]);
+    end else
     begin
-      Batch := BatchPair.Value;
-      Batch.CreateNodes(FBsp.MapName, LMSet);
-      if Batch.Shape <> nil then
-      begin
-        RootNode.AddChildren(Batch.Shape);
-        if Batch.TexNode <> nil then
-          RegisterAnimNode(Batch.TextureName, Batch.TexNode);
-        if Batch.SkyTimeField <> nil then
-        begin
-          FSkyTimeFields.Add(Batch.SkyTimeField);
-          FSkyEyeFields.Add(Batch.SkyEyeField);
-        end;
-        if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
-          FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
-        if Batch.LiquidTimeField <> nil then
-          FLiquidTimeFields.Add(Batch.LiquidTimeField);
-      end;
+      for FaceIdx := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
+        AddFace(FaceIdx, OutBatches, Atlas);
+      LMSet := CreateLightmapSet(Atlas);
+      FinishBatches(OutBatches, LMSet, RootNode, nil);
     end;
   finally
     Atlas.Free;
+  end;
+end;
+
+procedure TQuakeGeometry.UpdateVisibility(const CameraPos: TVector3);
+var
+  Leaf, L, L2, I, ByteCount: Integer;
+  AllVisible, LiquidSeeThrough, V: Boolean;
+  Cluster: TQuakeVisCluster;
+  Shape: TShapeNode;
+  Done: array of Boolean;
+
+  function Bit(const Bits: TBytes; const LeafIdx: Integer): Boolean; inline;
+  begin
+    Result := (LeafIdx >= 1) and ((LeafIdx - 1) div 8 < Length(Bits)) and
+      ((Bits[(LeafIdx - 1) div 8] and (1 shl ((LeafIdx - 1) and 7))) <> 0);
+  end;
+
+begin
+  if FClusters.Count = 0 then
+    Exit;
+  if WorldPvsCulling then
+    Leaf := FBsp.PointLeaf(CgeToQuake(CameraPos))
+  else
+    Leaf := -1;
+  LiquidSeeThrough := FLiquidAlpha < 1;
+  if (Leaf = FCameraLeaf) and (LiquidSeeThrough = FVisLiquidSeeThrough) then
+    Exit;
+  FCameraLeaf := Leaf;
+  FVisLiquidSeeThrough := LiquidSeeThrough;
+
+  { Outside the map (solid leaf 0) or without vis data everything is drawn }
+  AllVisible := (Leaf <= 0) or not FBsp.LeafPVS(Leaf, FVisBits);
+  if not AllVisible then
+  begin
+    ByteCount := Length(FVisBits);
+    FVisBits[(Leaf - 1) div 8] := FVisBits[(Leaf - 1) div 8] or (1 shl ((Leaf - 1) and 7));
+    { Maps are not vised through water: through a translucent liquid
+      surface the leaves on its other side add their PVS (one hop) }
+    if LiquidSeeThrough then
+    begin
+      SetLength(FExtraBits, ByteCount);
+      if ByteCount > 0 then
+        FillChar(FExtraBits[0], ByteCount, 0);
+      SetLength(Done, 0);
+      SetLength(Done, Length(FLiquidLinks));
+      for L := 1 to High(FLiquidLinks) do
+        if (Length(FLiquidLinks[L]) > 0) and Bit(FVisBits, L) then
+          for L2 in FLiquidLinks[L] do
+            if not Done[L2] then
+            begin
+              Done[L2] := True;
+              if FBsp.LeafPVS(L2, FRowBits) then
+              begin
+                for I := 0 to Min(ByteCount, Length(FRowBits)) - 1 do
+                  FExtraBits[I] := FExtraBits[I] or FRowBits[I];
+              end else
+                AllVisible := True;
+              FExtraBits[(L2 - 1) div 8] := FExtraBits[(L2 - 1) div 8] or (1 shl ((L2 - 1) and 7));
+            end;
+      for I := 0 to ByteCount - 1 do
+        FVisBits[I] := FVisBits[I] or FExtraBits[I];
+    end;
+  end;
+
+  FVisibleClusters := 0;
+  FVisibleShapes := 0;
+  for Cluster in FClusters do
+  begin
+    V := AllVisible or (Length(Cluster.Leaves) = 0);
+    if not V then
+      for L in Cluster.Leaves do
+        if Bit(FVisBits, L) then
+        begin
+          V := True;
+          Break;
+        end;
+    if V then
+    begin
+      Inc(FVisibleClusters);
+      Inc(FVisibleShapes, Cluster.Shapes.Count);
+    end;
+    if V <> Cluster.Visible then
+    begin
+      Cluster.Visible := V;
+      for Shape in Cluster.Shapes do
+        Shape.Visible := V;
+    end;
   end;
 end;
 
@@ -1298,7 +1696,7 @@ begin
   RootWorld := TX3DRootNode.Create;
   Batches := TQuakeGeomBatchDict.Create([doOwnsValues]);
   try
-    BuildModelGeometry(0, RootWorld, Batches);
+    BuildModelGeometry(0, RootWorld, Batches, True);
     FSceneWorld.Load(RootWorld, True);
   finally
     Batches.Free;

@@ -200,6 +200,7 @@ type
   TBSPModelArray = array of TBSPModel;
   TBSPNodeArray = array of TBSPNode;
   TBSPLeafArray = array of TBSPLeaf;
+  TBSPMarkSurfaceArray = array of Word;
 
   { Loaded Quake 1 BSP map }
   TQuakeBsp = class
@@ -214,6 +215,7 @@ type
     FModels: TBSPModelArray;
     FNodes: TBSPNodeArray;
     FLeaves: TBSPLeafArray;
+    FMarkSurfaces: TBSPMarkSurfaceArray;
     FVisData: array of Byte;
     FHulls: array[0..2] of TQuakeHull;
     FTraceRoot: Integer;
@@ -257,6 +259,15 @@ type
       FromLeaf (Mod_LeafPVS). Maps without visibility data see everything. }
     function LeafVisible(const FromLeaf, ToLeaf: Integer): Boolean;
 
+    { The PVS row of a leaf decompressed into Bits (Mod_LeafPVS): bit
+      (L - 1) of Bits[(L - 1) div 8] is set when leaf L is visible.
+      False, with Bits untouched, when the map has no visibility data
+      for the leaf (it then sees everything). }
+    function LeafPVS(const Leaf: Integer; var Bits: TBytes): Boolean;
+
+    { Number of leaves in the world PVS rows (the world model's visleafs) }
+    function VisLeafCount: Integer;
+
     { Contents of a point in a collision hull, starting at clipnode Num (SV_HullPointContents) }
     function HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;
 
@@ -295,6 +306,9 @@ type
     property LightmapsSize: Cardinal read FLightmapsSize;
     property TexInfos: TBSPTexInfoArray read FTexInfos;
     property Leaves: TBSPLeafArray read FLeaves;
+    property Nodes: TBSPNodeArray read FNodes;
+    { Face indexes listed by the leaves (Leaf.FirstMarkSurface, NumMarkSurfaces) }
+    property MarkSurfaces: TBSPMarkSurfaceArray read FMarkSurfaces;
   end;
 
 implementation
@@ -780,6 +794,15 @@ begin
       Stream.ReadBuffer(FLeaves[0], Count * SizeOf(TBSPLeaf));
     end;
 
+    { 11: MarkSurfaces (the faces of each leaf) }
+    Count := Hdr.Lumps[LUMP_MARKSURFACES].Length div SizeOf(Word);
+    SetLength(FMarkSurfaces, Count);
+    if Count > 0 then
+    begin
+      Stream.Position := Hdr.Lumps[LUMP_MARKSURFACES].Offset;
+      Stream.ReadBuffer(FMarkSurfaces[0], Count * SizeOf(Word));
+    end;
+
     { 4: Visibility (run-length compressed PVS rows) }
     SetLength(FVisData, Hdr.Lumps[LUMP_VISIBILITY].Length);
     if Length(FVisData) > 0 then
@@ -864,6 +887,50 @@ begin
     end;
   end;
   Result := False;
+end;
+
+function TQuakeBsp.VisLeafCount: Integer;
+begin
+  Result := Length(FLeaves) - 1;
+  if (Length(FModels) > 0) and (FModels[0].VisLeafs > 0) and (FModels[0].VisLeafs < Result) then
+    Result := FModels[0].VisLeafs;
+  if Result < 0 then
+    Result := 0;
+end;
+
+function TQuakeBsp.LeafPVS(const Leaf: Integer; var Bits: TBytes): Boolean;
+var
+  Ofs, RowBytes, OutByte: Integer;
+begin
+  Result := False;
+  if (Leaf <= 0) or (Leaf >= Length(FLeaves)) then
+    Exit;
+  Ofs := FLeaves[Leaf].VisOfs;
+  if (Ofs < 0) or (Ofs >= Length(FVisData)) then
+    Exit;
+  RowBytes := (VisLeafCount + 7) div 8;
+  if Length(Bits) <> RowBytes then
+    SetLength(Bits, RowBytes);
+  if RowBytes > 0 then
+    FillChar(Bits[0], RowBytes, 0);
+  { Runs of zero bytes are stored as 0, count }
+  OutByte := 0;
+  while (OutByte < RowBytes) and (Ofs < Length(FVisData)) do
+  begin
+    if FVisData[Ofs] <> 0 then
+    begin
+      Bits[OutByte] := FVisData[Ofs];
+      Inc(Ofs);
+      Inc(OutByte);
+    end else
+    begin
+      if Ofs + 1 >= Length(FVisData) then
+        Break;
+      Inc(OutByte, FVisData[Ofs + 1]);
+      Inc(Ofs, 2);
+    end;
+  end;
+  Result := True;
 end;
 
 function TQuakeBsp.PointLeaf(const QuakePoint: TVector3): Integer;
