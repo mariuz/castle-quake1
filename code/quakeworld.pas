@@ -86,9 +86,14 @@ type
     FRecordUrl: String;
     FRecordMuzzle: Boolean;
     FRecordHud: TQuakeHud;
+    FLockedTimer: Single;       { attack_finished of the last locked door message }
     procedure UpdateSolids;
     procedure CarryPlayerWithMovers;
     procedure TouchMovers;
+    { door_touch of a key door: opens it with the key (used up), else the
+      "You need the ... key" message; True when it opened }
+    function TouchKeyDoor(const Sub: TQuakeSubmodel): Boolean;
+    function WorldType: Integer;
     procedure PlayerWaterRules(const Hud: TQuakeHud);
     function SubmodelBounds(const Sub: TQuakeSubmodel; out AMins, AMaxs: TVector3): Boolean;
     procedure PlayerBox(out AMins, AMaxs: TVector3);
@@ -1551,6 +1556,55 @@ begin
   end;
 end;
 
+function TQuakeWorld.WorldType: Integer;
+var
+  World: TQuakeEntity;
+begin
+  { 0 medieval, 1 metal (runes), 2 base }
+  Result := 0;
+  if FBsp = nil then
+    Exit;
+  World := FBsp.FindEntity('worldspawn');
+  if World <> nil then
+    Result := World.GetInt('worldtype', 0);
+end;
+
+function TQuakeWorld.TouchKeyDoor(const Sub: TQuakeSubmodel): Boolean;
+const
+  TrySounds: array[0..2] of String = ('sound/doors/medtry.wav', 'sound/doors/runetry.wav', 'sound/doors/basetry.wav');
+  UseSounds: array[0..2] of String = ('sound/doors/meduse.wav', 'sound/doors/runeuse.wav', 'sound/doors/baseuse.wav');
+  KeyNames: array[0..2, 1..2] of String = (('silver key', 'gold key'), ('silver runekey', 'gold runekey'),
+    ('silver keycard', 'gold keycard'));
+var
+  WT: Integer;
+begin
+  Result := False;
+  if (Sub.KeyNeeded = 0) or (Sub.State <> smsClosed) then
+    Exit;
+  WT := EnsureRange(WorldType, 0, 2);
+  if (FPlayerStats.Keys and Sub.KeyNeeded) = 0 then
+  begin
+    { door_touch: the message and noise3, at most every 2 seconds }
+    if FLockedTimer <= 0 then
+    begin
+      FLockedTimer := 2;
+      if FHud <> nil then
+        FHud.ShowMessage('You need the ' + KeyNames[WT, Sub.KeyNeeded], 2.0);
+      Sounds.PlayAt(TrySounds[WT], Sub.Transform);
+      WritelnLog('QuakeWorld', 'Locked door: needs the %s', [KeyNames[WT, Sub.KeyNeeded]]);
+    end;
+    Exit;
+  end;
+  { The key is used up (other.items = other.items - self.items) }
+  FPlayerStats.Keys := FPlayerStats.Keys and not Sub.KeyNeeded;
+  Sounds.PlayAt(UseSounds[WT], Sub.Transform);
+  Sub.Trigger;
+  Sounds.PlayAt('sound/doors/dr1_strt.wav', Sub.Transform);
+  UseTargets(Sub.Target);
+  WritelnLog('QuakeWorld', 'Key door opened with the %s', [KeyNames[WT, Sub.KeyNeeded]]);
+  Result := True;
+end;
+
 procedure TQuakeWorld.TouchMovers;
 var
   Sub: TQuakeSubmodel;
@@ -1582,9 +1636,14 @@ begin
     if (Sub.EntityClassName = 'func_button') and WasTouched(Sub.ModelIndex) then
       PressButton(Sub);
 
+    { door_touch of a key door: running into the door itself }
+    if (Sub.EntityClassName = 'func_door') and (Sub.KeyNeeded <> 0) and WasTouched(Sub.ModelIndex) then
+      TouchKeyDoor(Sub);
+
     { door_touch through the trigger field spawned around doors
-      (60 units around the door horizontally, 8 vertically) }
-    if (Sub.EntityClassName = 'func_door') and (Sub.TargetName = '') and
+      (60 units around the door horizontally, 8 vertically); key doors
+      have no field }
+    if (Sub.EntityClassName = 'func_door') and (Sub.TargetName = '') and (Sub.KeyNeeded = 0) and
        (Sub.State = smsClosed) and SubmodelBounds(Sub, AMins, AMaxs) then
     begin
       if (BoxMins.X <= AMaxs.X + 60) and (BoxMaxs.X >= AMins.X - 60) and
@@ -2449,6 +2508,7 @@ begin
   FPlayerFacing := PlayerFacing;
   FPlayerPitch := PlayerPitch;
   FPlayerStats.LevelTime := FPlayerStats.LevelTime + SecondsPassed;
+  FLockedTimer := Math.Max(0.0, FLockedTimer - SecondsPassed);
 
   { Update current ammo count in HUD stats }
   case FPlayerStats.CurrentWeapon of
@@ -3380,6 +3440,8 @@ begin
     begin
       if Sub.EntityClassName = 'func_button' then
         PressButton(Sub)
+      else if Sub.KeyNeeded <> 0 then
+        TouchKeyDoor(Sub)
       else
       begin
         Sub.Trigger;
