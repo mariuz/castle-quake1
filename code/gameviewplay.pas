@@ -11,6 +11,7 @@ uses
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
+  GameInput,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
   QuakePhysics, QuakeSaveGame, QuakeDebug;
@@ -579,25 +580,31 @@ begin
 end;
 
 procedure TViewPlay.BuildUserCmd(out Cmd: TQuakeUserCmd);
+var
+  PadForward, PadSide: Single;
 begin
   FillChar(Cmd, SizeOf(Cmd), 0);
   if (not FConsole.IsOpen) and (not FMenu.Exists) then
   begin
-    if FNavigation.Input_Forward.IsPressed(Container) then
+    if BindingHeld(qbForward, Container) then
       Cmd.ForwardMove := Cmd.ForwardMove + ClForwardSpeed;
-    if FNavigation.Input_Backward.IsPressed(Container) then
+    if BindingHeld(qbBackward, Container) then
       Cmd.ForwardMove := Cmd.ForwardMove - ClBackSpeed;
-    if FNavigation.Input_RightStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeRight, Container) then
       Cmd.SideMove := Cmd.SideMove + ClSideSpeed;
-    if FNavigation.Input_LeftStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeLeft, Container) then
       Cmd.SideMove := Cmd.SideMove - ClSideSpeed;
-    { Movement is "always run"; holding the run key walks instead }
-    if FNavigation.Input_Run.IsPressed(Container) then
+    { The gamepad's left stick }
+    GamepadMove(PadForward, PadSide);
+    Cmd.ForwardMove := Cmd.ForwardMove + PadForward * ClForwardSpeed;
+    Cmd.SideMove := Cmd.SideMove + PadSide * ClSideSpeed;
+    { Movement is "always run"; holding the walk key walks instead }
+    if BindingHeld(qbWalk, Container) then
     begin
       Cmd.ForwardMove := Cmd.ForwardMove * 0.5;
       Cmd.SideMove := Cmd.SideMove * 0.5;
     end;
-    Cmd.Jump := FNavigation.Input_Jump.IsPressed(Container);
+    Cmd.Jump := BindingHeld(qbJump, Container);
   end;
 
   { Autotest input }
@@ -625,6 +632,19 @@ begin
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
     RunDemoStep(SecondsPassed);
+
+  { The gamepad: the right stick turns, its buttons are bindings }
+  UpdateGamepad;
+  if not FConsole.IsOpen and not FMenu.Exists and (FWorld <> nil) then
+  begin
+    GamepadTurnCamera(FViewport.Camera, SecondsPassed);
+    if GamepadJustPressed(GamepadUse) then
+      FWorld.ActivateUse(FViewport.Camera.Translation, FViewport.Camera.Direction, FHud);
+    if GamepadJustPressed(GamepadNextWeapon) then
+      FWorld.SelectNextWeapon(1, FHud);
+    if GamepadJustPressed(GamepadPrevWeapon) then
+      FWorld.SelectNextWeapon(-1, FHud);
+  end;
 
   { Quake player physics moves the player; the camera follows the eyes }
   if (FWorld <> nil) and (FCameraMode <> cmFreeFly) then
@@ -699,8 +719,7 @@ begin
   { Attack trigger while fire key is held }
   if not FConsole.IsOpen and not FMenu.Exists and not FWorld.PlayerDead then
   begin
-    if Container.Pressed[keyCtrl] or (buttonLeft in Container.MousePressed) or
-       (FDemoFireTime > 0) then
+    if BindingHeld(qbFire, Container) or (FDemoFireTime > 0) then
     begin
       RayOrigin := FViewport.Camera.Translation;
       RayDir := FViewport.Camera.Direction;
@@ -712,6 +731,7 @@ end;
 function TViewPlay.Press(const Event: TInputPressRelease): Boolean;
 var
   RayOrigin, RayDir: TVector3;
+  I: Integer;
 begin
   Result := False;
 
@@ -732,7 +752,7 @@ begin
   end;
 
   { Open console with backquote / tilde }
-  if Event.IsKey(keyBackQuote) or (Event.KeyString = '~') or (Event.KeyString = '`') then
+  if BindingEvent(qbConsole, Event) or (Event.KeyString = '~') or (Event.KeyString = '`') then
   begin
     FConsole.Toggle;
     Exit(True);
@@ -746,8 +766,8 @@ begin
     Exit(True);
   end;
 
-  { Weapon fire with Left Mouse Button }
-  if Event.IsMouseButton(buttonLeft) then
+  { Weapon fire (the fire binding is also held in Update) }
+  if BindingEvent(qbFire, Event) then
   begin
     RayOrigin := FViewport.Camera.Translation;
     RayDir := FViewport.Camera.Direction;
@@ -755,8 +775,8 @@ begin
     Exit(True);
   end;
 
-  { Activate / Use with E }
-  if Event.IsKey(keyE) then
+  { Activate / Use }
+  if BindingEvent(qbUse, Event) then
   begin
     RayOrigin := FViewport.Camera.Translation;
     RayDir := FViewport.Camera.Direction;
@@ -764,18 +784,26 @@ begin
     Exit(True);
   end;
 
-  { Weapon slot selection 1..8 }
-  if Event.IsKey(key1) then begin FWorld.SelectWeapon(1, FHud); Exit(True); end;
-  if Event.IsKey(key2) then begin FWorld.SelectWeapon(2, FHud); Exit(True); end;
-  if Event.IsKey(key3) then begin FWorld.SelectWeapon(3, FHud); Exit(True); end;
-  if Event.IsKey(key4) then begin FWorld.SelectWeapon(4, FHud); Exit(True); end;
-  if Event.IsKey(key5) then begin FWorld.SelectWeapon(5, FHud); Exit(True); end;
-  if Event.IsKey(key6) then begin FWorld.SelectWeapon(6, FHud); Exit(True); end;
-  if Event.IsKey(key7) then begin FWorld.SelectWeapon(7, FHud); Exit(True); end;
-  if Event.IsKey(key8) then begin FWorld.SelectWeapon(8, FHud); Exit(True); end;
+  { Weapon slot selection }
+  for I := 1 to 8 do
+    if BindingEvent(TQuakeBinding(Ord(qbWeapon1) + I - 1), Event) then
+    begin
+      FWorld.SelectWeapon(I, FHud);
+      Exit(True);
+    end;
+  if BindingEvent(qbNextWeapon, Event) then
+  begin
+    FWorld.SelectNextWeapon(1, FHud);
+    Exit(True);
+  end;
+  if BindingEvent(qbPrevWeapon, Event) then
+  begin
+    FWorld.SelectNextWeapon(-1, FHud);
+    Exit(True);
+  end;
 
-  { Toggle Camera mode with F1 or C }
-  if Event.IsKey(keyF1) or Event.IsKey(keyC) then
+  { Toggle Camera mode }
+  if BindingEvent(qbCamera, Event) then
   begin
     if FCameraMode = cmFirstPerson then
       SetCameraMode(cmThirdPerson)
@@ -786,8 +814,8 @@ begin
     Exit(True);
   end;
 
-  { Toggle Shadows with F2 }
-  if Event.IsKey(keyF2) then
+  { Toggle Shadows }
+  if BindingEvent(qbShadows, Event) then
   begin
     Lighting.ShadowsEnabled := not Lighting.ShadowsEnabled;
     FMenu.ShadowsEnabled := Lighting.ShadowsEnabled;
@@ -799,19 +827,19 @@ begin
   end;
 
   { Quicksave / quickload like Quake }
-  if Event.IsKey(keyF6) then
+  if BindingEvent(qbQuickSave, Event) then
   begin
     SaveGameSlot('quick');
     Exit(True);
   end;
-  if Event.IsKey(keyF9) then
+  if BindingEvent(qbQuickLoad, Event) then
   begin
     LoadGameSlot('quick');
     Exit(True);
   end;
 
-  { Screenshot with F12 }
-  if Event.IsKey(keyF12) then
+  { Screenshot }
+  if BindingEvent(qbScreenshot, Event) then
   begin
     CaptureScreenshot('screenshot');
     FHud.ShowMessage('Screenshot saved');

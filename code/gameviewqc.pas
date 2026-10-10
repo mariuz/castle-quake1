@@ -12,6 +12,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
+  GameInput,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
 
@@ -865,24 +866,29 @@ end;
 { Input }
 
 procedure TViewQc.BuildUserCmd(out Cmd: TQuakeUserCmd);
+var
+  PadForward, PadSide: Single;
 begin
   FillChar(Cmd, SizeOf(Cmd), 0);
   if AutoTestPrefix = '' then
   begin
-    if FNavigation.Input_Forward.IsPressed(Container) then
+    if BindingHeld(qbForward, Container) then
       Cmd.ForwardMove := Cmd.ForwardMove + ClForwardSpeed;
-    if FNavigation.Input_Backward.IsPressed(Container) then
+    if BindingHeld(qbBackward, Container) then
       Cmd.ForwardMove := Cmd.ForwardMove - ClBackSpeed;
-    if FNavigation.Input_RightStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeRight, Container) then
       Cmd.SideMove := Cmd.SideMove + ClSideSpeed;
-    if FNavigation.Input_LeftStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeLeft, Container) then
       Cmd.SideMove := Cmd.SideMove - ClSideSpeed;
-    if FNavigation.Input_Run.IsPressed(Container) then
+    GamepadMove(PadForward, PadSide);
+    Cmd.ForwardMove := Cmd.ForwardMove + PadForward * ClForwardSpeed;
+    Cmd.SideMove := Cmd.SideMove + PadSide * ClSideSpeed;
+    if BindingHeld(qbWalk, Container) then
     begin
       Cmd.ForwardMove := Cmd.ForwardMove * 0.5;
       Cmd.SideMove := Cmd.SideMove * 0.5;
     end;
-    Cmd.Jump := FNavigation.Input_Jump.IsPressed(Container);
+    Cmd.Jump := BindingHeld(qbJump, Container);
   end;
   Cmd.ForwardMove := Cmd.ForwardMove + FScriptMove.X * ClForwardSpeed;
   Cmd.SideMove := Cmd.SideMove + FScriptMove.Y * ClSideSpeed;
@@ -1024,8 +1030,16 @@ begin
   { Input }
   BuildUserCmd(Cmd);
   FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
-  Fire := (FFireHeld > 0) or ((AutoTestPrefix = '') and
-    (Container.Pressed[keyCtrl] or (buttonLeft in Container.MousePressed)));
+  Fire := (FFireHeld > 0) or ((AutoTestPrefix = '') and BindingHeld(qbFire, Container));
+  UpdateGamepad;
+  if AutoTestPrefix = '' then
+  begin
+    GamepadTurnCamera(FViewport.Camera, SecondsPassed);
+    if GamepadJustPressed(GamepadNextWeapon) then
+      FImpulse := 10;
+    if GamepadJustPressed(GamepadPrevWeapon) then
+      FImpulse := 12;
+  end;
   FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
   if FGod then
   begin
@@ -1118,11 +1132,21 @@ begin
     Exit(True);
   end;
   for I := 1 to 8 do
-    if Event.IsKey(Chr(Ord('0') + I)) then
+    if BindingEvent(TQuakeBinding(Ord(qbWeapon1) + I - 1), Event) then
     begin
       FImpulse := I;
       Exit(True);
     end;
+  if BindingEvent(qbNextWeapon, Event) then
+  begin
+    FImpulse := 10;
+    Exit(True);
+  end;
+  if BindingEvent(qbPrevWeapon, Event) then
+  begin
+    FImpulse := 12;
+    Exit(True);
+  end;
   { Scourge of Armagon: 9 the laser cannon, 0 the Mjolnir (its impulses) }
   if (GameDir = 'hipnotic') and Event.IsKey('9') then
   begin

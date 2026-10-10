@@ -64,6 +64,26 @@ begin
   end;
 end;
 
+procedure TQuakeWorld.SelectNextWeapon(const Direction: Integer; const Hud: TQuakeHud);
+var
+  Slot, I: Integer;
+begin
+  Slot := FPlayerStats.CurrentWeapon;
+  for I := 1 to 8 do
+  begin
+    Slot := Slot + Sign(Direction);
+    if Slot > 8 then
+      Slot := 1;
+    if Slot < 1 then
+      Slot := 8;
+    if (FPlayerStats.WeaponMask and (1 shl Slot)) <> 0 then
+    begin
+      SelectWeapon(Slot, Hud);
+      Exit;
+    end;
+  end;
+end;
+
 function TQuakeWorld.MonsterBounds(const M: TQuakeMonster; out AMins, AMaxs: TVector3): Boolean;
 var
   Org: TVector3;

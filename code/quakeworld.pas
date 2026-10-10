@@ -213,6 +213,8 @@ type
 
     { Select weapon slot (1..8) }
     procedure SelectWeapon(const Slot: Integer; const Hud: TQuakeHud = nil);
+    { impulse 10 / 12: the next (Direction 1) or previous (-1) weapon owned }
+    procedure SelectNextWeapon(const Direction: Integer; const Hud: TQuakeHud = nil);
 
     { Activate nearby button, door, or switch }
     procedure ActivateUse(const RayOrigin, RayDir: TVector3; const Hud: TQuakeHud);

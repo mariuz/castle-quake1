@@ -10,7 +10,8 @@ program quaketests;
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
-  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo;
+  CastleKeysMouse, CastleConfig,
+  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput;
 
 var
   Checks, Failures: Integer;
@@ -361,6 +362,32 @@ begin
   end;
 end;
 
+procedure TestBindings;
+var
+  Ev: TInputPressRelease;
+begin
+  StartTest('Bindings round trip (user config)');
+  InitializeBindings;
+  Check(Bindings[qbJump] <> nil, 'bindings created');
+  if Bindings[qbJump] = nil then
+    Exit;
+  Check((Bindings[qbJump].Key1 = keySpace), 'jump defaults to Space');
+  Ev := InputKey(TVector2.Zero, keyJ, 'j', []);
+  Check(AssignBinding(qbJump, Ev), 'rebind jump to J');
+  Check((Bindings[qbJump].Key1 = keyJ) and not (Bindings[qbJump].Key1 = keySpace), 'jump is J now');
+  Check(Pos('J', BindingDescription(qbJump)) > 0, 'description names J: ' + BindingDescription(qbJump));
+  { Back to the default in memory, then the saved config brings J back }
+  Bindings[qbJump].MakeDefault;
+  Check((Bindings[qbJump].Key1 = keySpace), 'default restored in memory');
+  BindingList.LoadFromConfig(UserConfig, 'bindings');
+  Check((Bindings[qbJump].Key1 = keyJ), 'the saved binding loads');
+  Ev := InputMouseButton(TVector2.Zero, buttonRight, 0, []);
+  Check(AssignBinding(qbUse, Ev), 'rebind use to the right mouse button');
+  Check(Bindings[qbUse].IsEvent(Ev), 'use is the right mouse button');
+  ResetBindings;
+  Check((Bindings[qbJump].Key1 = keySpace) and (Bindings[qbUse].Key1 = keyE), 'reset to defaults');
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -391,6 +418,7 @@ begin
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;
+  TestBindings;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

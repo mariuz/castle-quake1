@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, GameInput;
 
 var
   Window: TCastleWindow;
@@ -375,6 +375,9 @@ begin
     Application.Terminate;
     Exit;
   end;
+
+  { The player's bindings (saved in the user config) and the gamepad }
+  InitializeBindings;
 
   { Create views }
   ViewMenu := TViewMenu.Create(Application);
