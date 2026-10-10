@@ -10,7 +10,8 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors, CastleQuaternions,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
-  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters, QuakePak, QuakeSaveGame, QuakeDemo;
+  QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters, QuakePak, QuakeSaveGame, QuakeDemo,
+  QuakeBehaviors;
 
 type
   { World simulation manager }
@@ -24,6 +25,7 @@ type
     FProjectiles: TQuakeProjectileList;
     FGibs: TQuakeGibList;
     FTriggers: TQuakeTriggerList;
+    FTriggerRoot: TCastleTransform; { the triggers' transforms for the inspector }
     FAmbient: TQuakeAmbientSounds;
     FPlayerStats: TQuakePlayerStats;
     FPlayerPos: TVector3;
@@ -1928,6 +1930,7 @@ begin
   FMonsters.Free;
   FProjectiles.Free;
   FGibs.Free;
+  FreeAndNil(FTriggerRoot);
   FTriggers.Free;
   FreeAndNil(FAmbient);
   FreeAndNil(FPhys);
@@ -2264,6 +2267,12 @@ begin
   Result := False;
   FLevelExited := False;
   ResetComponentNames;
+  if FTriggerRoot <> nil then
+  begin
+    if FTriggerRoot.Parent <> nil then
+      FTriggerRoot.Parent.Remove(FTriggerRoot);
+    FreeAndNil(FTriggerRoot);
+  end;
   FNextMap := '';
   FPlayerStats.LevelTime := 0;
   FPlayerStats.Kills := 0;
@@ -2346,6 +2355,18 @@ begin
   FLevelStartValid := True;
 
   WritelnLog('QuakeWorld', 'Successfully initialized map "%s" (skill %d, runes %d)', [MapPath, FSkill, FServerFlags]);
+  { The entities as behaviors for the engine's inspector }
+  for I := 0 to FMonsters.Count - 1 do
+    AttachMonsterBehavior(FMonsters[I]);
+  for I := 0 to FPickups.Count - 1 do
+    AttachPickupBehavior(FPickups[I]);
+  for I := 0 to FGeometry.Submodels.Count - 1 do
+    AttachSubmodelBehavior(FGeometry.Submodels[I]);
+  FTriggerRoot := TCastleTransform.Create(nil);
+  FTriggerRoot.Name := 'triggers';
+  FRootTransform.Add(FTriggerRoot);
+  for I := 0 to FTriggers.Count - 1 do
+    CreateTriggerTransform(FTriggers[I], FTriggerRoot);
   Result := True;
 end;
 

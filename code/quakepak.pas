@@ -134,6 +134,9 @@ var
       S := S + ' [hidden]';
     WritelnLog(Category, '%s%s: %s', [StringOfChar(' ', Depth * 2), S, T.ClassName]);
     Inc(Count);
+    for I := 0 to T.BehaviorsCount - 1 do
+      WritelnLog(Category, '%s  @%s: %s', [StringOfChar(' ', Depth * 2), T.Behaviors[I].Name,
+        T.Behaviors[I].ClassName]);
     for I := 0 to T.Count - 1 do
       Walk(T.Items[I], Depth + 1);
   end;
