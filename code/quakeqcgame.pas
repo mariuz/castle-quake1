@@ -13,7 +13,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleLog, CastleUtils,
-  QuakePak, QuakeBsp, QuakePhysics, QuakeLight, QuakeParticles, QuakePalette, QuakeProgs;
+  QuakePak, QuakeBsp, QuakePhysics, QuakeLight, QuakeParticles, QuakePalette, QuakeProgs, QuakeSaveGame;
 
 const
   { entity flags }
@@ -130,6 +130,7 @@ type
     function MessageTarget: Integer;
     procedure ConnectClientNow(const E: Integer);
     procedure MoveClient(const E: Integer; const Dt: Single);
+    function LoadProgsAndMap(const AMapName: String): Boolean;
     function RunThink(const E: Integer): Boolean;
     procedure Impact(const E1, E2: Integer);
     procedure CallTouch(const E, Other: Integer);
@@ -179,6 +180,11 @@ type
     function ClientPhys(const E: Integer): TQuakePlayerPhysics;
     function ClientName(const E: Integer): String;
     function FreeClientSlot: Integer;
+
+    { Savegames (single player): the whole progs state, the level's statics
+      and lightstyles, and the view angles }
+    function SaveGame(const Url: String; const ViewAngles: TVector3): Boolean;
+    function LoadGame(const Url: String; out ViewAngles: TVector3): Boolean;
 
     { The player's view angles the progs asked for (teleports, spawn);
       False when there was none }
@@ -429,9 +435,8 @@ begin
     for I := 0 to 15 do
       Parms[I] := FProgs.Global(ParmOfs + I)^.F;
   end;
-  if not FProgs.Load then
+  if not LoadProgsAndMap(AMapName) then
     Exit;
-  CacheOffsets;
   if KeepParms and (ParmOfs >= 0) then
   begin
     for I := 0 to 15 do
@@ -439,25 +444,7 @@ begin
   end else
   if FFnSetNewParms > 0 then
     FProgs.Execute(FFnSetNewParms);
-
-  FreeAndNil(FBsp);
-  FBsp := TQuakeBsp.Create;
-  if not FBsp.LoadFromPak('maps/' + AMapName + '.bsp') then
-  begin
-    FreeAndNil(FBsp);
-    Exit;
-  end;
-  FMapName := AMapName;
   FSkill := ASkill;
-  FLevelChange := '';
-  FIntermission := False;
-  SetLength(FStatics, 0);
-  SetLength(FMessageBytes, 0);
-  SetLength(FMessageRaw, 0);
-  FMessageStrings.Clear;
-  for I := 0 to High(FLightStyles) do
-    FLightStyles[I] := '';
-  FMaxClients := EnsureRange(FMaxClients, 1, MaxQcClients);
 
   { SV_SpawnServer: the client edicts, then the map's entities }
   FProgs.ReserveEdicts(FMaxClients);
@@ -490,6 +477,167 @@ begin
   WritelnLog('QuakeQcGame', 'Level "%s" spawned by the progs: %d edicts, %d monsters, %d secrets, %d clients',
     [AMapName, FProgs.NumEdicts, TotalMonsters, TotalSecrets, FMaxClients]);
   Result := True;
+end;
+
+function TQuakeQcGame.LoadProgsAndMap(const AMapName: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if not FProgs.Load then
+    Exit;
+  CacheOffsets;
+  FreeAndNil(FBsp);
+  FBsp := TQuakeBsp.Create;
+  if not FBsp.LoadFromPak('maps/' + AMapName + '.bsp') then
+  begin
+    FreeAndNil(FBsp);
+    Exit;
+  end;
+  FMapName := AMapName;
+  FLevelChange := '';
+  FIntermission := False;
+  SetLength(FStatics, 0);
+  SetLength(FMessageBytes, 0);
+  SetLength(FMessageRaw, 0);
+  FMessageStrings.Clear;
+  for I := 0 to High(FLightStyles) do
+    FLightStyles[I] := '';
+  FMaxClients := EnsureRange(FMaxClients, 1, MaxQcClients);
+  for I := 1 to MaxQcClients do
+    FClients[I].Phys.Bsp := FBsp;
+  Result := True;
+end;
+
+function TQuakeQcGame.SaveGame(const Url: String; const ViewAngles: TVector3): Boolean;
+var
+  D: TQuakeSaveData;
+  Mem: TMemoryStream;
+  Hex: String;
+  I: Integer;
+  P: String;
+begin
+  Result := False;
+  if (FBsp = nil) or not FProgs.Loaded or (FMaxClients <> 1) then
+    Exit;
+  D := TQuakeSaveData.Create;
+  Mem := TMemoryStream.Create;
+  try
+    D.SetInt('version', 1);
+    D.SetStr('map', FMapName);
+    D.SetInt('skill', FSkill);
+    D.SetFloat('time', FTime);
+    D.SetInt('deathmatch', FDeathmatch);
+    D.SetInt('coop', FCoop);
+    D.SetBool('intermission', FIntermission);
+    D.SetVec('view', ViewAngles);
+    D.SetStr('player', FClients[1].Name);
+    D.SetInt('statics', Length(FStatics));
+    for I := 0 to High(FStatics) do
+    begin
+      P := 'static.' + IntToStr(I) + '.';
+      D.SetStr(P + 'model', FStatics[I].Model);
+      D.SetVec(P + 'origin', FStatics[I].Origin);
+      D.SetVec(P + 'angles', FStatics[I].Angles);
+      D.SetInt(P + 'frame', FStatics[I].Frame);
+      D.SetInt(P + 'skin', FStatics[I].Skin);
+    end;
+    for I := 0 to High(FLightStyles) do
+      if FLightStyles[I] <> '' then
+        D.SetStr('lightstyle.' + IntToStr(I), FLightStyles[I]);
+    { The VM state as hex }
+    FProgs.SaveState(Mem);
+    SetLength(Hex, Mem.Size * 2);
+    if Mem.Size > 0 then
+      BinToHex(PChar(Mem.Memory), PChar(Hex), Mem.Size);
+    D.SetStr('progs', Hex);
+    Result := D.SaveToUrl(Url);
+    if Result then
+      WritelnLog('QuakeQcGame', 'Saved game to "%s" (%d edicts)', [Url, FProgs.NumEdicts]);
+  finally
+    Mem.Free;
+    D.Free;
+  end;
+end;
+
+function TQuakeQcGame.LoadGame(const Url: String; out ViewAngles: TVector3): Boolean;
+var
+  D: TQuakeSaveData;
+  Mem: TMemoryStream;
+  Hex: String;
+  I, N: Integer;
+  P: String;
+  PP: TQuakePlayerPhysics;
+begin
+  Result := False;
+  ViewAngles := TVector3.Zero;
+  D := TQuakeSaveData.Create;
+  Mem := TMemoryStream.Create;
+  try
+    if not D.LoadFromUrl(Url) then
+      Exit;
+    if D.GetInt('version') <> 1 then
+      Exit;
+    FMaxClients := 1;
+    FDeathmatch := D.GetInt('deathmatch');
+    FCoop := D.GetInt('coop');
+    if not LoadProgsAndMap(D.GetStr('map')) then
+      Exit;
+    Hex := D.GetStr('progs');
+    Mem.SetSize(Length(Hex) div 2);
+    if Mem.Size > 0 then
+      HexToBin(PChar(Hex), PChar(Mem.Memory), Mem.Size);
+    Mem.Position := 0;
+    if not FProgs.LoadState(Mem) then
+    begin
+      WritelnWarning('QuakeQcGame', 'Cannot restore the progs state from "%s"', [Url]);
+      Exit;
+    end;
+    FSkill := D.GetInt('skill', 1);
+    FTime := D.GetFloat('time', 1);
+    FProgs.Global(FProgs.GTime)^.F := FTime;
+    FIntermission := D.GetBool('intermission');
+    ViewAngles := D.GetVec('view', TVector3.Zero);
+    N := D.GetInt('statics');
+    SetLength(FStatics, N);
+    for I := 0 to N - 1 do
+    begin
+      P := 'static.' + IntToStr(I) + '.';
+      FStatics[I].Model := D.GetStr(P + 'model');
+      FStatics[I].Origin := D.GetVec(P + 'origin', TVector3.Zero);
+      FStatics[I].Angles := D.GetVec(P + 'angles', TVector3.Zero);
+      FStatics[I].Frame := D.GetInt(P + 'frame');
+      FStatics[I].Skin := D.GetInt(P + 'skin');
+    end;
+    for I := 0 to High(FLightStyles) do
+    begin
+      FLightStyles[I] := D.GetStr('lightstyle.' + IntToStr(I));
+      if (FLightStyles[I] <> '') and (Lighting <> nil) then
+        Lighting.SetStyle(I, FLightStyles[I]);
+    end;
+    { The player: client 1 at the edict's place }
+    FClients[1].Active := True;
+    FClients[1].Name := D.GetStr('player', 'player');
+    FClients[1].Cmd := Default(TQuakeUserCmd);
+    FClients[1].Fire := False;
+    FClients[1].Impulse := 0;
+    PP := FClients[1].Phys;
+    PP.Bsp := FBsp;
+    PP.Mins := FProgs.FieldVector(1, FFMins);
+    PP.Maxs := FProgs.FieldVector(1, FFMaxs);
+    if PP.Maxs.Z <= PP.Mins.Z then
+    begin
+      PP.Mins := Vector3(-16, -16, -24);
+      PP.Maxs := Vector3(16, 16, 32);
+    end;
+    PP.Teleport(FProgs.FieldVector(1, FFOrigin));
+    PP.Velocity := FProgs.FieldVector(1, FFVelocity);
+    WritelnLog('QuakeQcGame', 'Loaded game from "%s": "%s", %d edicts', [Url, FMapName, FProgs.NumEdicts]);
+    Result := True;
+  finally
+    Mem.Free;
+    D.Free;
+  end;
 end;
 
 procedure TQuakeQcGame.ConnectClientNow(const E: Integer);
