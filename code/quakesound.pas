@@ -7,7 +7,8 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections,
-  CastleVectors, CastleSoundEngine, CastleTransform, CastleBehaviors, CastleLog,
+  CastleVectors, CastleSoundEngine, CastleTransform, CastleBehaviors, CastleLog, CastleUriUtils,
+  {$ifndef WASI} CastleInternalOpenAL, CastleInternalEFX, {$endif}
   QuakePak;
 
 type
@@ -17,7 +18,11 @@ type
     FSoundCache: specialize TObjectDictionary<String, TCastleSound>;
     FMusicSound: TCastleSound;
     FCurrentMusicTrack: String;
+    FUnderwater: Boolean;
+    FUnderwaterFilter: Cardinal;
+    FUnderwaterTried: Boolean;
     FEnabled: Boolean;
+    procedure ApplyUnderwater;
   public
     { Demo recording: every sound played (Spatial = False for Play) }
     OnPlay: procedure(const APath: String; const Spatial: Boolean; const ATransform: TCastleTransform;
@@ -36,6 +41,13 @@ type
 
     { Play background music from castle-data:/music/trackXX.ogg or file }
     procedure PlayMusic(const TrackName: String);
+    { The CD track of a map (worldspawn "sounds", svc_cdtrack): trackNN.ogg
+      from data/music, track02 when that one is not there (0 keeps the
+      current music) }
+    procedure PlayTrack(const Track: Integer);
+    { Underwater: every sound through an OpenAL EFX low-pass filter (the
+      muffled sound of the original's software mixer under water) }
+    procedure SetUnderwater(const Value: Boolean);
 
     { Stop music }
     procedure StopMusic;
@@ -180,6 +192,72 @@ begin
       FreeAndNil(FMusicSound);
     end;
   end;
+end;
+
+procedure TQuakeSounds.PlayTrack(const Track: Integer);
+var
+  Name: String;
+begin
+  if Track <= 0 then
+    Exit;
+  Name := Format('track%.2d.ogg', [Track]);
+  if UriExists('castle-data:/music/' + Name) <> ueFile then
+  begin
+    WritelnLog('QuakeSound', 'No music file for CD track %d, playing track 2', [Track]);
+    Name := 'track02.ogg';
+  end;
+  PlayMusic(Name);
+end;
+
+procedure TQuakeSounds.SetUnderwater(const Value: Boolean);
+begin
+  if FUnderwater = Value then
+  begin
+    { New sources start without the filter: keep applying it while under water }
+    if Value then
+      ApplyUnderwater;
+    Exit;
+  end;
+  FUnderwater := Value;
+  ApplyUnderwater;
+end;
+
+procedure TQuakeSounds.ApplyUnderwater;
+{$ifndef WASI}
+var
+  I: Integer;
+  Filter: TALuint;
+{$endif}
+begin
+  {$ifndef WASI}
+  { Only with the OpenAL backend and its EFX extension loaded }
+  if not FEnabled or (SoundEngine = nil) or (SoundEngine.InternalBackend = nil) or
+     (SoundEngine.InternalBackend.ClassName <> 'TOpenALSoundEngineBackend') or
+     not Assigned(alGenFilters) or not Assigned(alFilteri) or not Assigned(alFilterf) then
+    Exit;
+  if (FUnderwaterFilter = 0) and not FUnderwaterTried then
+  begin
+    FUnderwaterTried := True;
+    alGenFilters(1, @FUnderwaterFilter);
+    if FUnderwaterFilter <> 0 then
+    begin
+      alFilteri(FUnderwaterFilter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
+      alFilterf(FUnderwaterFilter, AL_LOWPASS_GAIN, 1.0);
+      alFilterf(FUnderwaterFilter, AL_LOWPASS_GAINHF, 0.2);
+      WritelnLog('QuakeSound', 'Underwater low-pass filter ready (EFX)');
+    end;
+  end;
+  if FUnderwaterFilter = 0 then
+    Exit;
+  if FUnderwater then
+    Filter := FUnderwaterFilter
+  else
+    Filter := AL_FILTER_NULL;
+  { The engine owns the sources; the filter goes on every live one of this context }
+  for I := 1 to 256 do
+    if alIsSource(I) then
+      alSourcei(I, AL_DIRECT_FILTER, Filter);
+  {$endif}
 end;
 
 procedure TQuakeSounds.StopMusic;

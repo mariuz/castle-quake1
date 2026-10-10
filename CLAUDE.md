@@ -58,6 +58,8 @@ QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and 
 
 Endings: after the tallies, a button press (fire or jump, `X` / `J` headless) shows the episode text and, with all four runes, the all-runes text before the next map; telefragging Shub-Niggurath in `end.bsp` plays the ending and a button starts a new game. `--autotest e1m7 ... --demo "W:0.5,Y,G:8;46;-64,W:0.5,G:1016;-980;-52,W:1,S,W:5,X,W:3,S,X,W:3,S,Q"` runs the rune, the exit, the tallies and the text headless.
 
+Audio headless: without a sound device the sound engine stays off (no music, no EFX); on Linux `ALSOFT_DRIVERS=null` gives OpenAL Soft's silent device, so music selection and the underwater low-pass filter run and log (`QuakeSound:` lines).
+
 Mission packs and mods: `-game hipnotic` (or `rogue`, a mod directory, or a path) loads `<dir>/pak*.pak` on top of id1 from the working directory, next to the executable, the data or the config directory; `-game hipnotic -qc start` plays the pack with its QuakeC (hipnotic keys 9 / 0 are the laser cannon / Mjolnir). The packs are not bundled.
 
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.

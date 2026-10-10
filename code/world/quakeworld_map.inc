@@ -276,6 +276,7 @@ function TQuakeWorld.LoadMap(const AMapName: String): Boolean;
 var
   MapPath: String;
   I: Integer;
+  World: TQuakeEntity;
 begin
   Result := False;
   FLevelExited := False;
@@ -367,8 +368,12 @@ begin
   { Setup first-person weapon model }
   UpdateWeaponModel;
 
-  { Start background music track }
-  Sounds.PlayMusic('track02.ogg');
+  { The map's CD track (worldspawn "sounds") }
+  World := FBsp.FindEntity('worldspawn');
+  if (World <> nil) and (World.Sounds > 0) then
+    Sounds.PlayTrack(World.Sounds)
+  else
+    Sounds.PlayMusic('track02.ogg');
 
   { A recording continues on the new level }
   RecordLevelStart;

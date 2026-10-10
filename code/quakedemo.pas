@@ -182,6 +182,7 @@ type
   TDemoTextEvent = procedure(const S: String) of object;
   TDemoDamageEvent = procedure(const Armor, Blood: Integer; const From: TVector3) of object;
   TDemoLightStyleEvent = procedure(const Index: Integer; const Pattern: String) of object;
+  TDemoCdTrackEvent = procedure(const Track, LoopTrack: Integer) of object;
   TDemoSimpleEvent = procedure of object;
 
   { Plays a .dem back: call Advance every frame, then read the entities
@@ -252,6 +253,7 @@ type
     OnDamage: TDemoDamageEvent;
     OnLightStyle: TDemoLightStyleEvent;
     OnIntermission: TDemoSimpleEvent;
+    OnCdTrack: TDemoCdTrackEvent;
 
     constructor Create;
     destructor Destroy; override;
@@ -992,8 +994,10 @@ begin
         end;
       svc_cdtrack:
         begin
-          ReadByte;
-          ReadByte;
+          I := ReadByte;
+          Count := ReadByte;
+          if Assigned(OnCdTrack) then
+            OnCdTrack(I, Count);
         end;
       svc_sellscreen: ;
       else

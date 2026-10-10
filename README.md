@@ -55,7 +55,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 
 **Engine integration**
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
-- Spatial audio with OpenAL (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
+- Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
 - Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `fps`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.

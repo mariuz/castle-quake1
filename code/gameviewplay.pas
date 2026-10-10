@@ -178,6 +178,7 @@ begin
     (Contents = CONTENTS_LAVA);
   if FUnderwaterEffect.Enabled <> InLiquid then
     FUnderwaterEffect.Enabled := InLiquid;
+  Sounds.SetUnderwater(InLiquid);
   if InLiquid then
   begin
     FWarpTime := FloatModulo(FWarpTime + SecondsPassed * UnderwaterWarpSpeed, 2 * Pi);

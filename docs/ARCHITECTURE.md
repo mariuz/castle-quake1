@@ -144,6 +144,8 @@ Player dimensions:
 
 ## 8. QuakeSound: Spatial Audio & Music
 
+- Music: `PlayTrack(N)` maps Quake's CD track numbers to `data/music/trackNN.ogg` (track 2 when the file is missing); the native world, the QuakeC view and the demo / network client start the worldspawn `sounds` track of a map, and `svc_cdtrack` (`TQuakeDemoReader.OnCdTrack`, the raw message in `TViewQc.HandleMessage`) switches it. Under water (`SetUnderwater`) an EFX low-pass filter (`AL_FILTER_LOWPASS`, GAINHF 0.2) is set as the direct filter of every live OpenAL source; it is created once through CastleInternalEFX, applied again each frame while under water for new sources, and skipped without EFX or on the web.
+
 - 2D sounds for UI and weapon fire (`SoundEngine.Play`).
 - 3D spatial sounds with distance attenuation via `TCastleSoundSource` attached to doors, lifts, and monsters.
 - Background OGG music played on `SoundEngine.LoopingChannel[0]`.
