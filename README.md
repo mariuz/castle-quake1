@@ -81,7 +81,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | **F8** | Engine inspector (component tree, live properties) |
 | **F12** | Screenshot |
 | **~** | Developer console |
-| **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons |
+| **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons; sensitivity, dead zone and inverted look in Options > Controls |
 
 Every key can be rebound in Options > Controls (saved in the user config).
 | **Escape** | Menu |

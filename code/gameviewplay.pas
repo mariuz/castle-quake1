@@ -7,7 +7,7 @@ interface
 
 uses
   Classes, SysUtils, Math, {$ifdef MSWINDOWS} Windows, {$endif}
-  CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse,
+  CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleGameControllers,
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
@@ -50,6 +50,11 @@ type
     FDemoMove: TVector3;
     FDemoJumpTime: Single;
     FDemoFireTime: Single;
+    { Virtual gamepad of the demo script: the button pressed by GB and
+      how long until it is released }
+    FDemoPadButton: TGameControllerButton;
+    FDemoPadRelease: Single;
+    FDemoPadLeft, FDemoPadRight: TVector2;
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
     procedure SetupNavigation;
     procedure CreateUnderwaterEffect;
@@ -376,6 +381,12 @@ begin
       SaveImage(Img, OutPath);
       Img.Free;
       WritelnLog('GameViewPlay', 'Saved screenshot to "%s"', [OutPath]);
+      if FWorld <> nil then
+        WritelnLog('GameViewPlay', 'View: eye %s, yaw %.0f, pitch %.0f, weapon %d, ammo %d',
+          [CgeToQuake(FViewport.Camera.Translation).ToString,
+           RadToDeg(ArcTan2(-FViewport.Camera.Direction.Z, FViewport.Camera.Direction.X)),
+           RadToDeg(ArcSin(Clamped(FViewport.Camera.Direction.Y, -1.0, 1.0))),
+           FWorld.Stats.CurrentWeapon, FWorld.Stats.Ammo]);
     end;
   except
     on E: Exception do
@@ -510,6 +521,34 @@ begin
     FDemoMove := TVector3.Zero;
     for P := 0 to Min(High(Parts), 2) do
       FDemoMove.Data[P] := StrToFloatDef(Parts[P], 0);
+    Inc(FDemoIndex);
+  end else
+  if (Action = 'GL') or (Action = 'GR') then { Virtual gamepad stick: x;y in -1..1 }
+  begin
+    Parts := Param.Split([';']);
+    if Length(Parts) >= 2 then
+    begin
+      if Action = 'GL' then
+        FDemoPadLeft := Vector2(StrToFloatDef(Parts[0], 0), StrToFloatDef(Parts[1], 0))
+      else
+        FDemoPadRight := Vector2(StrToFloatDef(Parts[0], 0), StrToFloatDef(Parts[1], 0));
+      SetVirtualSticks(FDemoPadLeft, FDemoPadRight);
+    end;
+    Inc(FDemoIndex);
+  end else
+  if Action = 'GT' then { Virtual gamepad right trigger 0..1 }
+  begin
+    SetVirtualRightTrigger(StrToFloatDef(Param, 0));
+    Inc(FDemoIndex);
+  end else
+  if Action = 'GB' then { Virtual gamepad button pressed for 0.2 s }
+  begin
+    if GamepadButtonByName(Param, FDemoPadButton) then
+    begin
+      SetVirtualButton(FDemoPadButton, True);
+      FDemoPadRelease := 0.2;
+    end else
+      WritelnWarning('GameViewPlay', 'Unknown gamepad button "%s"', [Param]);
     Inc(FDemoIndex);
   end else
   if Action = 'F' then { Hold fire for some seconds }
@@ -651,6 +690,14 @@ begin
   begin
     BuildUserCmd(Cmd);
     FDemoJumpTime := Math.Max(0.0, FDemoJumpTime - SecondsPassed);
+    { The press lasts 0.2 s from when the engine reported it (a slow
+      headless frame must not release it before it was seen) }
+    if (FDemoPadRelease > 0) and GamepadButtonDown(FDemoPadButton) then
+    begin
+      FDemoPadRelease := FDemoPadRelease - SecondsPassed;
+      if FDemoPadRelease <= 0 then
+        SetVirtualButton(FDemoPadButton, False);
+    end;
     FDemoFireTime := Math.Max(0.0, FDemoFireTime - SecondsPassed);
     FWorld.MovePlayer(Cmd, FViewport.Camera.Direction, SecondsPassed, FHud);
     if FWorld.TakePendingYaw(NewYaw) then

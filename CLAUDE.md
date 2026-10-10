@@ -53,6 +53,7 @@ Demo script actions:
 - `I` log the viewport's transform tree with the component names (what the F8 inspector shows)
 - `D:modes` debug overlay: `all`, `off`, or a list of `triggers`, `monsters`, `movers`, `leaf` (e.g. `D:triggers;monsters`)
 - `E` (QuakeC mode) log the edicts in use (classname, origin, health)
+- `GL:x;y` / `GR:x;y` virtual gamepad left / right stick (-1..1, y up), `GT:v` right trigger (0..1), `GB:button` press a button for 0.2 s (`south`/`a`, `east`/`b`, `west`/`x`, `north`/`y`, `lb`, `rb`, `up`, `down`, `left`, `right`, `start`, `back`); play view screenshots log the eye, yaw, pitch, weapon and ammo
 
 QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and the player; `--autotest qc:e1m1 C:\TMP\qc --demo "W:1,S,Q"` does it headless (actions W, S, X, F, C, A, T, P, G, V, J, K, Y, O, L, R, E, Q; screenshots log health and kills; saves go to `castle-config:/qc_save_<slot>.sav`). `--qctest e1m1` only loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines), then exits.
 
