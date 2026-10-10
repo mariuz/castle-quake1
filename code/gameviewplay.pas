@@ -9,7 +9,7 @@ uses
   Classes, SysUtils, Math, {$ifdef MSWINDOWS} Windows, {$endif}
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleGameControllers,
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
-  CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils,
+  CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils, CastleTimeUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
   GameInput,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
@@ -40,6 +40,11 @@ type
     FDemoCommands: TStringList;
     FDemoIndex: Integer;
     FShowFps: Boolean;
+    { Frame timing between two Z demo actions }
+    FBenchFrames: Integer;
+    FBenchStart: TTimerResult;
+    FBenchLongest: Single;
+    FBenchStarted: Boolean;
     FDemoTimer: Single;
     FUnderwaterEffect: TScreenEffectNode;
     FUnderwaterTime: TSFFloat;
@@ -63,6 +68,7 @@ type
     procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
     procedure ParseDemoScript(const Script: String);
     procedure RunDemoStep(const SecondsPassed: Single);
+    function PvsStatus: String;
     procedure CaptureScreenshot(const Prefix: String);
     { Leave the application. Never Halt here: we are inside the window's
       update loop, and finalizing units now would free views still in use. }
@@ -367,6 +373,19 @@ begin
   FHud.ShowMessage('Game loaded (' + Slot + ')');
 end;
 
+function TViewPlay.PvsStatus: String;
+var
+  G: TQuakeGeometry;
+begin
+  Result := 'no world';
+  if (FWorld = nil) or (FWorld.Geometry = nil) then
+    Exit;
+  G := FWorld.Geometry;
+  Result := Format('culling %s, leaf %d, clusters %d/%d, shapes %d/%d',
+    [BoolToStr(WorldPvsCulling, 'on', 'off'), G.CameraLeaf, G.VisibleClusters, G.ClusterCount,
+     G.VisibleShapes, G.ShapeCount]);
+end;
+
 procedure TViewPlay.CaptureScreenshot(const Prefix: String);
 var
   OutPath: String;
@@ -388,6 +407,8 @@ begin
            RadToDeg(ArcSin(Clamped(FViewport.Camera.Direction.Y, -1.0, 1.0))),
            FWorld.Stats.CurrentWeapon, FWorld.Stats.Ammo, FWorld.Stats.Health,
            FWorld.Stats.Kills, FWorld.Stats.TotalKills, BoolToStr(FWorld.Intermission, 'yes', 'no')]);
+      if FWorld <> nil then
+        WritelnLog('GameViewPlay', 'PVS: ' + PvsStatus);
     end;
   except
     on E: Exception do
@@ -555,6 +576,23 @@ begin
   if Action = 'F' then { Hold fire for some seconds }
   begin
     FDemoFireTime := StrToFloatDef(Param, 1.0);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'N' then { N:0 draws the whole world (r_novis 1), N:1 only the PVS }
+  begin
+    WorldPvsCulling := Param <> '0';
+    Inc(FDemoIndex);
+  end else
+  if Action = 'Z' then { Log the frame times since the previous Z, then start counting again }
+  begin
+    if FBenchStarted and (FBenchFrames > 0) then
+      WritelnLog('GameViewPlay', 'Frames: %d in %.2f s, %.2f ms average, %.2f ms longest, %s',
+        [FBenchFrames, FBenchStart.ElapsedTime, 1000 * FBenchStart.ElapsedTime / FBenchFrames,
+         1000 * FBenchLongest, PvsStatus]);
+    FBenchFrames := 0;
+    FBenchLongest := 0;
+    FBenchStart := Timer;
+    FBenchStarted := True;
     Inc(FDemoIndex);
   end else
   if Action = 'B' then { World lighting: B:1 Quake lightmaps, B:0 dynamic PBR (reloads the map) }
@@ -764,6 +802,12 @@ begin
     FViewport.Camera.Translation := FViewport.Camera.Translation - CamDir * FThirdPersonDist + Vector3(0, 24, 0);
   end;
 
+  { Draw only the world in the camera's potentially visible set }
+  if (FWorld <> nil) and (FWorld.Geometry <> nil) then
+    FWorld.Geometry.UpdateVisibility(FViewport.Camera.Translation);
+  Inc(FBenchFrames);
+  FBenchLongest := Math.Max(FBenchLongest, SecondsPassed);
+
   { Attack trigger while fire key is held }
   if not FConsole.IsOpen and not FMenu.Exists and not FWorld.PlayerDead then
   begin
@@ -929,6 +973,13 @@ begin
     FShowFps := not FShowFps;
     FConsole.Print('FPS display: ' + BoolToStr(FShowFps, 'on', 'off'));
   end else
+  if Cmd = 'novis' then
+  begin
+    { r_novis: 1 draws the whole world, 0 only the camera's PVS }
+    if Args <> '' then
+      WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
+    FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
+  end else
   if Cmd = 'lightmaps' then
   begin
     { 1 = Quake lightmaps blended in the shader, 0 = dynamic PBR lighting;
@@ -1007,6 +1058,7 @@ begin
     FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
     FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
     FConsole.Print('  fps            - Show the frame rate in the stats line');
+    FConsole.Print('  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see');
     FConsole.Print('  quit           - Exit game');
   end else
     FConsole.Print('Unknown command: ' + Cmd);
