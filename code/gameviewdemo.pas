@@ -97,6 +97,7 @@ type
     procedure HandleFinale(const S: String);
     procedure HandleDamage(const Armor, Blood: Integer; const From: TVector3);
     procedure HandleLightStyle(const Index: Integer; const Pattern: String);
+    procedure HandleCdTrack(const Track, LoopTrack: Integer);
     procedure HandleIntermission;
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
     procedure HideVisual(var V: TDemoVisual);
@@ -172,6 +173,7 @@ begin
   FDemo.OnFinale := @HandleFinale;
   FDemo.OnDamage := @HandleDamage;
   FDemo.OnLightStyle := @HandleLightStyle;
+  FDemo.OnCdTrack := @HandleCdTrack;
   FDemo.OnIntermission := @HandleIntermission;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
@@ -569,6 +571,7 @@ end;
 procedure TViewDemo.LoadLevel;
 var
   Sub: TQuakeSubmodel;
+  World: TQuakeEntity;
 begin
   ClearLevel;
   ResetComponentNames;
@@ -608,7 +611,12 @@ begin
   end;
   FLevelStart := -1;
   FLoaded := True;
-  Sounds.PlayMusic('track02.ogg');
+  { The map's CD track until the server's svc_cdtrack says otherwise }
+  World := FBsp.FindEntity('worldspawn');
+  if (World <> nil) and (World.Sounds > 0) then
+    Sounds.PlayTrack(World.Sounds)
+  else
+    Sounds.PlayMusic('track02.ogg');
   FHud.StopIntermission;
   FHud.ShowMessage(FDemo.LevelName, 3);
 end;
@@ -772,6 +780,11 @@ end;
 procedure TViewDemo.HandleCenterPrint(const S: String);
 begin
   FHud.ShowMessage(S, 2.5);
+end;
+
+procedure TViewDemo.HandleCdTrack(const Track, LoopTrack: Integer);
+begin
+  Sounds.PlayTrack(Track);
 end;
 
 procedure TViewDemo.HandleFinale(const S: String);
@@ -1001,6 +1014,7 @@ begin
     I := FBsp.PointContentsCge(FViewport.Camera.Translation);
     FHud.SetContents(I);
     S.Underwater := (I = CONTENTS_WATER) or (I = CONTENTS_SLIME) or (I = CONTENTS_LAVA);
+    Sounds.SetUnderwater(S.Underwater);
   end;
   FHud.Update(SecondsPassed, S);
 end;

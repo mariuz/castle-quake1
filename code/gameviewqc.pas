@@ -291,6 +291,7 @@ end;
 procedure TViewQc.SetupLevel;
 var
   Sub: TQuakeSubmodel;
+  World: TQuakeEntity;
   I: Integer;
 begin
   ResetComponentNames;
@@ -313,7 +314,11 @@ begin
   end;
   FDeathTimer := 0;
   FHud.StopIntermission;
-  Sounds.PlayMusic('track02.ogg');
+  World := FGame.Bsp.FindEntity('worldspawn');
+  if (World <> nil) and (World.Sounds > 0) then
+    Sounds.PlayTrack(World.Sounds)
+  else
+    Sounds.PlayMusic('track02.ogg');
   FLoaded := True;
 end;
 
@@ -473,7 +478,12 @@ end;
 
 procedure TViewQc.HandleMessage(const E: Integer; const Data: TBytes);
 begin
-  if (FRecorder = nil) or (Length(Data) = 0) then
+  if Length(Data) = 0 then
+    Exit;
+  { svc_cdtrack: track, loop track (the finale switches to track 3) }
+  if (Data[0] = 32) and (Length(Data) >= 2) then
+    Sounds.PlayTrack(Data[1]);
+  if FRecorder = nil then
     Exit;
   case Data[0] of
     27: FRecorder.WriteKilledMonster;
@@ -848,6 +858,7 @@ begin
   C := FGame.Bsp.PointContentsCge(FViewport.Camera.Translation);
   FHud.SetContents(C);
   S.Underwater := (C = CONTENTS_WATER) or (C = CONTENTS_SLIME) or (C = CONTENTS_LAVA);
+  Sounds.SetUnderwater(S.Underwater);
   FHud.Update(SecondsPassed, S);
 end;
 

@@ -142,8 +142,9 @@ Everything is built in code today: no editor designs, almost no component has a 
 - [x] **Full Registered Content**:
   - All four episodes with the rune flow on every episode gate, the Shub-Niggurath ending and the end-of-game text, verified with the headless tests.
   - Done: the intermission has the stages of `ExitIntermission` (client.qc): the tallies, then the episode text after e1m7 / e2m6 / e3m7 / e4m7 (the shareware variant of the first one when episode 2 is not installed), then the all-four-runes text, each dismissed with a button, typed out over `gfx/finale.lmp` at 8 characters a second (`TQuakeHud.StartFinale`). Teleporting telefrags whatever stands at the destination; `misc_teleporttrain` (the spiked ball of `end.bsp`) runs along its `path_corner`s and is a valid teleporter destination, and telefragging `monster_oldone` plays `finale_1` .. `finale_4` of oldone.qc: the intermission view, a teleport splash inside her, her death cry with the flickering lightstyle, the pop into forty gibs and the ending text; a button then starts a fresh game in the hub. Verified headless on e1m7 (rune, exit, tallies, text, the hub with rune 1) and on a test `end.bsp` built from E1M1 with Shub, the train and a teleporter (the registered assets are not bundled).
-- [ ] **Audio Polish**:
+- [x] **Audio Polish**:
   - Music tracks per map from the entity `sounds` key, underwater low-pass filtering, and the CD-track handling of `svc_cdtrack`.
+  - Done: `TQuakeSounds.PlayTrack` plays `data/music/trackNN.ogg` for the worldspawn `sounds` key of the map in every mode (track 2 when the file is missing), `svc_cdtrack` switches the track in the demo / network client and in QuakeC mode (the finale's track 3), and under water every OpenAL source gets an EFX low-pass filter (`SetUnderwater`, high-frequency gain 0.2; no-op without EFX or on the web).
 - [ ] **Rendering Polish**:
   - Skybox support, lava and slime particle effects, water seen from inside (`r_wateralpha` style translucency both ways), and the fullbright texture pixels of Quake's palette.
 - [ ] **Automated Test Coverage in CI**:
