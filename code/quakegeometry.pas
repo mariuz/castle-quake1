@@ -9,7 +9,7 @@ uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
   CastleImages, CastleUtils, CastleRenderOptions, X3DFields,
-  QuakeBsp, QuakePalette, QuakeLight;
+  QuakeBsp, QuakePalette, QuakeLight, QuakePak;
 
 type
   { Lightmap atlases (one per lightstyle slot) of a BSP model and the shader
@@ -606,6 +606,7 @@ begin
   Scene.PreciseCollisions := True;
   Scene.Collides := True;
   Transform.Add(Scene);
+  Transform.Name := ComponentName('submodel');
   State := smsClosed;
   Speed := 100.0;
   WaitTime := 3.0;
@@ -760,7 +761,9 @@ begin
   FSceneWorld := TCastleScene.Create(nil);
   FSceneWorld.PreciseCollisions := True;
   FSceneWorld.Collides := True;
+  FSceneWorld.Name := 'world_scene';
   FWorldTransform := TCastleTransform.Create(nil);
+  FWorldTransform.Name := 'world';
   FWorldTransform.Add(FSceneWorld);
   FSubmodels := TQuakeSubmodelList.Create(True);
   FAnimTextures := TQuakeAnimTexList.Create(True);
@@ -1051,6 +1054,9 @@ begin
         Sub.Target := Ent.Target;
         Sub.TargetName := Ent.TargetName;
         Sub.Sounds := Ent.Sounds;
+        { Named after the entity for the inspector: func_door_7 }
+        Sub.Transform.Name := ComponentName(CName);
+        Sub.Scene.Name := Sub.Transform.Name + '_scene';
         Sub.SpawnFlags := Ent.SpawnFlags;
 
         Sub.Mins := QuakeToCge(Mdl.Mins);

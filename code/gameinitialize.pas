@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes,
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
-  CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions,
+  CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc;
 
@@ -173,6 +173,11 @@ begin
 
   WritelnLog('GameInitialize', 'Parsed AutoTestMap="%s" Prefix="%s" Demo="%s"', [AutoTestMap, AutoTestPrefix, AutoTestDemo]);
 
+  { The engine's inspector (F8, or three fingers) in every build, not only
+    debug ones: the level's components are named for it }
+  TCastleContainer.InputInspector.Key := keyF8;
+  TCastleContainer.InputInspector.PressFingers := 3;
+
   Window.Container.LoadSettings('castle-data:/CastleSettings.xml');
   { Quake's textures and lightmaps are not linear: no gamma correction, even
     for the physical materials of the dynamic world lighting }
@@ -199,19 +204,21 @@ begin
   if FileExists('id1/pak1.pak') then
     Pak.AddFile('id1/pak1.pak', True);
 
-  if FileExists('data/paks/quake1_demo.pak') then
+  { The bundled paks through the data URL, which also works where the
+    data is packed (the web build has no file system) }
+  if UriExists('castle-data:/paks/quake1_demo.pak') = ueFile then
   begin
     Pak.AddFile('castle-data:/paks/quake1_demo.pak', True);
     LoadedAny := True;
   end;
 
-  if FileExists('data/paks/pak0.pak') then
+  if UriExists('castle-data:/paks/pak0.pak') = ueFile then
   begin
     Pak.AddFile('castle-data:/paks/pak0.pak');
     LoadedAny := True;
   end;
 
-  if FileExists('data/paks/pak1.pak') then
+  if UriExists('castle-data:/paks/pak1.pak') = ueFile then
   begin
     Pak.AddFile('castle-data:/paks/pak1.pak');
     LoadedAny := True;

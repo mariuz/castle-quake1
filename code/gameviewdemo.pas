@@ -167,6 +167,7 @@ begin
     FViewport.FullSize := True;
     FViewport.Transparent := False;
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
+    FViewport.Camera.Name := 'camera';
     FViewport.Camera.ProjectionNear := 1.0;
     FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
     FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
@@ -180,12 +181,14 @@ begin
     FViewport.InsertFront(FNavigation);
 
     FWeaponTransform := TCastleTransform.Create(Self);
+    FWeaponTransform.Name := 'view_weapon';
     FWeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
     FViewport.Camera.Add(FWeaponTransform);
 
     for I := 0 to High(FSoundPool) do
     begin
       FSoundPool[I] := TCastleTransform.Create(Self);
+      FSoundPool[I].Name := 'sound_pool_' + IntToStr(I);
       FViewport.Items.Add(FSoundPool[I]);
     end;
   end;
@@ -399,6 +402,7 @@ var
   Sub: TQuakeSubmodel;
 begin
   ClearLevel;
+  ResetComponentNames;
   FBsp := TQuakeBsp.Create;
   if not FBsp.LoadFromPak(FDemo.ModelName(1)) then
   begin
@@ -478,6 +482,7 @@ begin
     if Mdl = nil then
       Break;
     Seg := TCastleTransform.Create(Self);
+    Seg.Name := ComponentName('beam_segment');
     Scene := Mdl.CreateScene(0);
     Scene.Collides := False;
     Seg.Add(Scene);
@@ -661,7 +666,9 @@ begin
   begin
     FreeVisual(V);
     V.Transform := TCastleTransform.Create(nil);
+    V.Transform.Name := ComponentName('entity');
     V.Scene := Mdl.CreateScene(Skin);
+    V.Scene.Name := V.Transform.Name + '_scene';
     V.Scene.Collides := False;
     V.Transform.Add(V.Scene);
     FViewport.Items.Add(V.Transform);
@@ -743,7 +750,9 @@ begin
   begin
     FreeVisual(FWeapon);
     FWeapon.Transform := TCastleTransform.Create(nil);
+    FWeapon.Transform.Name := 'weapon_model';
     FWeapon.Scene := Mdl.CreateScene(0);
+    FWeapon.Scene.Name := 'weapon_model_scene';
     FWeapon.Scene.Collides := False;
     FWeapon.Transform.Add(FWeapon.Scene);
     FWeaponTransform.Add(FWeapon.Transform);

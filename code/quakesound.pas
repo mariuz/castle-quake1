@@ -75,7 +75,13 @@ begin
   if not FSoundCache.TryGetValue(NormPath, Result) then
   begin
     Result := TCastleSound.Create(nil);
-    Result.Url := 'quakepak:/' + NormPath;
+    try
+      Result.Url := 'quakepak:/' + NormPath;
+    except
+      on E: Exception do
+        { A missing sample is not fatal (no paks, or a mod without it) }
+        WritelnWarning('QuakeSound', 'Cannot load "%s": %s', [APath, E.Message]);
+    end;
     FSoundCache.Add(NormPath, Result);
   end;
 end;

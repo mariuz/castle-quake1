@@ -394,6 +394,7 @@ begin
   FPhys := TQuakePlayerPhysics.Create;
 
   FWeaponTransform := TCastleTransform.Create(nil);
+  FWeaponTransform.Name := 'view_weapon';
   FWeaponScene := nil;
 
   ResetPlayerStats;
@@ -1979,6 +1980,7 @@ begin
     if Mdl <> nil then
     begin
       FWeaponScene := Mdl.CreateScene(0);
+      FWeaponScene.Name := 'view_weapon_scene';
       FWeaponTransform.Add(FWeaponScene);
       FWeaponMdl := Mdl;
       FWeaponAnim := TMdlAnimator.Create(Mdl, FWeaponScene);
@@ -2261,6 +2263,7 @@ var
 begin
   Result := False;
   FLevelExited := False;
+  ResetComponentNames;
   FNextMap := '';
   FPlayerStats.LevelTime := 0;
   FPlayerStats.Kills := 0;
@@ -2895,6 +2898,7 @@ begin
     if Mdl = nil then
       Break;
     Seg := TCastleTransform.Create(nil);
+    Seg.Name := ComponentName('beam_segment');
     Scene := Mdl.CreateScene(0);
     Scene.Collides := False;
     Seg.Add(Scene);

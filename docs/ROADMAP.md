@@ -113,8 +113,9 @@ This document outlines the architectural comparison between **Castle Quake** and
 
 ### Phase 6: Inspectable in Castle Game Engine
 Everything is built in code today: no editor designs, almost no component has a `Name`, transforms are created without an owner, and nothing is a `TCastleBehavior`. The CGE editor cannot open the UI and the runtime inspector (F8 in debug builds) shows an anonymous tree of class names. These items make the running game something you can click through and tweak in the engine's own tools.
-- [ ] **Named Components and Owned Hierarchy**:
+- [x] **Named Components and Owned Hierarchy**:
   - Give every map scene, submodel, monster, pickup, projectile, gib, light and sound source a `Name` (`door_7`, `monster_ogre_3`, `light_12`, `pickup_health_4`), owned by a per-level root transform, so the F8 inspector shows a real scene tree where a monster or a door can be selected and its transform watched live.
+  - Done: `ComponentName` (`QuakePak`) makes identifier names with a running number per base, reset on every level (`world`, `func_door_7`, `monster_army_3`, `pickup_healthnormal_2`, `projectile_rocket_1`, `gib_gib1_4`, `light_torch_small_walltorch_9`, `ambient_comp1_2`, `edict_12` / `entity_12` in the QuakeC and demo views, `view_weapon`, `camera`, `sound_pool_N`); the scenes under them are `<name>_scene`. The engine's inspector is enabled in every build (F8, or three fingers), and the demo action `I` logs the same tree (`Scene tree: N transforms`). Found and fixed on the way: a level's point lights and the muzzle light were never freed on a map change.
 - [ ] **Entities as Behaviors**:
   - Wrap `TQuakeMonster`, `TQuakeSubmodel`, `TQuakePickup` and the trigger volumes in `TCastleBehavior` subclasses attached to their transforms, with published properties (health, state, target name, wait, key needed, spawnflags). The inspector shows and edits them while playing; the editor can place them later.
 - [ ] **UI Designs in the Editor**:

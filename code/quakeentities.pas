@@ -6,9 +6,10 @@ unit QuakeEntities;
 interface
 
 uses
+  TypInfo,
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleQuaternions,
-  QuakeBsp, QuakeMdl, QuakeLight, QuakeSound;
+  QuakeBsp, QuakeMdl, QuakeLight, QuakeSound, QuakePak;
 
 type
   { Kind of item pickup }
@@ -140,11 +141,13 @@ begin
 
   Transform := TCastleTransform.Create(nil);
   Transform.Translation := Pos;
+  Transform.Name := ComponentName('pickup_' + Copy(GetEnumName(TypeInfo(TQuakeItemKind), Ord(AKind)), 3, MaxInt));
 
   Mdl := MdlManager.GetModel(MdlPath);
   if Mdl <> nil then
   begin
     Scene := Mdl.CreateScene(SkinIdx);
+    Scene.Name := Transform.Name + '_scene';
     Transform.Add(Scene);
   end;
 
@@ -364,6 +367,7 @@ begin
   end;
 
   Transform := TCastleTransform.Create(nil);
+  Transform.Name := ComponentName('projectile_' + Copy(GetEnumName(TypeInfo(TQuakeProjectileKind), Ord(Kind)), 3, MaxInt));
   ModelPath := MdlPath;
   Mdl := MdlManager.GetModel(MdlPath);
   if Mdl <> nil then
@@ -418,6 +422,7 @@ begin
   Velocity := AVelocity;
   Life := ALife;
   Transform := TCastleTransform.Create(nil);
+  Transform.Name := ComponentName('gib_' + ChangeFileExt(ExtractFileName(MdlPath), ''));
   Mdl := MdlManager.GetModel(MdlPath);
   if Mdl <> nil then
   begin

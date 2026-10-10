@@ -50,6 +50,7 @@ Demo script actions:
 - `O:slot` save the game to a slot, `L:slot` load it (`castle-config:/save_<slot>.sav`)
 - `R:name` record a demo to `castle-config:/<name>.dem`, `R` stops it
 - `B:1` / `B:0` world lighting: Quake lightmaps or dynamic PBR (reloads the map)
+- `I` log the viewport's transform tree with the component names (what the F8 inspector shows)
 
 QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and the player; `--autotest qc:e1m1 C:\TMP\qc --demo "W:1,S,Q"` does it headless (actions W, S, X, F, C, A, T, P, G, V, J, K, Y, O, L, R, Q; screenshots log health and kills; saves go to `castle-config:/qc_save_<slot>.sav`). `--qctest e1m1` only loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines), then exits.
 
