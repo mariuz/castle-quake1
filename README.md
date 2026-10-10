@@ -116,6 +116,7 @@ castle-quake1 -game quake -warp start         The original Quake hub with the ep
 castle-quake1 -pak custom.pak                 Load another PAK (mods, the registered id1 paks)
 castle-quake1 -playdemo demo1.dem             Play a demo from the PAKs
 castle-quake1 -qc e1m1                        QuakeC mode: progs.dat runs the game
+castle-quake1 -game hipnotic -qc start        A mission pack or mod (its pak*.pak directory next to the executable) with its QuakeC
 castle-quake1 -host start                     Host a deathmatch game on UDP port 26000 and play in it
 castle-quake1 -host e1m1 -coop -skill 2       Host a cooperative game
 castle-quake1 -connect 192.168.1.10           Join a game (host[:port])

@@ -1112,6 +1112,17 @@ begin
       FImpulse := I;
       Exit(True);
     end;
+  { Scourge of Armagon: 9 the laser cannon, 0 the Mjolnir (its impulses) }
+  if (GameDir = 'hipnotic') and Event.IsKey('9') then
+  begin
+    FImpulse := 225;
+    Exit(True);
+  end;
+  if (GameDir = 'hipnotic') and Event.IsKey('0') then
+  begin
+    FImpulse := 226;
+    Exit(True);
+  end;
   if Event.IsKey(keyF12) then
   begin
     CaptureScreenshot;

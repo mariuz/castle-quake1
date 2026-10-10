@@ -114,7 +114,7 @@ type
     FFButton0, FFButton2, FFImpulse, FFVAngle, FFFixAngle, FFViewOfs, FFHealth, FFWaterLevel, FFWaterType,
     FFTeleportTime, FFTakeDamage, FFDeadFlag, FFFrame, FFSkin, FFEffects, FFWeaponModel, FFWeaponFrame,
     FFNextThink, FFThink, FFClassName, FFGoalEntity, FFEnemy, FFIdealYaw, FFSpawnFlags, FFTarget,
-    FFTargetName, FFMoveDir, FFItems, FFArmorValue, FFCurrentAmmo, FFAmmoShells, FFAmmoNails,
+    FFTargetName, FFMoveDir, FFItems, FFItems2, FFArmorValue, FFCurrentAmmo, FFAmmoShells, FFAmmoNails,
     FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags: Integer;
     { Function indexes }
     FFnStartFrame, FFnPlayerPreThink, FFnPlayerPostThink, FFnClientConnect, FFnPutClientInServer,
@@ -403,6 +403,7 @@ begin
   FFTargetName := FProgs.FieldOfs('targetname');
   FFMoveDir := FProgs.FieldOfs('movedir');
   FFItems := FProgs.FieldOfs('items');
+  FFItems2 := FProgs.FieldOfs('items2'); { rogue: the mission pack items, -1 elsewhere }
   FFArmorValue := FProgs.FieldOfs('armorvalue');
   FFCurrentAmmo := FProgs.FieldOfs('currentammo');
   FFAmmoShells := FProgs.FieldOfs('ammo_shells');
@@ -1896,7 +1897,10 @@ end;
 
 function TQuakeQcGame.PlayerItems(const E: Integer): Cardinal;
 begin
+  { Like SV_WriteClientdataToMessage: rogue's items2 in the high bits }
   Result := Cardinal(Round(FProgs.Field(E, FFItems)^.F));
+  if FFItems2 >= 0 then
+    Result := Result or (Cardinal(Round(FProgs.Field(E, FFItems2)^.F)) shl 23);
 end;
 
 function TQuakeQcGame.PlayerAmmo(const E, Kind: Integer): Integer;

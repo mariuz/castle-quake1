@@ -56,6 +56,8 @@ Demo script actions:
 
 QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and the player; `--autotest qc:e1m1 C:\TMP\qc --demo "W:1,S,Q"` does it headless (actions W, S, X, F, C, A, T, P, G, V, J, K, Y, O, L, R, E, Q; screenshots log health and kills; saves go to `castle-config:/qc_save_<slot>.sav`). `--qctest e1m1` only loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines), then exits.
 
+Mission packs and mods: `-game hipnotic` (or `rogue`, a mod directory, or a path) loads `<dir>/pak*.pak` on top of id1 from the working directory, next to the executable, the data or the config directory; `-game hipnotic -qc start` plays the pack with its QuakeC (hipnotic keys 9 / 0 are the laser cannon / Mjolnir). The packs are not bundled.
+
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
 
 Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo (or a file / `castle-config:` URL) with only `W`, `S` and `Q` actions; `-playdemo <name>` plays one from the menu view.
