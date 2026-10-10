@@ -128,8 +128,9 @@ Everything is built in code today: no editor designs, almost no component has a 
 - [x] **Debug Overlays and Console Commands**:
   - Wireframes of the clipping hulls and trigger boxes, monster paths and sight lines, the current PVS leaf, `edicts` listing in QuakeC mode, frame timing; toggled from the console and the demo script.
   - Done: `QuakeDebug` draws an unlit line-set overlay (`debug_overlay` transform) rebuilt every frame by `TQuakeWorld.UpdateDebugOverlay`: trigger boxes (green, gray once fired), monster boxes (yellow, red when alerted) with a sight line to the player's eye, mover bounds (cyan), the player's BSP leaf (magenta), the player box and projectile markers. Console `debug <all|off|triggers|monsters|movers|leaf>` and demo action `D:modes` toggle it, console `fps` shows the frame timing on the HUD, and `E` in QuakeC mode logs the edicts in use (classname, origin, health).
-- [ ] **Split `quakeworld.pas`**:
+- [x] **Split `quakeworld.pas`**:
   - The native gameplay (3500 lines) into units per subsystem (player, weapons, monsters glue, movers and triggers, pickups, savegame, recording) so each piece can be read and unit-tested on its own.
+  - Done: `quakeworld.pas` keeps the `TQuakeWorld` declaration (290 lines) and includes `code/world/quakeworld_{game,map,player,weapons,monsters,movers,pickups,save,record,debug}.inc`, each a self-described subsystem of 70 to 850 lines. They stay include files of the one class (CGE's own `castletransform_*.inc` style) because every subsystem reads the shared private state; turning them into units would need the state exposed through a world interface, which is left for when a subsystem gets its own unit tests.
 
 ### Phase 7: Beyond the Shareware
 - [ ] **Multiplayer Prediction and Connectivity**:
