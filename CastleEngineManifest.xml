@@ -9,7 +9,7 @@
   author="castle-quake1"
   screen_orientation="landscape"
 >
-  <version value="0.3.7" code="10" />
+  <version value="0.3.8" code="11" />
   <compiler_options>
     <search_paths>
       <path value="code/" />
