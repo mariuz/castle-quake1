@@ -80,6 +80,41 @@ begin
   end;
 end;
 
+{ -game <dir>: a mission pack (hipnotic, rogue) or a mod directory on top of
+  id1: its pak0..pak9.pak from the working directory, next to the
+  executable, the data directory or the config directory. Returns the
+  number of paks loaded. }
+function LoadGameDir(const Dir: String): Integer;
+var
+  I: Integer;
+  Base, Name, Url: String;
+  Bases: array[0..3] of String;
+begin
+  Result := 0;
+  Bases[0] := '';
+  Bases[1] := ExtractFilePath(ParamStr(0));
+  Bases[2] := 'castle-data:/';
+  Bases[3] := 'castle-config:/';
+  for Base in Bases do
+    for I := 0 to 9 do
+    begin
+      Name := Dir + '/pak' + IntToStr(I) + '.pak';
+      if Pos(':/', Base) > 0 then
+      begin
+        Url := Base + Name;
+        if UriExists(Url) <> ueFile then
+          Continue;
+      end else
+      begin
+        Url := Base + Name;
+        if not FileExists(Url) then
+          Continue;
+      end;
+      if Pak.AddFile(Url) then
+        Inc(Result);
+    end;
+end;
+
 { "host[:port]" into Host and Port (DefaultPort when none) }
 procedure SplitAddress(const Address: String; out Host: String; out Port: Word; const DefaultPort: Word);
 var
@@ -306,8 +341,17 @@ begin
   end;
 
   { -game quake: the id1 start map and its episode portals instead of the
-    bundled LibreQuake hub }
+    bundled LibreQuake hub; any other -game is a directory of paks loaded
+    on top (a mission pack's progs.dat, maps, models and pictures win) }
   Pak.PreferOriginalMaps := (CmdGame = 'quake') or (CmdGame = 'id1');
+  if (CmdGame <> '') and not Pak.PreferOriginalMaps then
+  begin
+    if LoadGameDir(CmdGame) > 0 then
+      GameDir := LowerCase(ExtractFileName(ExcludeTrailingPathDelimiter(CmdGame))) { a path is fine too }
+    else
+      WritelnWarning('GameInitialize', 'No pak0.pak found for -game "%s" (looked in ./%0:s/, next to the executable, ' +
+        'the data and the config directory)', [CmdGame]);
+  end;
 
   if not LoadedAny then
     WritelnWarning('GameInitialize', 'No PAK archives found! Check data/paks/ or pass -pak <file>');

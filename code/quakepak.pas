@@ -80,6 +80,9 @@ type
 
 var
   Pak: TQuakePak;
+  { The -game directory in use ('' for id1 / the bundled paks; 'hipnotic',
+    'rogue' or a mod), after its paks were loaded on top of id1 }
+  GameDir: String;
 
 implementation
 
