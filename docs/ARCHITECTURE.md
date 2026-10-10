@@ -169,7 +169,11 @@ Player dimensions:
 
 ---
 
-## 10. Automated Headless Testing
+## 10. Input
+
+- Bindings (`GameInput`): `Bindings[TQuakeBinding]` are global `TInputShortcut`s (group `igBasic`, names `quake_<action>`) created with their defaults by `InitializeBindings`, then `InputsAll.LoadFromConfig(UserConfig, 'bindings')`; `AssignBinding` rebinds one to a key, mouse button or wheel event with `AssignCurrent` and saves (`SaveToConfig` only writes what differs from the defaults). The views ask `BindingHeld` (keys, mouse buttons and the gamepad button standing for the action, the right trigger for fire) every frame and `BindingEvent` on presses; `TQuakeMenu` has the Controls submenu (`smControls`, `FBindWaiting` takes the next event). Gamepad: `Controllers.Initialize` at start, `GamepadMove` reads the left stick with a 0.2 dead zone into the user command, `GamepadTurnCamera` turns the camera with the right stick (160 deg/s yaw, 90 deg/s pitch, clamped at 85), `UpdateGamepad` / `GamepadJustPressed` give the edge of the buttons for use, weapon changes and the menus.
+
+## 11. Automated Headless Testing
 
 - Unit tests (`tests/quaketests.lpr`): a console program with the Quake units on its search path (`tests/CastleEngineManifest.xml`), loading `quake1_demo.pak` from the directory given as its argument; `Check` / `CheckEquals` helpers count the failures and the exit code is 1 when any failed. Covered: `TQuakeBsp.PointContents` / `TraceHull`, `TQuakeProgs` (function lookups, `anglemod` through `Execute`, `SpawnEntities` counts, `RunFrame`, `SaveState` / `LoadState`), `TQuakeSaveData` and `TQuakeDemoWriter` / `TQuakeDemoReader`. The Build workflow's `test` job runs it on Linux before the packages are released.
 

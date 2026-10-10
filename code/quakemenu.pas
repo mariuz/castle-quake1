@@ -9,7 +9,8 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
   CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils, CastleComponentSerialize,
-  QuakeSound, QuakePak, QuakeGeometry;
+  CastleGameControllers,
+  QuakeSound, QuakePak, QuakeGeometry, GameInput;
 
 type
   TMenuAction = (
@@ -23,7 +24,10 @@ type
   TQuakeMenu = class(TCastleUserInterface)
   private
     FSelectedIdx: Integer;
-    FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smShowcase);
+    FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smControls, smShowcase);
+    FBindWaiting: Boolean; { Controls: the next key / button goes to FBindTarget }
+    FBindTarget: TQuakeBinding;
+    FDefaultHint: String;
     FDemoUrls: TStringList;
     FItems: TStringList;
     FOnMenuAction: TOnMenuActionEvent;
@@ -107,11 +111,48 @@ begin
   FShowcaseLabel.Exists := FSubMenu = smShowcase;
   FItemsGroup.Exists := FSubMenu <> smShowcase;
   FHintLabel.Exists := FSubMenu <> smShowcase;
+  if FDefaultHint = '' then
+    FDefaultHint := FHintLabel.Caption;
+  if FBindWaiting then
+    FHintLabel.Caption := 'Press a key, mouse button or wheel for "' + BindingCaptions[FBindTarget] +
+      '" (Escape keeps it)'
+  else
+  if FSubMenu = smControls then
+    FHintLabel.Caption := 'Enter rebinds; the gamepad: left stick moves, right stick turns, A jumps, ' +
+      'X uses, RB / right trigger fires, D-pad changes weapons'
+  else
+    FHintLabel.Caption := FDefaultHint;
 end;
 
 procedure TQuakeMenu.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 begin
   inherited Update(SecondsPassed, HandleInput);
+  { The gamepad walks the menu: D-pad, A selects, B goes back }
+  if Exists and not FBindWaiting and (FItems.Count > 0) then
+  begin
+    UpdateGamepad;
+    if GamepadJustPressed(gbDPadUp) then
+    begin
+      FSelectedIdx := (FSelectedIdx - 1 + FItems.Count) mod FItems.Count;
+      Sounds.Play('sound/misc/menu1.wav');
+    end;
+    if GamepadJustPressed(gbDPadDown) then
+    begin
+      FSelectedIdx := (FSelectedIdx + 1) mod FItems.Count;
+      Sounds.Play('sound/misc/menu1.wav');
+    end;
+    if GamepadJustPressed(gbSouth) then
+      ExecuteSelection;
+    if GamepadJustPressed(gbEast) and (FSubMenu <> smMain) then
+    begin
+      if FSubMenu = smControls then
+        FSubMenu := smOptions
+      else
+        FSubMenu := smMain;
+      RebuildMenuItems;
+      Sounds.Play('sound/misc/menu3.wav');
+    end;
+  end;
   SyncDesign;
 end;
 
@@ -127,6 +168,7 @@ var
   PakFiles: TStringList;
   Found: TFileInfoList;
   I: Integer;
+  B: TQuakeBinding;
 begin
   FItems.Clear;
   case FSubMenu of
@@ -212,7 +254,15 @@ begin
           FItems.Add('World Lighting: [Dynamic PBR]');
         FItems.Add('Camera View: [' + FCameraModeName + ']');
         FItems.Add('Sound Effects: [' + IntToStr(FVolume) + '%]');
+        FItems.Add('Controls');
         FItems.Add('Back to Main Menu');
+      end;
+    smControls:
+      begin
+        for B := Low(TQuakeBinding) to High(TQuakeBinding) do
+          FItems.Add(BindingCaptions[B] + ': ' + BindingDescription(B));
+        FItems.Add('Reset to defaults');
+        FItems.Add('Back');
       end;
     smShowcase:
       begin
@@ -330,9 +380,34 @@ begin
           end;
         4:
           begin
+            FSubMenu := smControls;
+            RebuildMenuItems;
+          end;
+        5:
+          begin
             FSubMenu := smMain;
             RebuildMenuItems;
           end;
+      end;
+    smControls:
+      begin
+        if FSelectedIdx <= Ord(High(TQuakeBinding)) then
+        begin
+          { The next key or mouse button pressed becomes the binding }
+          FBindWaiting := True;
+          FBindTarget := TQuakeBinding(FSelectedIdx);
+        end else
+        if FSelectedIdx = Ord(High(TQuakeBinding)) + 1 then
+        begin
+          ResetBindings;
+          RebuildMenuItems;
+          FSelectedIdx := Ord(High(TQuakeBinding)) + 1;
+        end else
+        begin
+          FSubMenu := smOptions;
+          RebuildMenuItems;
+          FSelectedIdx := 4;
+        end;
       end;
     smShowcase:
       begin
@@ -343,8 +418,27 @@ begin
 end;
 
 function TQuakeMenu.Press(const Event: TInputPressRelease): Boolean;
+var
+  Selected: Integer;
 begin
   Result := False;
+
+  { Controls: waiting for the key of a binding }
+  if FBindWaiting then
+  begin
+    if Event.IsKey(keyEscape) then
+      FBindWaiting := False
+    else
+    if AssignBinding(FBindTarget, Event) then
+    begin
+      FBindWaiting := False;
+      Selected := FSelectedIdx;
+      RebuildMenuItems;
+      FSelectedIdx := Selected;
+      Sounds.Play('sound/misc/menu2.wav');
+    end;
+    Exit(True);
+  end;
 
   if Event.IsKey(keyArrowUp) then
   begin
@@ -368,6 +462,14 @@ begin
 
   if Event.IsKey(keyEscape) then
   begin
+    if FSubMenu = smControls then
+    begin
+      FSubMenu := smOptions;
+      RebuildMenuItems;
+      FSelectedIdx := 4;
+      Sounds.Play('sound/misc/menu3.wav');
+      Exit(True);
+    end;
     if FSubMenu <> smMain then
     begin
       FSubMenu := smMain;

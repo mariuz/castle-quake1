@@ -18,6 +18,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
+  GameInput,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer;
 
@@ -352,6 +353,7 @@ end;
 procedure TViewDemo.SendInput(const SecondsPassed: Single);
 var
   Input: TNetInput;
+  PadForward, PadSide: Single;
 begin
   Input := Default(TNetInput);
   Inc(FInputSeq);
@@ -360,20 +362,27 @@ begin
   Input.Angles := FDemo.ViewAngles;
   if AutoTestPrefix = '' then
   begin
-    if FNavigation.Input_Forward.IsPressed(Container) then
+    if BindingHeld(qbForward, Container) then
       Input.Move.X := Input.Move.X + ClForwardSpeed;
-    if FNavigation.Input_Backward.IsPressed(Container) then
+    if BindingHeld(qbBackward, Container) then
       Input.Move.X := Input.Move.X - ClBackSpeed;
-    if FNavigation.Input_RightStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeRight, Container) then
       Input.Move.Y := Input.Move.Y + ClSideSpeed;
-    if FNavigation.Input_LeftStrafe.IsPressed(Container) then
+    if BindingHeld(qbStrafeLeft, Container) then
       Input.Move.Y := Input.Move.Y - ClSideSpeed;
-    if FNavigation.Input_Run.IsPressed(Container) then
+    GamepadMove(PadForward, PadSide);
+    Input.Move.X := Input.Move.X + PadForward * ClForwardSpeed;
+    Input.Move.Y := Input.Move.Y + PadSide * ClSideSpeed;
+    if BindingHeld(qbWalk, Container) then
       Input.Move := Input.Move * 0.5;
-    if FNavigation.Input_Jump.IsPressed(Container) then
+    if BindingHeld(qbJump, Container) then
       Input.Buttons := Input.Buttons or nbJump;
-    if Container.Pressed[keyCtrl] or (buttonLeft in Container.MousePressed) then
+    if BindingHeld(qbFire, Container) then
       Input.Buttons := Input.Buttons or nbFire;
+    if GamepadJustPressed(GamepadNextWeapon) then
+      FImpulse := 10;
+    if GamepadJustPressed(GamepadPrevWeapon) then
+      FImpulse := 12;
   end;
   Input.Move := Input.Move + Vector3(FScriptMove.X * ClForwardSpeed, FScriptMove.Y * ClSideSpeed,
     FScriptMove.Z * ClUpSpeed);
@@ -1161,6 +1170,9 @@ begin
     end;
     FDemo.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
     FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
+    UpdateGamepad;
+    if AutoTestPrefix = '' then
+      GamepadTurnCamera(FViewport.Camera, SecondsPassed);
     if FDemo.Signon = Signons then
     begin
       ReconcilePrediction;
@@ -1248,12 +1260,22 @@ begin
       Exit(True);
     end;
     for I := 1 to 8 do
-      if Event.IsKey(Chr(Ord('0') + I)) then
+      if BindingEvent(TQuakeBinding(Ord(qbWeapon1) + I - 1), Event) then
       begin
         FImpulse := I;
         Exit(True);
       end;
-    if Event.IsKey(keyF12) then
+    if BindingEvent(qbNextWeapon, Event) then
+    begin
+      FImpulse := 10;
+      Exit(True);
+    end;
+    if BindingEvent(qbPrevWeapon, Event) then
+    begin
+      FImpulse := 12;
+      Exit(True);
+    end;
+    if BindingEvent(qbScreenshot, Event) then
     begin
       CaptureScreenshot;
       Exit(True);
