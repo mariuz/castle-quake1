@@ -349,6 +349,10 @@ type
     procedure CallWithOther(const F, E, Other: Integer);
     { Keep edicts 1..N for the clients (SV_SpawnServer) }
     procedure ReserveEdicts(const N: Integer);
+    { The whole VM state (globals, edicts, engine strings, precaches) for a
+      savegame; LoadState needs the same progs.dat (crc) loaded }
+    procedure SaveState(const S: TStream);
+    function LoadState(const S: TStream): Boolean;
 
     { One server frame: StartFrame, then the thinks that are due
       (SV_Physics without movement); Time advances by FrameTime }
@@ -1338,6 +1342,127 @@ begin
   end;
   if FNumEdicts < N + 1 then
     FNumEdicts := N + 1;
+end;
+
+procedure TQuakeProgs.SaveState(const S: TStream);
+
+  procedure WriteStr(const Str: String);
+  var
+    L: LongInt;
+  begin
+    L := Length(Str);
+    S.WriteBuffer(L, 4);
+    if L > 0 then
+      S.WriteBuffer(Str[1], L);
+  end;
+
+  procedure WriteList(const List: TStrings);
+  var
+    L, I: LongInt;
+  begin
+    L := List.Count;
+    S.WriteBuffer(L, 4);
+    for I := 0 to L - 1 do
+      WriteStr(List[I]);
+  end;
+
+var
+  V: LongInt;
+  I: Integer;
+  B: Byte;
+begin
+  V := FCrc;
+  S.WriteBuffer(V, 4);
+  V := FEntityFields;
+  S.WriteBuffer(V, 4);
+  V := Length(FGlobals);
+  S.WriteBuffer(V, 4);
+  if V > 0 then
+    S.WriteBuffer(FGlobals[0], V * SizeOf(TProgCell));
+  V := FNumEdicts;
+  S.WriteBuffer(V, 4);
+  for I := 0 to FNumEdicts - 1 do
+  begin
+    B := Ord(FEdictFree[I]);
+    S.WriteBuffer(B, 1);
+    S.WriteBuffer(FEdictFreeTime[I], SizeOf(Single));
+  end;
+  if FNumEdicts * FEntityFields > 0 then
+    S.WriteBuffer(FEdicts[0], FNumEdicts * FEntityFields * SizeOf(TProgCell));
+  WriteList(FDynStrings);
+  WriteList(PrecachedModels);
+  WriteList(PrecachedSounds);
+end;
+
+function TQuakeProgs.LoadState(const S: TStream): Boolean;
+
+  function ReadStr: String;
+  var
+    L: LongInt;
+  begin
+    S.ReadBuffer(L, 4);
+    SetLength(Result, Max(0, L));
+    if L > 0 then
+      S.ReadBuffer(Result[1], L);
+  end;
+
+  procedure ReadList(const List: TStrings);
+  var
+    L, I: LongInt;
+  begin
+    List.Clear;
+    S.ReadBuffer(L, 4);
+    for I := 0 to L - 1 do
+      List.Add(ReadStr);
+  end;
+
+var
+  V: LongInt;
+  I: Integer;
+  B: Byte;
+begin
+  Result := False;
+  if not Loaded then
+    Exit;
+  S.ReadBuffer(V, 4);
+  if V <> FCrc then
+  begin
+    WritelnWarning('QuakeProgs', 'The savegame was made with another progs.dat (crc %d, loaded %d)', [V, FCrc]);
+    Exit;
+  end;
+  S.ReadBuffer(V, 4);
+  if V <> FEntityFields then
+    Exit;
+  S.ReadBuffer(V, 4);
+  if V <> Length(FGlobals) then
+    Exit;
+  if V > 0 then
+    S.ReadBuffer(FGlobals[0], V * SizeOf(TProgCell));
+  S.ReadBuffer(V, 4);
+  if (V < 1) or (V > MaxEdicts) then
+    Exit;
+  FNumEdicts := V;
+  FillChar(FEdicts[0], Length(FEdicts) * SizeOf(TProgCell), 0);
+  for I := 0 to MaxEdicts - 1 do
+  begin
+    FEdictFree[I] := I > 0;
+    FEdictFreeTime[I] := -100;
+  end;
+  for I := 0 to FNumEdicts - 1 do
+  begin
+    S.ReadBuffer(B, 1);
+    FEdictFree[I] := B <> 0;
+    S.ReadBuffer(FEdictFreeTime[I], SizeOf(Single));
+  end;
+  if FNumEdicts * FEntityFields > 0 then
+    S.ReadBuffer(FEdicts[0], FNumEdicts * FEntityFields * SizeOf(TProgCell));
+  ReadList(FDynStrings);
+  ReadList(PrecachedModels);
+  ReadList(PrecachedSounds);
+  for I := 0 to High(FTempStrings) do
+    FTempStrings[I] := 0;
+  FTempNext := 0;
+  Result := True;
 end;
 
 procedure TQuakeProgs.RunFrame(const FrameTime: Single);

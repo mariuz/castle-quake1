@@ -58,8 +58,20 @@ type
     FScriptMove: TVector3;
     FScriptJump: Single;
     FQuitRequested: Boolean;
+    { Demo recording }
+    FRecorder: TQuakeDemoWriter;
+    FRecordUrl: String;
     procedure ClearLevel;
     function LoadLevel(const AMapName: String; const KeepParms: Boolean): Boolean;
+    { The viewport side of a level the game holds (after LoadLevel / LoadGame) }
+    procedure SetupLevel;
+    procedure SaveGameSlot(const Slot: String);
+    procedure LoadGameSlot(const Slot: String);
+    procedure StartRecording(const Url: String);
+    procedure StopRecording;
+    procedure RecordLevel;
+    procedure RecordFrame(const Yaw, Pitch: Single);
+    function ViewYawPitch(out Yaw, Pitch: Single): Boolean;
     procedure ShowVisual(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
       const Frame, Skin, Effects: Integer; const Dt: Single);
     procedure HideVisual(var V: TQcVisual);
@@ -80,6 +92,8 @@ type
     procedure HandleDamage(const E, Armor, Blood: Integer);
     procedure HandleAmbient(const Origin: TVector3; const Sample: String; const Volume: Single);
     procedure HandleIntermission(const S: String);
+    procedure HandlePrint(const S: String);
+    procedure HandleMessage(const E: Integer; const Data: TBytes);
   public
     MapName: String;
     Skill: Integer;
@@ -116,6 +130,8 @@ begin
   FGame.OnDamage := @HandleDamage;
   FGame.OnAmbient := @HandleAmbient;
   FGame.OnIntermission := @HandleIntermission;
+  FGame.OnPrint := @HandlePrint;
+  FGame.OnMessage := @HandleMessage;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
   SetLength(FVisuals, MaxEdicts);
@@ -193,6 +209,7 @@ end;
 
 procedure TViewQc.Stop;
 begin
+  StopRecording;
   ClearLevel;
   if Sounds <> nil then
     Sounds.StopMusic;
@@ -250,7 +267,6 @@ end;
 
 function TViewQc.LoadLevel(const AMapName: String; const KeepParms: Boolean): Boolean;
 var
-  Sub: TQuakeSubmodel;
   Angles: TVector3;
 begin
   Result := False;
@@ -258,10 +274,28 @@ begin
   if not FGame.LoadLevel(AMapName, Skill, KeepParms) then
     Exit;
   MapName := AMapName;
+  SetupLevel;
+  if FGame.TakeFixAngle(Angles) then
+    SetViewAngles(Angles.Y, Angles.X)
+  else
+    SetViewAngles(FGame.EntityAngles(1).Y, 0);
+  RecordLevel;
+  Result := True;
+end;
+
+procedure TViewQc.SetupLevel;
+var
+  Sub: TQuakeSubmodel;
+  I: Integer;
+begin
   FGeometry := TQuakeGeometry.Create(FGame.Bsp);
   FGeometry.AddToWorld(FViewport.Items);
   Lighting.CreateLightsFromBsp(FGame.Bsp, FViewport.Items);
   Lighting.ResetStyles;
+  { The lightstyles the progs set while spawning (or the saved ones) }
+  for I := 0 to 63 do
+    if FGame.LightStyleValue(I) <> '' then
+      Lighting.SetStyle(I, FGame.LightStyleValue(I));
   FAmbient.Setup(FGame.Bsp, FViewport.Items);
   SetLength(FSubmodels, FGame.Bsp.ModelCount);
   SetLength(FSubmodelUsed, FGame.Bsp.ModelCount);
@@ -273,13 +307,154 @@ begin
   end;
   FDeathTimer := 0;
   FHud.StopIntermission;
-  if FGame.TakeFixAngle(Angles) then
-    SetViewAngles(Angles.Y, Angles.X)
-  else
-    SetViewAngles(FGame.EntityAngles(1).Y, 0);
   Sounds.PlayMusic('track02.ogg');
   FLoaded := True;
-  Result := True;
+end;
+
+function TViewQc.ViewYawPitch(out Yaw, Pitch: Single): Boolean;
+var
+  CamDir: TVector3;
+begin
+  Result := FViewport <> nil;
+  Yaw := 0;
+  Pitch := 0;
+  if not Result then
+    Exit;
+  CamDir := FViewport.Camera.Direction;
+  Yaw := RadToDeg(ArcTan2(-CamDir.Z, CamDir.X));
+  Pitch := -RadToDeg(ArcSin(Clamped(CamDir.Y, -1, 1)));
+end;
+
+procedure TViewQc.SaveGameSlot(const Slot: String);
+var
+  Yaw, Pitch: Single;
+begin
+  if not FLoaded or FGame.PlayerDead then
+  begin
+    FHud.ShowMessage('Cannot save now', 2);
+    Exit;
+  end;
+  ViewYawPitch(Yaw, Pitch);
+  if FGame.SaveGame('castle-config:/qc_save_' + Slot + '.sav', Vector3(Pitch, Yaw, 0)) then
+    FHud.ShowMessage('Game saved (' + Slot + ')', 2)
+  else
+    FHud.ShowMessage('Cannot save the game', 2);
+end;
+
+procedure TViewQc.LoadGameSlot(const Slot: String);
+var
+  Angles: TVector3;
+begin
+  ClearLevel;
+  if not FGame.LoadGame('castle-config:/qc_save_' + Slot + '.sav', Angles) then
+  begin
+    FHud.ShowMessage('Cannot load slot ' + Slot, 2);
+    LoadLevel(MapName, True);
+    Exit;
+  end;
+  MapName := FGame.MapName;
+  SetupLevel;
+  SetViewAngles(Angles.Y, Angles.X);
+  RecordLevel;
+  FHud.ShowMessage('Game loaded (' + Slot + ')', 2);
+end;
+
+{ Demo recording }
+
+procedure TViewQc.StartRecording(const Url: String);
+begin
+  StopRecording;
+  FRecorder := TQuakeDemoWriter.Create;
+  FRecordUrl := Url;
+  if FLoaded then
+    RecordLevel;
+  FHud.ShowMessage('Recording demo', 2);
+end;
+
+procedure TViewQc.StopRecording;
+begin
+  if FRecorder = nil then
+    Exit;
+  if FRecorder.SaveToUrl(FRecordUrl) then
+    WritelnLog('GameViewQc', 'Demo saved to "%s"', [FRecordUrl]);
+  FreeAndNil(FRecorder);
+  if FHud <> nil then
+    FHud.ShowMessage('Demo saved', 2);
+end;
+
+procedure TViewQc.RecordLevel;
+var
+  Title: String;
+  World: TQuakeEntity;
+  Yaw, Pitch: Single;
+begin
+  if (FRecorder = nil) or (FGame.Bsp = nil) then
+    Exit;
+  Title := MapName;
+  World := FGame.Bsp.FindEntity('worldspawn');
+  if (World <> nil) and (World.MessageText <> '') then
+    Title := World.MessageText;
+  ViewYawPitch(Yaw, Pitch);
+  FRecorder.BeginLevel('maps/' + MapName + '.bsp', Title, Vector3(Pitch, Yaw, 0), FGame.TotalMonsters,
+    FGame.TotalSecrets);
+end;
+
+procedure TViewQc.RecordFrame(const Yaw, Pitch: Single);
+var
+  CD: TDemoClientData;
+  St: TDemoEntityState;
+  E: Integer;
+begin
+  if FRecorder = nil then
+    Exit;
+  FRecorder.BeginFrame(FGame.Time);
+  CD := Default(TDemoClientData);
+  CD.ViewHeight := FGame.PlayerViewOfs.Z;
+  CD.Velocity := FGame.PlayerVelocity(1);
+  CD.Items := FGame.PlayerItems;
+  CD.OnGround := FGame.PlayerOnGround(1);
+  CD.InWater := FGame.PlayerWaterLevel(1) > 0;
+  CD.WeaponFrame := FGame.PlayerWeaponFrame;
+  CD.Armor := FGame.PlayerArmor;
+  if FGame.PlayerWeaponModel <> '' then
+    CD.Weapon := FRecorder.ModelIndex(FGame.PlayerWeaponModel);
+  CD.Health := FGame.PlayerHealth;
+  CD.Ammo := FGame.PlayerAmmo(0);
+  CD.Shells := FGame.PlayerAmmo(1);
+  CD.Nails := FGame.PlayerAmmo(2);
+  CD.Rockets := FGame.PlayerAmmo(3);
+  CD.Cells := FGame.PlayerAmmo(4);
+  CD.ActiveWeapon := Integer(FGame.PlayerWeapon);
+  FRecorder.WriteClientData(CD);
+  for E := 1 to FGame.Progs.NumEdicts - 1 do
+    if FGame.EntityVisible(E) then
+    begin
+      St := Default(TDemoEntityState);
+      St.ModelIndex := FRecorder.ModelIndex(FGame.EntityModel(E));
+      St.Frame := FGame.EntityFrame(E);
+      St.Skin := FGame.EntitySkin(E);
+      St.Effects := FGame.EntityEffects(E);
+      St.Origin := FGame.EntityOrigin(E);
+      St.Angles := FGame.EntityAngles(E);
+      FRecorder.WriteEntity(E, St);
+    end;
+  FRecorder.EndFrame(Vector3(Pitch, Yaw, 0));
+end;
+
+procedure TViewQc.HandlePrint(const S: String);
+begin
+  if FRecorder <> nil then
+    FRecorder.WritePrint(S);
+end;
+
+procedure TViewQc.HandleMessage(const E: Integer; const Data: TBytes);
+begin
+  if (FRecorder = nil) or (Length(Data) = 0) then
+    Exit;
+  case Data[0] of
+    27: FRecorder.WriteKilledMonster;
+    28: FRecorder.WriteFoundSecret;
+  end;
 end;
 
 procedure TViewQc.SetViewAngles(const Yaw, Pitch: Single);
@@ -301,6 +476,8 @@ procedure TViewQc.HandleSound(const E, Channel: Integer; const Sample: String; c
 var
   T: TCastleTransform;
 begin
+  if FRecorder <> nil then
+    FRecorder.WriteSound(E, Channel, FRecorder.SoundIndex(Sample), Volume, Attenuation, Origin);
   if (E = 1) or (Attenuation = 0) then
     Sounds.Play(Sample, Volume)
   else
@@ -314,6 +491,8 @@ end;
 
 procedure TViewQc.HandleCenterPrint(const E: Integer; const S: String);
 begin
+  if FRecorder <> nil then
+    FRecorder.WriteCenterPrint(S);
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
@@ -326,6 +505,8 @@ end;
 
 procedure TViewQc.HandleDamage(const E, Armor, Blood: Integer);
 begin
+  if FRecorder <> nil then
+    FRecorder.WriteDamage(Armor, Blood, FGame.Phys.Origin);
   FHud.DamageFlash(Armor, Blood);
 end;
 
@@ -336,6 +517,8 @@ end;
 
 procedure TViewQc.HandleIntermission(const S: String);
 begin
+  if FRecorder <> nil then
+    FRecorder.WriteIntermission;
   if S <> '' then
     FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 120)
   else
@@ -396,6 +579,13 @@ procedure TViewQc.HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector
 var
   P: TVector3;
 begin
+  if FRecorder <> nil then
+  begin
+    if Kind in [5, 6, 9, 13] then
+      FRecorder.WriteBeam(Kind, Entity, Pos, Pos2)
+    else
+      FRecorder.WriteTempEntity(Kind, Pos);
+  end;
   P := QuakeToCge(Pos);
   case Kind of
     TE_SPIKE, TE_SUPERSPIKE, TE_GUNSHOT:
@@ -751,6 +941,17 @@ begin
     end else
     if Action = 'J' then
       FScriptJump := 0.1
+    else if Action = 'O' then
+      SaveGameSlot(Param)
+    else if Action = 'L' then
+      LoadGameSlot(Param)
+    else if Action = 'R' then
+    begin
+      if Param = '' then
+        StopRecording
+      else
+        StartRecording('castle-config:/' + Param + '.dem');
+    end
     else if Action = 'Q' then
     begin
       FQuitRequested := True;
@@ -801,6 +1002,7 @@ begin
     Pitch := Angles.X;
   end;
   SetViewAngles(Yaw, Pitch);
+  RecordFrame(Yaw, Pitch);
 
   { Level change and death }
   if FGame.LevelChange <> '' then
@@ -880,6 +1082,16 @@ begin
   if Event.IsKey(keyF12) then
   begin
     CaptureScreenshot;
+    Exit(True);
+  end;
+  if Event.IsKey(keyF6) then
+  begin
+    SaveGameSlot('quick');
+    Exit(True);
+  end;
+  if Event.IsKey(keyF9) then
+  begin
+    LoadGameSlot('quick');
     Exit(True);
   end;
 end;
