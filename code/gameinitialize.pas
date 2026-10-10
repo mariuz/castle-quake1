@@ -9,7 +9,7 @@ uses
   SysUtils, Classes,
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
-  QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs,
+  QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc;
 
 var
@@ -28,6 +28,7 @@ var
   CmdPort: Integer;
   CmdCoop: Boolean;
   CmdSkill: Integer;
+  CmdExportMap, CmdExportUrl: String;
 
 procedure ApplicationInitialize;
 
@@ -94,6 +95,30 @@ begin
     View.NetHost := '127.0.0.1';
 end;
 
+{ --export-map <map> <file.x3d|file.gltf>: the level as a scene file }
+procedure ExportMap(const MapName, FileName: String);
+var
+  Bsp: TQuakeBsp;
+  Geometry: TQuakeGeometry;
+  Url: String;
+begin
+  Bsp := TQuakeBsp.Create;
+  Geometry := nil;
+  try
+    if not Bsp.LoadFromPak('maps/' + MapName + '.bsp') then
+    begin
+      WritelnWarning('GameInitialize', 'Cannot load map "%s" for the export', [MapName]);
+      Exit;
+    end;
+    Url := AbsoluteUri(FileName);
+    Geometry := TQuakeGeometry.Create(Bsp);
+    Geometry.ExportMap(Url);
+  finally
+    Geometry.Free;
+    Bsp.Free;
+  end;
+end;
+
 procedure ApplicationInitialize;
 var
   I: Integer;
@@ -124,6 +149,12 @@ begin
     begin
       CmdQc := Parameters[I + 1];
       Inc(I);
+    end else
+    if (Parameters[I] = '--export-map') and (I + 2 <= Parameters.High) then
+    begin
+      CmdExportMap := Parameters[I + 1];
+      CmdExportUrl := Parameters[I + 2];
+      Inc(I, 2);
     end else
     if (Parameters[I] = '--qctest') and (I + 1 <= Parameters.High) then
     begin
@@ -241,6 +272,12 @@ begin
   if CmdQcTest <> '' then
   begin
     RunQcTest(CmdQcTest);
+    Application.Terminate;
+    Exit;
+  end;
+  if CmdExportMap <> '' then
+  begin
+    ExportMap(CmdExportMap, CmdExportUrl);
     Application.Terminate;
     Exit;
   end;

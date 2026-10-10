@@ -118,6 +118,7 @@ castle-quake1 -qc e1m1                        QuakeC mode: progs.dat runs the ga
 castle-quake1 -host start                     Host a deathmatch game on UDP port 26000 and play in it
 castle-quake1 -host e1m1 -coop -skill 2       Host a cooperative game
 castle-quake1 -connect 192.168.1.10           Join a game (host[:port])
+castle-quake1 --export-map e1m1 e1m1.x3d           Export a level as X3D (or .gltf) for the editor / view3dscene
 castle-quake1 --autotest e1m1 shot --demo "W:1,S,X,W:0.5,S,Q"   Headless test with screenshots
 ```
 The Options menu switches the world lighting between Quake's lightmaps and dynamic PBR lighting.
