@@ -39,8 +39,10 @@ type
 
     { Convert 8-bit palette indexed buffer to TRGBAlphaImage.
       If TransparentIndex >= 0, that palette index becomes fully transparent. }
+    { FullbrightAlpha: the alpha channel marks the fullbright palette
+      entries (224..255) with 255, the rest with 0, for the lightmap shader }
     function DecodeIndexed(const Pixels: PByte; const Width, Height: Integer;
-      const TransparentIndex: Integer = -1): TRGBAlphaImage;
+      const TransparentIndex: Integer = -1; const FullbrightAlpha: Boolean = False): TRGBAlphaImage;
 
     { Add an image to the memory cache under a unique identifier. }
     procedure CacheImage(const AId: String; const Image: TCastleImage);
@@ -172,7 +174,7 @@ begin
 end;
 
 function TQuakePalette.DecodeIndexed(const Pixels: PByte; const Width, Height: Integer;
-  const TransparentIndex: Integer): TRGBAlphaImage;
+  const TransparentIndex: Integer; const FullbrightAlpha: Boolean): TRGBAlphaImage;
 var
   X, Y: Integer;
   Src: PByte;
@@ -192,9 +194,10 @@ begin
       begin
         Dst^ := Vector4Byte(0, 0, 0, 0);
       end else
-      begin
+      if FullbrightAlpha and not IsFullbright(Idx) then
+        Dst^ := Vector4Byte(FColors[Idx].R, FColors[Idx].G, FColors[Idx].B, 0)
+      else
         Dst^ := Vector4Byte(FColors[Idx].R, FColors[Idx].G, FColors[Idx].B, 255);
-      end;
     end;
   end;
 end;

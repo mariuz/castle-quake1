@@ -899,6 +899,13 @@ begin
     FWorld.CheatGiveAll(FHud);
     FConsole.Print('Gave all weapons, keys and ammo');
   end else
+  if Cmd = 'wateralpha' then
+  begin
+    { r_wateralpha: 1 opaque, 0 invisible }
+    if FWorld.Geometry <> nil then
+      FWorld.Geometry.LiquidAlpha := EnsureRange(StrToFloatDef(Args, 0.65), 0, 1);
+    FConsole.Print(Format('Water alpha: %.2f', [DefaultLiquidAlpha]));
+  end else
   if Cmd = 'shadows' then
   begin
     Lighting.ShadowsEnabled := (Args = '1') or (Args = 'on');
@@ -920,6 +927,7 @@ begin
     FConsole.Print('  god            - God mode');
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
+    FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
     FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
     FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
     FConsole.Print('  fps            - Show the frame rate in the stats line');

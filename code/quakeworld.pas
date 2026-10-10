@@ -294,6 +294,7 @@ type
     property Pickups: TQuakePickupList read FPickups;
     property WeaponTransform: TCastleTransform read FWeaponTransform;
     property Bsp: TQuakeBsp read FBsp;
+    property Geometry: TQuakeGeometry read FGeometry;
   end;
 
 implementation

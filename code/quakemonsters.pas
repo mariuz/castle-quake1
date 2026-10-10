@@ -149,6 +149,7 @@ type
     SightAlerted: Boolean;
     { Events the world handles }
     GibPending: Boolean;     { burst into gibs }
+    LavaSplashPending: Boolean; { Chthon rose: the lava splash effect (the world spawns it) }
     ExplodePending: Boolean; { spawn death explosion }
     DeathTargetPending: Boolean; { fire Target (Chthon) }
     KillCounted: Boolean;
@@ -784,6 +785,7 @@ begin
     { boss_awake: rise from the lava }
     Transform.Exists := True;
     State := msRise;
+    LavaSplashPending := True;
     SightAlerted := True;
     PlaySeq(FDef.Leap, False, True);
     if FDef.SightSound <> '' then

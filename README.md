@@ -34,6 +34,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 
 **World**
 - BSP v29 levels from `.pak` files turned into X3D scene graphs, with triangle collision and the Quake clipping hulls for movement.
+- The scrolling two layer sky or a six face skybox (`sky` worldspawn key with `gfx/env/*.tga`), fullbright texture pixels, translucent liquids seen from both sides, lava splashes.
 - Two world lighting modes: Quake's own lightmaps, all lightstyle layers blended in a GLSL effect with the live lightstyle values and dynamic lights (muzzle flashes, explosions), or dynamic PBR lighting by the map's light entities with real-time shadow maps.
 - Dual-layer scrolling sky, turbulent liquid surfaces, animated textures, particles (gunshots, blood, explosions, trails, teleports), underwater warp and palette tints.
 - Interactive brush entities: doors (including silver and gold key doors), platforms, buttons, trains, secret doors, triggers, teleporters, level changes.
@@ -57,7 +58,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
 - Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `fps`, `help`.
+- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fps`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
 
 ---
