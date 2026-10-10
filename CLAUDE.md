@@ -71,6 +71,10 @@ Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo
 Multiplayer: `-host <map> [-port N] [-coop] [-skill N]` hosts a deathmatch (or coop) game (UDP, default port 26000) and plays in it, `-connect host[:port]` joins one. Headless: `--autotest host:start C:\TMP\h --demo "W:5,S,Q"` and, in a second process, `--autotest connect:127.0.0.1 C:\TMP\c --demo "W:3,S,X,W:1,S,Q"` (actions W, S, X, F, C, A, T, P, V, J, Q; screenshots log signon, health, frags and the client-side prediction error). `K` and `Y` are no cheats in deathmatch. `-nopredict` turns the prediction of the local player off. Behind NATs: `-rendezvous [-port N]` runs the rendezvous service (headless: `--autotest rendezvous C:\TMP\r --demo "W:30,Q"`), the host adds `-register name@rendezvous[:port]` and the client uses `-connect name@rendezvous[:port]`.
 - `Q` quit application
 
+## Unit Tests
+
+`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the QuakeC VM, savegame round trips and the demo writer / reader against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
+
 ## Conventions & Rules
 
 - **Indentation & Formatting**: 2-space indent, `begin`/`end` on their own lines, PascalCase identifiers, no `with`.

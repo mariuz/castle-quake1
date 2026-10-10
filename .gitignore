@@ -22,3 +22,7 @@ test_output/
 
 # Linux / macOS executable
 /castle-quake1
+
+# Unit test program
+tests/quaketests
+tests/quaketests.exe

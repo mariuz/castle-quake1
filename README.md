@@ -107,6 +107,8 @@ $CASTLE_ENGINE_PATH/tools/build-tool/castle-engine compile --mode=release
 The releases include app bundles for Intel and Apple Silicon Macs. They are not signed or notarized: on the first start use right-click > Open, or `xattr -dr com.apple.quarantine "Castle Quake.app"`. Building locally is the same `castle-engine compile` with the engine set up for macOS.
 
 ### Web
+The `test` job builds `tests/quaketests` (the BSP tracer, the QuakeC VM, savegames, the demo writer and reader against the shareware pak) and runs it before the packages are released; locally: `cd tests && castle-engine compile && ./quaketests ../data/paks`.
+
 The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js and deploys it to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/).
 
 ### Command line
