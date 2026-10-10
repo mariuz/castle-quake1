@@ -9,7 +9,7 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleControls, CastleUIControls, CastleColors,
-  CastleRectangles, CastleGLUtils;
+  CastleRectangles, CastleGLUtils, CastleComponentSerialize;
 
 type
   { Player statistics needed for HUD rendering }
@@ -42,8 +42,12 @@ type
   TQuakeHud = class(TCastleUserInterface)
   private
     FStats: TQuakePlayerStats;
+    { The editor design (data/ui/hud.castle-user-interface) }
+    FDesign: TCastleUserInterface;
     FMessageLabel: TCastleLabel;
     FStatsLabel: TCastleLabel;
+    FArmorValue, FHealthValue, FAmmoValue, FKeysLabel: TCastleLabel;
+    FStatusFrame, FAirBar, FAirFill: TCastleUserInterface;
     FMessageTimer: Single;
     FCrosshairVisible: Boolean;
     FStatsVisible: Boolean;
@@ -130,21 +134,20 @@ begin
   FillChar(FStats, SizeOf(FStats), 0);
   FStats.Health := 100;
 
-  { Centered message banner }
-  FMessageLabel := TCastleLabel.Create(Self);
-  FMessageLabel.Color := Vector4(1.0, 0.9, 0.2, 1.0);
-  FMessageLabel.Anchor(hpMiddle);
-  FMessageLabel.Anchor(vpTop, -80);
-  FMessageLabel.Caption := '';
-  InsertFront(FMessageLabel);
-
-  { Corner stats label }
-  FStatsLabel := TCastleLabel.Create(Self);
-  FStatsLabel.Color := Vector4(0.8, 0.8, 0.8, 0.85);
-  FStatsLabel.Anchor(hpLeft, 16);
-  FStatsLabel.Anchor(vpTop, -16);
-  FStatsLabel.Caption := '';
-  InsertFront(FStatsLabel);
+  { The status bar, message banner and stats line are an editor design;
+    the palette blends, the crosshair and the intermission pictures are
+    still drawn in Render }
+  FDesign := UserInterfaceLoad('castle-data:/ui/hud.castle-user-interface', Self);
+  InsertFront(FDesign);
+  FMessageLabel := FindRequiredComponent('MessageLabel') as TCastleLabel;
+  FStatsLabel := FindRequiredComponent('StatsLabel') as TCastleLabel;
+  FArmorValue := FindRequiredComponent('ArmorValue') as TCastleLabel;
+  FHealthValue := FindRequiredComponent('HealthValue') as TCastleLabel;
+  FAmmoValue := FindRequiredComponent('AmmoValue') as TCastleLabel;
+  FKeysLabel := FindRequiredComponent('KeysLabel') as TCastleLabel;
+  FStatusFrame := FindRequiredComponent('StatusBarFrame') as TCastleUserInterface;
+  FAirBar := FindRequiredComponent('AirBar') as TCastleUserInterface;
+  FAirFill := FindRequiredComponent('AirFill') as TCastleUserInterface;
 
   FCrosshairVisible := True;
   FStatsVisible := True;
@@ -228,6 +231,31 @@ begin
     UpdateIntermission(SecondsPassed);
   FMessageLabel.Exists := not FIntermission;
   FStatsLabel.Exists := FStatsVisible and not FIntermission;
+  FStatusFrame.Exists := not FIntermission;
+  FAirBar.Exists := Stats.Underwater and not FIntermission;
+  FAirFill.Width := 600 * EnsureRange(Stats.AirLeft / 12.0, 0, 1);
+
+  { The status bar values and their colors }
+  FArmorValue.Caption := IntToStr(Max(0, Stats.Armor));
+  if Stats.Armor > 100 then
+    FArmorValue.Color := Vector4(1.0, 0.85, 0.1, 1.0)
+  else if Stats.Armor > 0 then
+    FArmorValue.Color := Vector4(0.35, 0.9, 0.35, 1.0)
+  else
+    FArmorValue.Color := Vector4(0.5, 0.5, 0.5, 0.7);
+  FHealthValue.Caption := IntToStr(Max(0, Stats.Health));
+  if Stats.Health > 100 then
+    FHealthValue.Color := Vector4(0.4, 0.7, 1.0, 1.0)
+  else if Stats.Health > 25 then
+    FHealthValue.Color := Vector4(0.95, 0.95, 0.95, 1.0)
+  else
+    FHealthValue.Color := Vector4(1.0, 0.25, 0.25, 1.0);
+  FAmmoValue.Caption := IntToStr(Max(0, Stats.Ammo));
+  FKeysLabel.Caption := '';
+  if (Stats.Keys and 1) <> 0 then
+    FKeysLabel.Caption := '[SILVER] ';
+  if (Stats.Keys and 2) <> 0 then
+    FKeysLabel.Caption := FKeysLabel.Caption + '[GOLD]';
 
   { Flashes fade out like in V_UpdatePalette }
   FDamageShift.Percent := Max(0, FDamageShift.Percent - 150 * SecondsPassed);
@@ -261,9 +289,6 @@ procedure TQuakeHud.Render;
 var
   CX, CY: Single;
   R: TFloatRectangle;
-  BarW, BarH, BarX, BarY, ColW: Single;
-  ArmorCol, HealthCol, AmmoCol: TVector4;
-  KeyStr: String;
   Blend: TVector4;
 begin
   inherited Render;
@@ -278,69 +303,6 @@ begin
     RenderIntermission;
     Exit;
   end;
-
-  { 1. Draw Quake Status Bar at bottom center }
-  BarW := Min(RenderRect.Width - 40, 600);
-  if BarW < 320 then
-    BarW := 320;
-  BarH := 48;
-  BarX := (RenderRect.Width - BarW) / 2;
-  BarY := 12;
-
-  { Status bar border and dark metal plate }
-  DrawRectangle(FloatRectangle(BarX - 3, BarY - 3, BarW + 6, BarH + 6), Vector4(0.22, 0.22, 0.26, 0.95));
-  DrawRectangle(FloatRectangle(BarX, BarY, BarW, BarH), Vector4(0.09, 0.09, 0.11, 0.92));
-
-  ColW := BarW / 3;
-
-  { Inner column dividing lines }
-  DrawRectangle(FloatRectangle(BarX + ColW, BarY + 2, 2, BarH - 4), Vector4(0.25, 0.25, 0.3, 0.75));
-  DrawRectangle(FloatRectangle(BarX + ColW * 2, BarY + 2, 2, BarH - 4), Vector4(0.25, 0.25, 0.3, 0.75));
-
-  { Armor color logic }
-  if FStats.Armor > 100 then
-    ArmorCol := Vector4(1.0, 0.85, 0.1, 1.0)
-  else if FStats.Armor > 0 then
-    ArmorCol := Vector4(0.35, 0.9, 0.35, 1.0)
-  else
-    ArmorCol := Vector4(0.5, 0.5, 0.5, 0.7);
-
-  { Health color logic }
-  if FStats.Health > 100 then
-    HealthCol := Vector4(0.4, 0.7, 1.0, 1.0)
-  else if FStats.Health > 25 then
-    HealthCol := Vector4(0.95, 0.95, 0.95, 1.0)
-  else
-    HealthCol := Vector4(1.0, 0.25, 0.25, 1.0);
-
-  AmmoCol := Vector4(1.0, 0.75, 0.2, 1.0);
-
-  { Section 1: ARMOR }
-  UIFont.Print(BarX + 16, BarY + 28, Vector4(0.65, 0.65, 0.7, 0.9), 'ARMOR');
-  UIFont.Print(BarX + 16, BarY + 8, ArmorCol, IntToStr(Max(0, FStats.Armor)));
-
-  { Section 2: HEALTH }
-  UIFont.Print(BarX + ColW + 16, BarY + 28, Vector4(0.65, 0.65, 0.7, 0.9), 'HEALTH');
-  UIFont.Print(BarX + ColW + 16, BarY + 8, HealthCol, IntToStr(Max(0, FStats.Health)));
-
-  { Section 3: AMMO }
-  UIFont.Print(BarX + ColW * 2 + 16, BarY + 28, Vector4(0.65, 0.65, 0.7, 0.9), 'AMMO');
-  UIFont.Print(BarX + ColW * 2 + 16, BarY + 8, AmmoCol, IntToStr(Max(0, FStats.Ammo)));
-
-  { Air supply while the head is under water }
-  if FStats.Underwater then
-  begin
-    DrawRectangle(FloatRectangle(BarX, BarY + BarH + 8, BarW, 6), Vector4(0.1, 0.1, 0.15, 0.8));
-    DrawRectangle(FloatRectangle(BarX, BarY + BarH + 8, BarW * EnsureRange(FStats.AirLeft / 12.0, 0, 1), 6),
-      Vector4(0.45, 0.7, 1.0, 0.9));
-  end;
-
-  { Keys indicator at far right if collected }
-  KeyStr := '';
-  if (FStats.Keys and 1) <> 0 then KeyStr := KeyStr + '[SILVER] ';
-  if (FStats.Keys and 2) <> 0 then KeyStr := KeyStr + '[GOLD]';
-  if KeyStr <> '' then
-    UIFont.Print(BarX + ColW * 2 + 100, BarY + 18, Vector4(1.0, 0.85, 0.2, 1.0), KeyStr);
 
   { 2. Draw centered crosshair }
   if FCrosshairVisible then

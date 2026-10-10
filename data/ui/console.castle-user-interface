@@ -1,0 +1,87 @@
+{
+  "$$ClassName": "TCastleUserInterface",
+  "FullSize": true,
+  "Name": "ConsoleDesign",
+  "$Children": [
+    {
+      "$$ClassName": "TCastleRectangleControl",
+      "Name": "Panel",
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.08,
+        "Green": 0.08,
+        "Blue": 0.1,
+        "Alpha": 0.92
+      },
+      "HorizontalAnchorParent": "hpLeft",
+      "HorizontalAnchorSelf": "hpLeft",
+      "VerticalAnchorParent": "vpTop",
+      "VerticalAnchorSelf": "vpTop",
+      "WidthFraction": 1.0,
+      "HeightFraction": 0.45,
+      "$Children": [
+        {
+          "$$ClassName": "TCastleRectangleControl",
+          "Name": "BorderLine",
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 0.8,
+            "Green": 0.4,
+            "Blue": 0.1
+          },
+          "HorizontalAnchorParent": "hpLeft",
+          "HorizontalAnchorSelf": "hpLeft",
+          "VerticalAnchorParent": "vpBottom",
+          "VerticalAnchorSelf": "vpBottom",
+          "Height": 3,
+          "WidthFraction": 1.0
+        },
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "OutputLabel",
+          "Text": [
+            ""
+          ],
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 0.9,
+            "Green": 0.85,
+            "Blue": 0.75
+          },
+          "TranslationPersistent": {
+            "$$ClassName": "TCastleVector2Persistent",
+            "X": 16,
+            "Y": -12
+          },
+          "HorizontalAnchorParent": "hpLeft",
+          "HorizontalAnchorSelf": "hpLeft",
+          "VerticalAnchorParent": "vpTop",
+          "VerticalAnchorSelf": "vpTop"
+        },
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "PromptLabel",
+          "Text": [
+            "] _"
+          ],
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1.0,
+            "Green": 0.5,
+            "Blue": 0.1
+          },
+          "TranslationPersistent": {
+            "$$ClassName": "TCastleVector2Persistent",
+            "X": 16,
+            "Y": 10
+          },
+          "HorizontalAnchorParent": "hpLeft",
+          "HorizontalAnchorSelf": "hpLeft",
+          "VerticalAnchorParent": "vpBottom",
+          "VerticalAnchorSelf": "vpBottom"
+        }
+      ],
+      "Exists": false
+    }
+  ]
+}

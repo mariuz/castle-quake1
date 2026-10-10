@@ -1,0 +1,138 @@
+{
+  "$$ClassName": "TCastleUserInterface",
+  "FullSize": true,
+  "Name": "MenuDesign",
+  "$Children": [
+    {
+      "$$ClassName": "TCastleRectangleControl",
+      "Name": "Backdrop",
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.04,
+        "Green": 0.04,
+        "Blue": 0.05,
+        "Alpha": 0.88
+      },
+      "HorizontalAnchorParent": "hpLeft",
+      "HorizontalAnchorSelf": "hpLeft",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "FullSize": true
+    },
+    {
+      "$$ClassName": "TCastleLabel",
+      "Name": "TitleLabel",
+      "Text": [
+        "CASTLE QUAKE"
+      ],
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 1.0,
+        "Green": 0.45,
+        "Blue": 0.1
+      },
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 220
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpMiddle",
+      "FontSize": 26
+    },
+    {
+      "$$ClassName": "TCastleLabel",
+      "Name": "SubtitleLabel",
+      "Text": [
+        "Castle Game Engine Quake Showcase"
+      ],
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.8,
+        "Blue": 0.8,
+        "Alpha": 0.8
+      },
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 190
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpMiddle"
+    },
+    {
+      "$$ClassName": "TCastleVerticalGroup",
+      "Name": "ItemsGroup",
+      "Alignment": "hpMiddle",
+      "Spacing": 12.0,
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpTop",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 100
+      }
+    },
+    {
+      "$$ClassName": "TCastleLabel",
+      "Name": "ShowcaseLabel",
+      "Text": [
+        "Engine Features Used:",
+        "",
+        "- Full 3D X3D Scene Graphs (TIndexedTriangleSetNode, TShapeNode)",
+        "- Quake lightmaps blended in a GLSL effect, or dynamic PBR lighting with shadow maps",
+        "- Quake 1 Alias MDL 3D Model Loading and Mesh Animation",
+        "- Positional 3D Spatial Audio via OpenAL (TCastleSoundSource)",
+        "- Custom URL Protocols (\"quakepak:\", \"quaketex:\") with Streaming Cache",
+        "- First/Third Person & Free-Fly Navigation (TCastleWalkNavigation)",
+        "- Interactive Submodels (doors, elevators, buttons) via TCastleTransform",
+        "- Particle Systems (impact sparks, blood splatters, explosions)",
+        "- A QuakeC VM, multiplayer over UDP, demos, savegames",
+        "- Named components and behaviors for the engine's inspector (F8)",
+        "- This menu, the HUD and the console are editor designs (data/ui)",
+        "",
+        "[ Press Enter / Esc to Return ]"
+      ],
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.9,
+        "Green": 0.9,
+        "Blue": 0.9
+      },
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent"
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpMiddle",
+      "Exists": false
+    },
+    {
+      "$$ClassName": "TCastleLabel",
+      "Name": "HintLabel",
+      "Text": [
+        "Use Arrow Keys to Navigate, Enter to Select, Esc to Back"
+      ],
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.6,
+        "Green": 0.6,
+        "Blue": 0.6,
+        "Alpha": 0.7
+      },
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 40
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom"
+    }
+  ]
+}

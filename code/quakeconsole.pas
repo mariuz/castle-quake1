@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
-  CastleRectangles, CastleGLUtils, CastleWindow;
+  CastleRectangles, CastleGLUtils, CastleWindow, CastleComponentSerialize;
 
 type
   TConsoleCommandEvent = procedure(const Cmd, Args: String) of object;
@@ -23,6 +23,11 @@ type
     FInputText: String;
     FOnCommand: TConsoleCommandEvent;
     FHeightFraction: Single;
+    { The editor design (data/ui/console.castle-user-interface) }
+    FDesign: TCastleUserInterface;
+    FPanel: TCastleUserInterface;
+    FOutputLabel, FPromptLabel: TCastleLabel;
+    procedure SyncDesign;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -35,7 +40,7 @@ type
     procedure Print(const S: String);
 
     function Press(const Event: TInputPressRelease): Boolean; override;
-    procedure Render; override;
+    procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
 
     property IsOpen: Boolean read FIsOpen;
     property OnCommand: TConsoleCommandEvent read FOnCommand write FOnCommand;
@@ -53,6 +58,12 @@ begin
   FHistoryIndex := -1;
   FInputText := '';
   FHeightFraction := 0.45;
+  FDesign := UserInterfaceLoad('castle-data:/ui/console.castle-user-interface', Self);
+  InsertFront(FDesign);
+  FPanel := FindRequiredComponent('Panel') as TCastleUserInterface;
+  FOutputLabel := FindRequiredComponent('OutputLabel') as TCastleLabel;
+  FPromptLabel := FindRequiredComponent('PromptLabel') as TCastleLabel;
+  FPanel.HeightFraction := FHeightFraction;
 
   Print('Castle Quake Developer Console');
   Print('Type "help" for a list of available commands.');
@@ -183,43 +194,29 @@ begin
   Result := True;
 end;
 
-procedure TQuakeConsole.Render;
+procedure TQuakeConsole.SyncDesign;
 var
-  H, W: Single;
-  BgRect, LineRect: TFloatRectangle;
-  I, MaxDisplay, StartIdx: Integer;
-  LineY: Single;
+  MaxDisplay, StartIdx, I: Integer;
+  LineH: Single;
 begin
+  FPanel.Exists := FIsOpen;
   if not FIsOpen then
     Exit;
-
-  inherited Render;
-
-  W := RenderRect.Width;
-  H := RenderRect.Height * FHeightFraction;
-
-  { Dark translucent backdrop }
-  BgRect := FloatRectangle(0, RenderRect.Height - H, W, H);
-  DrawRectangle(BgRect, Vector4(0.08, 0.08, 0.1, 0.92));
-
-  { Bottom border line }
-  LineRect := FloatRectangle(0, RenderRect.Height - H, W, 3);
-  DrawRectangle(LineRect, Vector4(0.8, 0.4, 0.1, 1.0));
-
-  { Render lines }
-  MaxDisplay := Trunc((H - 40) / 18);
+  LineH := FOutputLabel.Font.Height + FOutputLabel.LineSpacing;
+  if LineH < 1 then
+    LineH := 18;
+  MaxDisplay := Max(1, Trunc((FPanel.EffectiveHeight - 50) / LineH));
   StartIdx := Max(0, FLines.Count - MaxDisplay);
-  LineY := RenderRect.Height - 30;
-
+  FOutputLabel.Text.Clear;
   for I := StartIdx to FLines.Count - 1 do
-  begin
-    UIFont.Print(16, LineY, Vector4(0.9, 0.85, 0.75, 1.0), FLines[I]);
-    LineY := LineY - 18;
-  end;
+    FOutputLabel.Text.Add(FLines[I]);
+  FPromptLabel.Caption := '] ' + FInputText + '_';
+end;
 
-  { Prompt }
-  UIFont.Print(16, RenderRect.Height - H + 10, Vector4(1.0, 0.5, 0.1, 1.0),
-    '] ' + FInputText + '_');
+procedure TQuakeConsole.Update(const SecondsPassed: Single; var HandleInput: Boolean);
+begin
+  inherited Update(SecondsPassed, HandleInput);
+  SyncDesign;
 end;
 
 end.
