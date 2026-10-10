@@ -122,9 +122,9 @@ jobs:
       - name: Assemble site
         run: |
           set -eux
-          mkdir -p _site/play _site/docs
+          mkdir -p _site/play _site/docs/screenshots
           cp pages/index.html _site/
-          cp docs/*.png _site/docs/
+          cp docs/screenshots/*.jpg _site/docs/screenshots/
           cp -R castle-engine-output/web/dist/* _site/play/
           du -sh _site
 
