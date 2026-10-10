@@ -657,6 +657,36 @@ begin
       D.SetFloat(P + 'last', FTriggers[I].LastTriggerTime - FTime);
     end;
 
+    { Projectiles and gibs in flight }
+    D.SetInt('projectiles', FProjectiles.Count);
+    for I := 0 to FProjectiles.Count - 1 do
+    begin
+      P := 'projectile.' + IntToStr(I) + '.';
+      D.SetInt(P + 'kind', Ord(FProjectiles[I].Kind));
+      D.SetVec(P + 'origin', FProjectiles[I].Origin);
+      D.SetVec(P + 'velocity', FProjectiles[I].Velocity);
+      D.SetFloat(P + 'life', FProjectiles[I].Life);
+      D.SetBool(P + 'onground', FProjectiles[I].OnGround);
+      D.SetFloat(P + 'spin', FProjectiles[I].Spin);
+      D.SetFloat(P + 'home', FProjectiles[I].HomeTimer);
+      J := -1;
+      if FProjectiles[I].Owner is TQuakeMonster then
+        J := FMonsters.IndexOf(TQuakeMonster(FProjectiles[I].Owner));
+      D.SetInt(P + 'owner', J);
+    end;
+    D.SetInt('gibs', FGibs.Count);
+    for I := 0 to FGibs.Count - 1 do
+    begin
+      P := 'gib.' + IntToStr(I) + '.';
+      D.SetStr(P + 'model', FGibs[I].ModelPath);
+      D.SetVec(P + 'origin', FGibs[I].Origin);
+      D.SetVec(P + 'velocity', FGibs[I].Velocity);
+      D.SetVec(P + 'avelocity', FGibs[I].AngularVelocity);
+      D.SetVec(P + 'angles', FGibs[I].Angles);
+      D.SetFloat(P + 'life', FGibs[I].Life);
+      D.SetBool(P + 'onground', FGibs[I].OnGround);
+    end;
+
     Result := D.SaveToUrl(Url);
     if Result then
       WritelnLog('QuakeWorld', 'Saved game to "%s"', [Url]);
@@ -668,11 +698,13 @@ end;
 function TQuakeWorld.LoadGame(const Url: String; out ViewDir: TVector3): Boolean;
 var
   D: TQuakeSaveData;
-  I, Enemy: Integer;
+  I, Enemy, Kind: Integer;
   Sub: TQuakeSubmodel;
   M: TQuakeMonster;
   P: String;
   Gone: Boolean;
+  Proj: TQuakeProjectile;
+  Gib: TQuakeGib;
 begin
   Result := False;
   ViewDir := Vector3(0, 0, -1);
@@ -767,6 +799,39 @@ begin
         FTriggers[I].Removed := D.GetBool(P + 'removed');
         FTriggers[I].LastTriggerTime := FTime + D.GetFloat(P + 'last', -999);
       end;
+
+    { Projectiles and gibs in flight }
+    for I := 0 to D.GetInt('projectiles') - 1 do
+    begin
+      P := 'projectile.' + IntToStr(I) + '.';
+      Kind := D.GetInt(P + 'kind', -1);
+      if (Kind < 0) or (Kind > Ord(High(TQuakeProjectileKind))) then
+        Continue;
+      Proj := TQuakeProjectile.Create(FRootTransform, TQuakeProjectileKind(Kind), D.GetVec(P + 'origin', TVector3.Zero),
+        D.GetVec(P + 'velocity', TVector3.Zero));
+      Proj.Life := D.GetFloat(P + 'life', Proj.Life);
+      Proj.OnGround := D.GetBool(P + 'onground');
+      Proj.Spin := D.GetFloat(P + 'spin');
+      Proj.HomeTimer := D.GetFloat(P + 'home');
+      Enemy := D.GetInt(P + 'owner', -1);
+      if (Enemy >= 0) and (Enemy < FMonsters.Count) then
+        Proj.Owner := FMonsters[Enemy];
+      Proj.UpdateVisual;
+      FProjectiles.Add(Proj);
+    end;
+    for I := 0 to D.GetInt('gibs') - 1 do
+    begin
+      P := 'gib.' + IntToStr(I) + '.';
+      if D.GetStr(P + 'model') = '' then
+        Continue;
+      Gib := TQuakeGib.Create(FRootTransform, D.GetStr(P + 'model'), D.GetVec(P + 'origin', TVector3.Zero),
+        D.GetVec(P + 'velocity', TVector3.Zero), D.GetFloat(P + 'life'));
+      Gib.AngularVelocity := D.GetVec(P + 'avelocity', TVector3.Zero);
+      Gib.Angles := D.GetVec(P + 'angles', TVector3.Zero);
+      Gib.OnGround := D.GetBool(P + 'onground');
+      Gib.UpdateVisual;
+      FGibs.Add(Gib);
+    end;
 
     ApplyEpisodeGates;
     UpdateSolids;
