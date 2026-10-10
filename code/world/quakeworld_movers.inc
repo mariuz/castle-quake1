@@ -218,7 +218,7 @@ procedure TQuakeWorld.CheckTriggers;
 var
   Trig: TQuakeTrigger;
   Ent, Dest: TQuakeEntity;
-  BoxMins, BoxMaxs, Forward: TVector3;
+  BoxMins, BoxMaxs, Forward, DestOrigin: TVector3;
   DestYaw: Single;
 begin
   if FBsp = nil then
@@ -271,22 +271,32 @@ begin
           Dest := Ent;
           Break;
         end;
-      if Dest = nil then
+      if Dest <> nil then
+      begin
+        DestYaw := Dest.Angles.Y;
+        if DestYaw = 0 then
+          DestYaw := Dest.Angle;
+        { info_teleport_destination is raised 27 units above its map origin }
+        DestOrigin := Dest.Origin + Vector3(0, 0, 27);
+      end else
+      if (FTrain <> nil) and (Trig.Target = FTrainName) then
+      begin
+        { end.bsp: the teleporter into Shub-Niggurath targets the spiked ball }
+        DestYaw := FPlayerFacing;
+        DestOrigin := FTrainOrigin;
+      end else
         Continue;
 
       Particles.SpawnTeleport(QuakeToCge(FPhys.Origin));
-      DestYaw := Dest.Angles.Y;
-      if DestYaw = 0 then
-        DestYaw := Dest.Angle;
       SinCos(DegToRad(DestYaw), Forward.Y, Forward.X);
       Forward.Z := 0;
-      { info_teleport_destination is raised 27 units above its map origin }
-      FPhys.Teleport(Dest.Origin + Vector3(0, 0, 27));
+      FPhys.Teleport(DestOrigin);
+      Telefrag(DestOrigin);
       FPhys.Velocity := Forward * 300;
       FPhys.TeleportTime := FPhys.Time + 0.7;
       FPendingYaw := DestYaw;
       FHasPendingYaw := True;
-      Particles.SpawnTeleport(QuakeToCge(Dest.Origin + Forward * 32));
+      Particles.SpawnTeleport(QuakeToCge(DestOrigin + Forward * 32));
       Sounds.Play('sound/misc/r_tele1.wav');
     end else
     if (Trig.EntityClassName = 'trigger_multiple') or (Trig.EntityClassName = 'trigger_once') or

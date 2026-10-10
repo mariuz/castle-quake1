@@ -42,7 +42,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - A port of the NetQuake player physics: friction and acceleration, air control, stair stepping, swimming, water jumps, bunny hopping.
 - All eight weapons from `weapons.qc`: hitscan, nails, bouncing grenades, rockets with splash damage, the lightning beam.
 - All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
-- Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies.
+- Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
 - Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
 - Demos: `.dem` playback with server frame interpolation, and recording of your own games.
 

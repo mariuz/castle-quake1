@@ -661,6 +661,16 @@ begin
     { Handle level transition }
     if FWorld.LevelExited and (FWorld.NextMap <> '') then
       LoadLevel(FWorld.NextMap);
+    { The ending was played and dismissed: a fresh game in the hub, with
+      the menu open }
+    if FWorld.GameOver then
+    begin
+      FWorld.NewGame;
+      LoadLevel('start');
+      FMenu.Exists := True;
+      FNavigation.MouseLook := False;
+      Exit;
+    end;
 
     { Restart the level with starting inventory after death }
     if FWorld.PlayerDead then

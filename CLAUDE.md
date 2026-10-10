@@ -56,6 +56,8 @@ Demo script actions:
 
 QuakeC mode: `-qc e1m1` plays the map with `progs.dat` driving the entities and the player; `--autotest qc:e1m1 C:\TMP\qc --demo "W:1,S,Q"` does it headless (actions W, S, X, F, C, A, T, P, G, V, J, K, Y, O, L, R, E, Q; screenshots log health and kills; saves go to `castle-config:/qc_save_<slot>.sav`). `--qctest e1m1` only loads `progs.dat`, spawns the map's entities through their QuakeC spawn functions, runs 10 s of thinks and logs the counts (`QcTest:` lines), then exits.
 
+Endings: after the tallies, a button press (fire or jump, `X` / `J` headless) shows the episode text and, with all four runes, the all-runes text before the next map; telefragging Shub-Niggurath in `end.bsp` plays the ending and a button starts a new game. `--autotest e1m7 ... --demo "W:0.5,Y,G:8;46;-64,W:0.5,G:1016;-980;-52,W:1,S,W:5,X,W:3,S,X,W:3,S,Q"` runs the rune, the exit, the tallies and the text headless.
+
 Mission packs and mods: `-game hipnotic` (or `rogue`, a mod directory, or a path) loads `<dir>/pak*.pak` on top of id1 from the working directory, next to the executable, the data or the config directory; `-game hipnotic -qc start` plays the pack with its QuakeC (hipnotic keys 9 / 0 are the laser cannon / Mjolnir). The packs are not bundled.
 
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
