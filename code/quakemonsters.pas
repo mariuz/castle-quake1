@@ -12,7 +12,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleTransform, CastleScene, CastleLog,
-  QuakeMdl, QuakeLight, QuakeSound;
+  QuakeMdl, QuakeLight, QuakeSound, QuakePak;
 
 type
   TMonsterState = (
@@ -598,10 +598,12 @@ begin
   FAlertAge := 1000;
 
   Transform := TCastleTransform.Create(nil);
+  Transform.Name := ComponentName(ADef.ClassName);
   Mdl := MdlManager.GetModel(ADef.Model);
   if Mdl <> nil then
   begin
     Scene := Mdl.CreateScene(0);
+    Scene.Name := Transform.Name + '_scene';
     Transform.Add(Scene);
     Animator := TMdlAnimator.Create(Mdl, Scene);
     PlaySeq(FDef.Stand, True);

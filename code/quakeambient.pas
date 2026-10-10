@@ -10,7 +10,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleTransform, CastleBehaviors, CastleSoundEngine, CastleLog,
-  QuakeBsp, QuakeLight, QuakeSound;
+  QuakeBsp, QuakeLight, QuakeSound, QuakePak;
 
 type
   { One looping sound at a fixed position (ambientsound() in QuakeC) }
@@ -184,6 +184,7 @@ begin
   S.Volume := Volume;
   S.Sound := GetSound(Path);
   S.Transform := TCastleTransform.Create(nil);
+  S.Transform.Name := ComponentName('ambient_' + ChangeFileExt(ExtractFileName(Path), ''));
   S.Transform.Translation := Origin;
   Parent.Add(S.Transform);
   FStatics.Add(S);

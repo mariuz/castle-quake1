@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections,
   CastleVectors, CastleScene, CastleTransform, CastleColors, CastleLog,
-  QuakeBsp;
+  QuakeBsp, QuakePak;
 
 type
   { Dynamic light instance created from a Quake map light entity }
@@ -140,9 +140,25 @@ begin
 end;
 
 procedure TQuakeLighting.Clear;
+var
+  L: TQuakeDynamicLight;
 begin
+  { The level's lights go with it (they were owned by the viewport root
+    before and stayed in the scene across maps) }
+  for L in FLights do
+    if L.LightNode <> nil then
+    begin
+      if L.LightNode.Parent <> nil then
+        L.LightNode.Parent.Remove(L.LightNode);
+      FreeAndNil(L.LightNode);
+    end;
   FLights.Clear;
-  FMuzzleLight := nil;
+  if FMuzzleLight <> nil then
+  begin
+    if FMuzzleLight.Parent <> nil then
+      FMuzzleLight.Parent.Remove(FMuzzleLight);
+    FreeAndNil(FMuzzleLight);
+  end;
   if FAmbientSun <> nil then
   begin
     if FAmbientSun.Parent <> nil then
@@ -223,6 +239,7 @@ begin
 
   { Ambient directional sun light illuminating the map }
   FAmbientSun := TCastleDirectionalLight.Create(Parent);
+  FAmbientSun.Name := 'ambient_sun';
   FAmbientSun.Direction := Vector3(-0.35, -1.0, -0.25);
   FAmbientSun.Color := Vector3(0.85, 0.85, 0.9);
   FAmbientSun.Intensity := 0.25;
@@ -231,6 +248,7 @@ begin
 
   { Muzzle flash light attached to scene }
   FMuzzleLight := TCastlePointLight.Create(Parent);
+  FMuzzleLight.Name := 'muzzle_light';
   FMuzzleLight.Color := Vector3(1.0, 0.8, 0.3);
   FMuzzleLight.Intensity := 0.0;
   FMuzzleLight.Radius := 400.0;
@@ -263,6 +281,7 @@ begin
         LightCol := Vector3(0.95, 0.92, 0.85); { Warm incandescent }
 
       PtLight := TCastlePointLight.Create(Parent);
+      PtLight.Name := ComponentName(CName);
       PtLight.Translation := QuakeToCge(Origin);
       PtLight.Color := LightCol;
       PtLight.Radius := RadiusVal;

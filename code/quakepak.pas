@@ -7,7 +7,17 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections,
-  CastleDownload, CastleUriUtils, CastleLog;
+  CastleDownload, CastleUriUtils, CastleLog, CastleTransform;
+
+{ A component Name for the engine's inspector: Base made a valid identifier
+  (lowercase letters, digits, underscores) with a running number per base,
+  like monster_ogre_3 or func_door_7. ResetComponentNames starts the
+  numbers again (a new level). }
+function ComponentName(const Base: String): String;
+procedure ResetComponentNames;
+{ Log the transform tree under Root (names and classes), what the
+  inspector shows }
+procedure LogSceneTree(const Root: TObject; const Category: String);
 
 type
   { Single file entry inside a Quake PAK archive. }
@@ -72,6 +82,68 @@ var
   Pak: TQuakePak;
 
 implementation
+
+var
+  NameCounters: specialize TDictionary<String, Integer>;
+
+function ComponentName(const Base: String): String;
+var
+  I, N: Integer;
+  C: Char;
+  Clean: String;
+begin
+  Clean := '';
+  for I := 1 to Length(Base) do
+  begin
+    C := LowerCase(Base[I]);
+    if C in ['a'..'z', '0'..'9', '_'] then
+      Clean := Clean + C
+    else
+      Clean := Clean + '_';
+  end;
+  if (Clean = '') or (Clean[1] in ['0'..'9']) then
+    Clean := 'c_' + Clean;
+  if NameCounters = nil then
+    NameCounters := specialize TDictionary<String, Integer>.Create;
+  if not NameCounters.TryGetValue(Clean, N) then
+    N := 0;
+  Inc(N);
+  NameCounters.AddOrSetValue(Clean, N);
+  Result := Clean + '_' + IntToStr(N);
+end;
+
+procedure ResetComponentNames;
+begin
+  if NameCounters <> nil then
+    NameCounters.Clear;
+end;
+
+procedure LogSceneTree(const Root: TObject; const Category: String);
+var
+  Count: Integer;
+
+  procedure Walk(const T: TCastleTransform; const Depth: Integer);
+  var
+    I: Integer;
+    S: String;
+  begin
+    S := T.Name;
+    if S = '' then
+      S := '(unnamed)';
+    if not T.Exists then
+      S := S + ' [hidden]';
+    WritelnLog(Category, '%s%s: %s', [StringOfChar(' ', Depth * 2), S, T.ClassName]);
+    Inc(Count);
+    for I := 0 to T.Count - 1 do
+      Walk(T.Items[I], Depth + 1);
+  end;
+
+begin
+  Count := 0;
+  if Root is TCastleTransform then
+    Walk(TCastleTransform(Root), 0);
+  WritelnLog(Category, 'Scene tree: %d transforms', [Count]);
+end;
 
 type
   TPakHeader = packed record
@@ -368,5 +440,6 @@ initialization
   Pak := TQuakePak.Create;
 
 finalization
+  FreeAndNil(NameCounters);
   FreeAndNil(Pak);
 end.

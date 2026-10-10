@@ -250,6 +250,7 @@ begin
   begin
     FWorld := TQuakeWorld.Create(FViewport.Items);
     FWorld.AttachWeaponToCamera(FViewport.Camera);
+    FViewport.Camera.Name := 'camera';
     FViewport.Camera.ProjectionNear := 1.0;
     FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
     FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
@@ -530,6 +531,11 @@ begin
   if Action = 'O' then { Save game to a slot }
   begin
     SaveGameSlot(Param);
+    Inc(FDemoIndex);
+  end else
+  if Action = 'I' then { Log the scene tree (component names) }
+  begin
+    LogSceneTree(FViewport.Items, 'GameViewPlay');
     Inc(FDemoIndex);
   end else
   if Action = 'L' then { Load game from a slot }
