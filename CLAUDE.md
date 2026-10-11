@@ -51,7 +51,8 @@ Demo script actions:
 - `R:name` record a demo to `castle-config:/<name>.dem`, `R` stops it
 - `B:1` / `B:0` world lighting: Quake lightmaps or dynamic PBR (reloads the map)
 - `N:0` / `N:1` PVS culling off (draw the whole world, like `r_novis 1`) / on
-- `Z` log the frame count, average and longest frame time since the previous `Z` with the PVS counts (camera leaf, clusters and shapes drawn); screenshots log a `PVS:` line too
+- `NC` render the current frame with PVS culling on and off and log how many pixels differ (`PVS compare:`; differing images are saved as `<prefix>_<n>_pvs.png` / `_full.png`)
+- `Z` log the frame count, average and longest frame time since the previous `Z` with the PVS counts (camera leaf, clusters, shapes and entities drawn); screenshots log a `PVS:` line too
 - `I` log the viewport's transform tree with the component names (what the F8 inspector shows)
 - `D:modes` debug overlay: `all`, `off`, or a list of `triggers`, `monsters`, `movers`, `leaf` (e.g. `D:triggers;monsters`)
 - `E` (QuakeC mode) log the edicts in use (classname, origin, health)

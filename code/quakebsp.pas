@@ -307,6 +307,7 @@ type
     property TexInfos: TBSPTexInfoArray read FTexInfos;
     property Leaves: TBSPLeafArray read FLeaves;
     property Nodes: TBSPNodeArray read FNodes;
+    property Planes: TBSPPlaneArray read FPlanes;
     { Face indexes listed by the leaves (Leaf.FirstMarkSurface, NumMarkSurfaces) }
     property MarkSurfaces: TBSPMarkSurfaceArray read FMarkSurfaces;
   end;

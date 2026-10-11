@@ -69,6 +69,7 @@ type
     procedure ParseDemoScript(const Script: String);
     procedure RunDemoStep(const SecondsPassed: Single);
     function PvsStatus: String;
+    procedure ComparePvsRender;
     procedure CaptureScreenshot(const Prefix: String);
     { Leave the application. Never Halt here: we are inside the window's
       update loop, and finalizing units now would free views still in use. }
@@ -381,9 +382,62 @@ begin
   if (FWorld = nil) or (FWorld.Geometry = nil) then
     Exit;
   G := FWorld.Geometry;
-  Result := Format('culling %s, leaf %d, clusters %d/%d, shapes %d/%d',
+  Result := Format('culling %s, leaf %d, clusters %d/%d, shapes %d/%d, entities %d/%d',
     [BoolToStr(WorldPvsCulling, 'on', 'off'), G.CameraLeaf, G.VisibleClusters, G.ClusterCount,
-     G.VisibleShapes, G.ShapeCount]);
+     G.VisibleShapes, G.ShapeCount, G.VisibleEntities, G.EntityCount]);
+end;
+
+procedure TViewPlay.ComparePvsRender;
+var
+  Culled, Full: TRGBImage;
+  WasCulling: Boolean;
+  X, Y, Differ, Total: Integer;
+  A, B: PVector3Byte;
+  Status: String;
+
+  function Render(const Culling: Boolean): TRGBImage;
+  begin
+    WorldPvsCulling := Culling;
+    FWorld.Geometry.UpdateVisibility(FViewport.Camera.Translation);
+    FWorld.CullEntities;
+    if Culling then
+      Status := PvsStatus;
+    Result := Container.SaveScreen;
+  end;
+
+begin
+  if (FWorld = nil) or (FWorld.Geometry = nil) then
+    Exit;
+  WasCulling := WorldPvsCulling;
+  Culled := Render(True);
+  Full := Render(False);
+  try
+    { Pixels where a channel differs by more than 24 of 255 }
+    Differ := 0;
+    Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
+    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
+      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
+      begin
+        A := Culled.PixelPtr(X, Y);
+        B := Full.PixelPtr(X, Y);
+        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
+          Inc(Differ);
+      end;
+    WritelnLog('GameViewPlay', 'PVS compare: %d of %d pixels differ, %s',
+      [Differ, Total, Status]);
+    if (Differ > 0) and (FAutoTestPrefix <> '') then
+    begin
+      Inc(FAutoTestShots);
+      SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_pvs.png');
+      SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_full.png');
+    end;
+  finally
+    Culled.Free;
+    Full.Free;
+    WorldPvsCulling := WasCulling;
+    FWorld.Geometry.UpdateVisibility(FViewport.Camera.Translation);
+    FWorld.CullEntities;
+  end;
 end;
 
 procedure TViewPlay.CaptureScreenshot(const Prefix: String);
@@ -581,6 +635,11 @@ begin
   if Action = 'N' then { N:0 draws the whole world (r_novis 1), N:1 only the PVS }
   begin
     WorldPvsCulling := Param <> '0';
+    Inc(FDemoIndex);
+  end else
+  if Action = 'NC' then { Render this frame with and without PVS culling, log the difference }
+  begin
+    ComparePvsRender;
     Inc(FDemoIndex);
   end else
   if Action = 'Z' then { Log the frame times since the previous Z, then start counting again }
@@ -804,7 +863,10 @@ begin
 
   { Draw only the world in the camera's potentially visible set }
   if (FWorld <> nil) and (FWorld.Geometry <> nil) then
+  begin
     FWorld.Geometry.UpdateVisibility(FViewport.Camera.Translation);
+    FWorld.CullEntities;
+  end;
   Inc(FBenchFrames);
   FBenchLongest := Math.Max(FBenchLongest, SecondsPassed);
 

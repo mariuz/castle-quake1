@@ -78,6 +78,8 @@ type
     procedure ShowVisual(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
       const Frame, Skin, Effects: Integer; const Dt: Single);
     procedure HideVisual(var V: TQcVisual);
+    { Draw only the entities and brush models in the camera's PVS }
+    procedure CullVisuals;
     procedure FreeVisual(var V: TQcVisual);
     procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
     procedure UpdateWeapon;
@@ -236,6 +238,19 @@ begin
   V.Mdl := nil;
   V.Model := '';
   V.Frame := -1;
+end;
+
+procedure TViewQc.CullVisuals;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FVisuals) do
+    if (FVisuals[I].Transform <> nil) and FVisuals[I].Transform.Exists then
+      FGeometry.CullScene(FVisuals[I].Scene);
+  for I := 0 to High(FStaticVisuals) do
+    if (FStaticVisuals[I].Transform <> nil) and FStaticVisuals[I].Transform.Exists then
+      FGeometry.CullScene(FStaticVisuals[I].Scene);
+  FGeometry.CullSubmodels;
 end;
 
 procedure TViewQc.HideVisual(var V: TQcVisual);
@@ -1114,6 +1129,7 @@ begin
 
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
   FGeometry.UpdateVisibility(FViewport.Camera.Translation);
+  CullVisuals;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
