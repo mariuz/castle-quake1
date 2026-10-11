@@ -68,6 +68,8 @@ Audio headless: without a sound device the sound engine stays off (no music, no 
 
 Mission packs and mods: `-game hipnotic` (or `rogue`, a mod directory, or a path) loads `<dir>/pak*.pak` on top of id1 from the working directory, next to the executable, the data or the config directory; `-game hipnotic -qc start` plays the pack with its QuakeC (hipnotic keys 9 / 0 are the laser cannon / Mjolnir). The packs are not bundled.
 
+Lightmap atlas pages: the world's lightmaps fill 2048 x 2048 pages and a full page opens another; `-lmatlas <size>` makes the pages smaller to test that (the log says `Lightmaps of model 0: N atlas page(s) ...`).
+
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
 
 Demo playback: `--autotest demo1.dem C:\TMP\d --demo "W:5,S,Q"` plays a PAK demo (or a file / `castle-config:` URL) with only `W`, `S` and `Q` actions; `-playdemo <name>` plays one from the menu view.
@@ -81,7 +83,7 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Gameplay Scenarios
 
-`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays four scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
+`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays five scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode, E1M1 with small lightmap atlas pages), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
 
 ## Unit Tests
 

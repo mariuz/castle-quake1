@@ -271,6 +271,16 @@ begin
     if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
       CmdNoPredict := True
     else
+    if ((Parameters[I] = '-lmatlas') or (Parameters[I] = '--lmatlas')) and (I + 1 <= Parameters.High) then
+    begin
+      { Lightmap atlas page size (testing: small pages force several) }
+      LightmapAtlasSize := StrToIntDef(Parameters[I + 1], 2048);
+      if LightmapAtlasSize < 64 then
+        LightmapAtlasSize := 64;
+      if LightmapAtlasSize > 4096 then
+        LightmapAtlasSize := 4096;
+      Inc(I);
+    end else
     if ((Parameters[I] = '-skill') or (Parameters[I] = '--skill')) and (I + 1 <= Parameters.High) then
     begin
       CmdSkill := StrToIntDef(Parameters[I + 1], 1);

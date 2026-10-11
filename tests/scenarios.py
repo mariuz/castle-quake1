@@ -170,6 +170,16 @@ def check_quakec(logs):
     return result
 
 
+def check_lightmap_pages(logs):
+    log = logs['pages']
+    result = common_checks(logs, 'pages')
+    m = re.search(r'Lightmaps of model 0: (\d+) atlas page\(s\) of \d+x\d+, \d+ rows used, (\d+) faces without room', log)
+    pages = int(m.group(1)) if m else 0
+    result.append((pages > 1, 'small atlas pages: the world lightmaps fill several (%d)' % pages))
+    result.append((m is not None and m.group(2) == '0', 'every face found room (%s without)' % (m.group(2) if m else '?')))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -187,6 +197,11 @@ SCENARIOS = [
              check_deathmatch, []),
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0)],
              check_quakec, ['qc_1']),
+    # The same view as finish_1 with 128 x 128 lightmap atlas pages: its
+    # reference is a copy of e1m1_finish_finish_1 (one 2048 x 2048 page)
+    Scenario('lightmap_pages', [('pages', ['-lmatlas', '128', '--autotest', 'e1m1', '{out}/pages', '--demo',
+                                           'W:0.5,Y,S,Q'], 0)],
+             check_lightmap_pages, ['pages_1']),
 ]
 
 
