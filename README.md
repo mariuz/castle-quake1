@@ -37,7 +37,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - The scrolling two layer sky or a six face skybox (`sky` worldspawn key with `gfx/env/*.tga`), fullbright texture pixels, translucent liquids seen from both sides, lava splashes.
 - Two world lighting modes: Quake's own lightmaps, all lightstyle layers blended in a GLSL effect with the live lightstyle values and dynamic lights (muzzle flashes, explosions), or dynamic PBR lighting by the map's light entities with real-time shadow maps.
 - Dual-layer scrolling sky, turbulent liquid surfaces, animated textures, particles (gunshots, blood, explosions, trails, teleports), underwater warp and palette tints.
-- Only the potentially visible set is drawn: the world is split by BSP subtrees and the parts outside the camera leaf's PVS are hidden (seen through translucent water too); console `novis 1` draws everything.
+- Only the potentially visible set is drawn: the world is split by BSP subtrees and the parts outside the camera leaf's PVS are hidden (seen through translucent water too), and so are the monsters, items, missiles, gibs and doors outside it; console `novis 1` draws everything.
 - Interactive brush entities: doors (including silver and gold key doors), platforms, buttons, trains, secret doors, triggers, teleporters, level changes.
 
 **Gameplay**

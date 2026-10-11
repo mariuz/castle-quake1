@@ -570,3 +570,22 @@ begin
     Hud.Update(SecondsPassed, FPlayerStats);
   UpdateDebugOverlay;
 end;
+
+procedure TQuakeWorld.CullEntities;
+var
+  I: Integer;
+begin
+  if FGeometry = nil then
+    Exit;
+  for I := 0 to FMonsters.Count - 1 do
+    if FMonsters[I].Transform.Exists then
+      FGeometry.CullScene(FMonsters[I].Scene);
+  for I := 0 to FPickups.Count - 1 do
+    if FPickups[I].Transform.Exists and FPickups[I].Transform.Visible then
+      FGeometry.CullScene(FPickups[I].Scene);
+  for I := 0 to FProjectiles.Count - 1 do
+    FGeometry.CullScene(FProjectiles[I].Scene);
+  for I := 0 to FGibs.Count - 1 do
+    FGeometry.CullScene(FGibs[I].Scene);
+  FGeometry.CullSubmodels;
+end;

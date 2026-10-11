@@ -7,7 +7,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, Math,
-  CastleVectors, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
+  CastleVectors, CastleBoxes, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
   CastleImages, CastleUtils, CastleRenderOptions, X3DFields,
   QuakeBsp, QuakePalette, QuakeLight, QuakePak, X3DLoad, CastleUriUtils;
 
@@ -172,6 +172,9 @@ type
     FCameraLeaf: Integer;
     FVisLiquidSeeThrough: Boolean;
     FVisibleClusters, FVisibleShapes, FShapeCount: Integer;
+    FAllVisible: Boolean;
+    FEntityCount, FVisibleEntities: Integer;
+    function LeafInPvs(const Leaf: Integer): Boolean;
     procedure SetLiquidAlpha(const Value: Single);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
@@ -209,6 +212,20 @@ type
       vis data or when WorldPvsCulling is off. }
     procedure UpdateVisibility(const CameraPos: TVector3);
 
+    { True when a box (Quake coordinates) touches a leaf in the camera's
+      PVS of the last UpdateVisibility (SV_FindTouchedLeafs against the
+      PVS, like the original renderer's entity check) }
+    function BoxVisible(const Mins, Maxs: TVector3): Boolean;
+
+    { Draw Scene only when its world box is in the camera's PVS (sets
+      Scene.Visible; collisions are unchanged, and a hidden MDL scene skips
+      its animation poses). Call after UpdateVisibility each frame;
+      counted in EntityCount / VisibleEntities. Nil is ignored. }
+    procedure CullScene(const Scene: TCastleTransform);
+
+    { CullScene for the brush entities (doors, plats, trains...) }
+    procedure CullSubmodels;
+
     { True if T is the world scene or the scene of a brush entity (door, plat...) }
     function IsGeometryScene(const T: TCastleTransform): Boolean;
 
@@ -227,6 +244,9 @@ type
     property VisibleClusters: Integer read FVisibleClusters;
     property VisibleShapes: Integer read FVisibleShapes;
     property ShapeCount: Integer read FShapeCount;
+    { Entities checked by CullScene since the last UpdateVisibility, and drawn }
+    property EntityCount: Integer read FEntityCount;
+    property VisibleEntities: Integer read FVisibleEntities;
     function ClusterCount: Integer;
   end;
 
@@ -1456,8 +1476,13 @@ var
   end;
 
 begin
+  FEntityCount := 0;
+  FVisibleEntities := 0;
   if FClusters.Count = 0 then
+  begin
+    FAllVisible := True;
     Exit;
+  end;
   if WorldPvsCulling then
     Leaf := FBsp.PointLeaf(CgeToQuake(CameraPos))
   else
@@ -1502,6 +1527,7 @@ begin
     end;
   end;
 
+  FAllVisible := AllVisible;
   FVisibleClusters := 0;
   FVisibleShapes := 0;
   for Cluster in FClusters do
@@ -1953,6 +1979,96 @@ begin
   FLiquidTime := FloatModulo(FLiquidTime + SecondsPassed, 2 * Pi);
   for I := 0 to FLiquidTimeFields.Count - 1 do
     FLiquidTimeFields[I].Send(FLiquidTime);
+end;
+
+function TQuakeGeometry.LeafInPvs(const Leaf: Integer): Boolean;
+begin
+  Result := (Leaf >= 1) and ((Leaf - 1) div 8 < Length(FVisBits)) and
+    ((FVisBits[(Leaf - 1) div 8] and (1 shl ((Leaf - 1) and 7))) <> 0);
+end;
+
+function TQuakeGeometry.BoxVisible(const Mins, Maxs: TVector3): Boolean;
+
+  function Walk(Node: Integer): Boolean;
+  var
+    Plane: TBSPPlane;
+    Front, Back: Single;
+    I: Integer;
+  begin
+    while Node >= 0 do
+    begin
+      if (Node >= Length(FBsp.Nodes)) or (FBsp.Nodes[Node].PlaneId < 0) or
+         (FBsp.Nodes[Node].PlaneId >= Length(FBsp.Planes)) then
+        Exit(True);
+      Plane := FBsp.Planes[FBsp.Nodes[Node].PlaneId];
+      { BoxOnPlaneSide: the box corners nearest and farthest along the normal }
+      Front := -Plane.Dist;
+      Back := -Plane.Dist;
+      for I := 0 to 2 do
+        if Plane.Normal[I] >= 0 then
+        begin
+          Front := Front + Plane.Normal[I] * Maxs[I];
+          Back := Back + Plane.Normal[I] * Mins[I];
+        end else
+        begin
+          Front := Front + Plane.Normal[I] * Mins[I];
+          Back := Back + Plane.Normal[I] * Maxs[I];
+        end;
+      if Back >= 0 then
+        Node := FBsp.Nodes[Node].Children[0]
+      else if Front < 0 then
+        Node := FBsp.Nodes[Node].Children[1]
+      else
+      begin
+        if Walk(FBsp.Nodes[Node].Children[0]) then
+          Exit(True);
+        Node := FBsp.Nodes[Node].Children[1];
+      end;
+    end;
+    Result := LeafInPvs(-(Node + 1));
+  end;
+
+begin
+  if FAllVisible or (FBsp.ModelCount = 0) or (Length(FBsp.Nodes) = 0) then
+    Exit(True);
+  Result := Walk(FBsp.Models[0].HeadNodes[0]);
+end;
+
+procedure TQuakeGeometry.CullScene(const Scene: TCastleTransform);
+var
+  Box: TBox3D;
+  A, B, Mins, Maxs: TVector3;
+  V: Boolean;
+begin
+  if Scene = nil then
+    Exit;
+  V := True;
+  if not FAllVisible then
+  begin
+    Box := Scene.WorldBoundingBox;
+    if not Box.IsEmpty then
+    begin
+      A := CgeToQuake(Box.Min);
+      B := CgeToQuake(Box.Max);
+      { CGE Z flips into Quake Y: take the minimum and maximum again, 1 unit larger }
+      Mins := Vector3(Min(A.X, B.X) - 1, Min(A.Y, B.Y) - 1, Min(A.Z, B.Z) - 1);
+      Maxs := Vector3(Max(A.X, B.X) + 1, Max(A.Y, B.Y) + 1, Max(A.Z, B.Z) + 1);
+      V := BoxVisible(Mins, Maxs);
+    end;
+  end;
+  Scene.Visible := V;
+  Inc(FEntityCount);
+  if V then
+    Inc(FVisibleEntities);
+end;
+
+procedure TQuakeGeometry.CullSubmodels;
+var
+  Sub: TQuakeSubmodel;
+begin
+  for Sub in FSubmodels do
+    if Sub.Transform.Exists then
+      CullScene(Sub.Scene);
 end;
 
 function TQuakeGeometry.IsGeometryScene(const T: TCastleTransform): Boolean;

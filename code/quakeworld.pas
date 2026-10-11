@@ -205,6 +205,9 @@ type
     function LoadMap(const AMapName: String): Boolean;
 
     { Advance world simulation by SecondsPassed }
+    { Draw only the monsters, items, missiles, gibs and brush entities in
+      the camera's PVS (after Geometry.UpdateVisibility, each frame) }
+    procedure CullEntities;
     procedure Update(const SecondsPassed: Single; const PlayerPos: TVector3;
       const PlayerFacing, PlayerPitch: Single; const Hud: TQuakeHud);
 
