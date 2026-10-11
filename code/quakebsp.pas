@@ -1,4 +1,5 @@
-{ Quake 1 BSP (version 29) map parser. }
+{ Quake 1 BSP map parser: version 29 and the BSP2 / 2PSB formats of the
+  larger community maps (32-bit indexes in place of the 16-bit ones). }
 unit QuakeBsp;
 
 {$mode objfpc}{$H+}
@@ -12,6 +13,9 @@ uses
 
 const
   BSP_VERSION = 29;
+  { BSP2 ('BSP2', float node / leaf bounds) and the older 2PSB (BSP2RMQ, short bounds) }
+  BSP2_VERSION_BSP2 = $32505342;
+  BSP2_VERSION_2PSB = $42535032;
 
   LUMP_ENTITIES     = 0;
   LUMP_PLANES       = 1;
@@ -64,28 +68,30 @@ type
     PlaneType: Cardinal;
   end;
 
-  TBSPNode = packed record
+  { Nodes, leaves, clipnodes, edges and faces as loaded: the widest of the
+    BSP29, 2PSB and BSP2 layouts, which are converted to these }
+  TBSPNode = record
     PlaneId: LongInt;
-    Children: array[0..1] of SmallInt; { >= 0: node index, < 0: -(leaf index + 1) }
-    Mins: array[0..2] of SmallInt;
-    Maxs: array[0..2] of SmallInt;
-    FirstFace: Word;
-    NumFaces: Word;
+    Children: array[0..1] of LongInt; { >= 0: node index, < 0: -(leaf index + 1) }
+    Mins: array[0..2] of Single;
+    Maxs: array[0..2] of Single;
+    FirstFace: LongInt;
+    NumFaces: LongInt;
   end;
 
-  TBSPLeaf = packed record
+  TBSPLeaf = record
     Contents: LongInt;
     VisOfs: LongInt;
-    Mins: array[0..2] of SmallInt;
-    Maxs: array[0..2] of SmallInt;
-    FirstMarkSurface: Word;
-    NumMarkSurfaces: Word;
+    Mins: array[0..2] of Single;
+    Maxs: array[0..2] of Single;
+    FirstMarkSurface: LongInt;
+    NumMarkSurfaces: LongInt;
     AmbientLevel: array[0..3] of Byte;
   end;
 
-  TBSPClipNode = packed record
+  TBSPClipNode = record
     PlaneId: LongInt;
-    Children: array[0..1] of SmallInt; { >= 0: clipnode index, < 0: CONTENTS_xxx }
+    Children: array[0..1] of LongInt; { >= 0: clipnode index, < 0: CONTENTS_xxx }
   end;
 
   { Collision hull (hull_t): 0 = point, 1 = player-sized box, 2 = large box }
@@ -107,9 +113,9 @@ type
     Entity: Integer;     { set by callers: what was hit }
   end;
 
-  TBSPEdge = packed record
-    V0: Word;
-    V1: Word;
+  TBSPEdge = record
+    V0: LongWord;
+    V1: LongWord;
   end;
 
   TBSPTexInfo = packed record
@@ -119,12 +125,12 @@ type
     Flags: LongInt;
   end;
 
-  TBSPFace = packed record
-    PlaneId: Word;
-    Side: Word;
+  TBSPFace = record
+    PlaneId: LongInt;
+    Side: LongInt;
     FirstEdge: LongInt;
-    NumEdges: SmallInt;
-    TexInfoId: SmallInt;
+    NumEdges: LongInt;
+    TexInfoId: LongInt;
     Styles: array[0..3] of Byte; { lightstyles of the lightmaps, 255 = none }
     LightmapOffset: LongInt;
   end;
@@ -200,12 +206,14 @@ type
   TBSPModelArray = array of TBSPModel;
   TBSPNodeArray = array of TBSPNode;
   TBSPLeafArray = array of TBSPLeaf;
-  TBSPMarkSurfaceArray = array of Word;
+  TBSPMarkSurfaceArray = array of LongInt;
+  TBSPFormat = (bfBsp29, bfBsp2, bf2psb);
 
   { Loaded Quake 1 BSP map }
   TQuakeBsp = class
   private
     FMapName: String;
+    FFormat: TBSPFormat;
     FPlanes: TBSPPlaneArray;
     FVertices: TVector3Array;
     FEdges: TBSPEdgeArray;
@@ -238,6 +246,10 @@ type
 
     { Load map from PAK, e.g. "maps/start.bsp" or "maps/e1m1.bsp" }
     function LoadFromPak(const AMapPath: String): Boolean;
+
+    { Load a map from a stream holding the whole .bsp file (BSP29, BSP2 or
+      2PSB); AMapPath is for the name and the log }
+    function LoadFromStream(const Stream: TMemoryStream; const AMapPath: String): Boolean;
 
     { Get vertex position for given face and local index (0 .. Face.NumEdges - 1) }
     function GetFaceVertex(const FaceIdx, VertIdx: Integer): TVector3;
@@ -296,6 +308,8 @@ type
     function FindEntities(const AClassName: String): TQuakeEntityList;
 
     property MapName: String read FMapName;
+    { The file format the map was loaded from }
+    property Format: TBSPFormat read FFormat;
     property Faces: TBSPFaceArray read FFaces;
     property FaceCount: Integer read GetFaceCount;
     property Models: TBSPModelArray read FModels;
@@ -678,179 +692,441 @@ end;
 function TQuakeBsp.LoadFromPak(const AMapPath: String): Boolean;
 var
   Stream: TMemoryStream;
-  Hdr: TBSPHeader;
-  Count: Integer;
-  RawClipNodes: array of TBSPClipNode;
 begin
   Result := False;
-  FMapName := ChangeFileExt(ExtractFileName(AMapPath), '');
   Stream := Pak.GetStream(AMapPath);
   if Stream = nil then
   begin
     WritelnWarning('QuakeBsp', 'Map "%s" not found in PAK', [AMapPath]);
     Exit;
   end;
-
   try
-    if Stream.Size < SizeOf(TBSPHeader) then
-      Exit;
-
-    Stream.ReadBuffer(Hdr, SizeOf(TBSPHeader));
-    if Hdr.Version <> BSP_VERSION then
-    begin
-      WritelnWarning('QuakeBsp', 'Map "%s" has invalid BSP version %d (expected %d)',
-        [AMapPath, Hdr.Version, BSP_VERSION]);
-      Exit;
-    end;
-
-    { 0: Entities }
-    if Hdr.Lumps[LUMP_ENTITIES].Length > 0 then
-    begin
-      SetLength(FEntitiesText, Hdr.Lumps[LUMP_ENTITIES].Length);
-      Stream.Position := Hdr.Lumps[LUMP_ENTITIES].Offset;
-      Stream.ReadBuffer(FEntitiesText[1], Hdr.Lumps[LUMP_ENTITIES].Length);
-      FEntities.Free;
-      FEntities := ParseEntities(FEntitiesText);
-      WritelnLog('QuakeBsp', 'Parsed %d entities', [FEntities.Count]);
-    end;
-
-    { 1: Planes }
-    Count := Hdr.Lumps[LUMP_PLANES].Length div SizeOf(TBSPPlane);
-    SetLength(FPlanes, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_PLANES].Offset;
-      Stream.ReadBuffer(FPlanes[0], Hdr.Lumps[LUMP_PLANES].Length);
-    end;
-
-    { 3: Vertices }
-    Count := Hdr.Lumps[LUMP_VERTICES].Length div SizeOf(TVector3);
-    SetLength(FVertices, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_VERTICES].Offset;
-      Stream.ReadBuffer(FVertices[0], Hdr.Lumps[LUMP_VERTICES].Length);
-    end;
-
-    { 12: Edges }
-    Count := Hdr.Lumps[LUMP_EDGES].Length div SizeOf(TBSPEdge);
-    SetLength(FEdges, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_EDGES].Offset;
-      Stream.ReadBuffer(FEdges[0], Hdr.Lumps[LUMP_EDGES].Length);
-    end;
-
-    { 13: SurfEdges }
-    Count := Hdr.Lumps[LUMP_SURFEDGES].Length div SizeOf(LongInt);
-    SetLength(FSurfEdges, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_SURFEDGES].Offset;
-      Stream.ReadBuffer(FSurfEdges[0], Hdr.Lumps[LUMP_SURFEDGES].Length);
-    end;
-
-    { 6: TexInfo }
-    Count := Hdr.Lumps[LUMP_TEXINFO].Length div SizeOf(TBSPTexInfo);
-    SetLength(FTexInfos, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_TEXINFO].Offset;
-      Stream.ReadBuffer(FTexInfos[0], Hdr.Lumps[LUMP_TEXINFO].Length);
-    end;
-
-    { 7: Faces }
-    Count := Hdr.Lumps[LUMP_FACES].Length div SizeOf(TBSPFace);
-    SetLength(FFaces, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_FACES].Offset;
-      Stream.ReadBuffer(FFaces[0], Hdr.Lumps[LUMP_FACES].Length);
-    end;
-
-    { 14: Models }
-    Count := Hdr.Lumps[LUMP_MODELS].Length div SizeOf(TBSPModel);
-    SetLength(FModels, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_MODELS].Offset;
-      Stream.ReadBuffer(FModels[0], Hdr.Lumps[LUMP_MODELS].Length);
-    end;
-
-    { 5: Nodes }
-    Count := Hdr.Lumps[LUMP_NODES].Length div SizeOf(TBSPNode);
-    SetLength(FNodes, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_NODES].Offset;
-      Stream.ReadBuffer(FNodes[0], Count * SizeOf(TBSPNode));
-    end;
-
-    { 10: Leaves }
-    Count := Hdr.Lumps[LUMP_LEAVES].Length div SizeOf(TBSPLeaf);
-    SetLength(FLeaves, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_LEAVES].Offset;
-      Stream.ReadBuffer(FLeaves[0], Count * SizeOf(TBSPLeaf));
-    end;
-
-    { 11: MarkSurfaces (the faces of each leaf) }
-    Count := Hdr.Lumps[LUMP_MARKSURFACES].Length div SizeOf(Word);
-    SetLength(FMarkSurfaces, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_MARKSURFACES].Offset;
-      Stream.ReadBuffer(FMarkSurfaces[0], Count * SizeOf(Word));
-    end;
-
-    { 4: Visibility (run-length compressed PVS rows) }
-    SetLength(FVisData, Hdr.Lumps[LUMP_VISIBILITY].Length);
-    if Length(FVisData) > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_VISIBILITY].Offset;
-      Stream.ReadBuffer(FVisData[0], Length(FVisData));
-    end;
-
-    { 9: ClipNodes, and the collision hulls built from them }
-    Count := Hdr.Lumps[LUMP_CLIPNODES].Length div SizeOf(TBSPClipNode);
-    SetLength(RawClipNodes, Count);
-    if Count > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_CLIPNODES].Offset;
-      Stream.ReadBuffer(RawClipNodes[0], Count * SizeOf(TBSPClipNode));
-    end;
-    MakeHulls(RawClipNodes);
-
-    { 8: Lightmaps }
-    if FLightmaps <> nil then
-    begin
-      FreeMem(FLightmaps);
-      FLightmaps := nil;
-    end;
-    FLightmapsSize := Hdr.Lumps[LUMP_LIGHTMAPS].Length;
-    if FLightmapsSize > 0 then
-    begin
-      GetMem(FLightmaps, FLightmapsSize);
-      Stream.Position := Hdr.Lumps[LUMP_LIGHTMAPS].Offset;
-      Stream.ReadBuffer(FLightmaps^, FLightmapsSize);
-    end;
-
-    { 2: Miptex }
-    FMiptexes.Clear;
-    if Hdr.Lumps[LUMP_MIPTEX].Length > 0 then
-    begin
-      Stream.Position := Hdr.Lumps[LUMP_MIPTEX].Offset;
-      ParseMiptexLump(PByte(Stream.Memory) + Hdr.Lumps[LUMP_MIPTEX].Offset,
-        Hdr.Lumps[LUMP_MIPTEX].Length);
-    end;
-
-    WritelnLog('QuakeBsp', 'Loaded map "%s": %d faces, %d vertices, %d textures, %d models',
-      [AMapPath, Length(FFaces), Length(FVertices), FMiptexes.Count, Length(FModels)]);
-    Result := True;
+    Result := LoadFromStream(Stream, AMapPath);
   finally
     Stream.Free;
   end;
+end;
+
+const
+  BSPFormatNames: array[TBSPFormat] of String = ('BSP29', 'BSP2', '2PSB');
+
+type
+  { The on-disk layouts converted by LoadFromStream }
+  TBSP29Node = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of Word;
+    Mins, Maxs: array[0..2] of SmallInt;
+    FirstFace, NumFaces: Word;
+  end;
+  TBSP2PSBNode = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of LongInt;
+    Mins, Maxs: array[0..2] of SmallInt;
+    FirstFace, NumFaces: LongWord;
+  end;
+  TBSP2Node = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of LongInt;
+    Mins, Maxs: array[0..2] of Single;
+    FirstFace, NumFaces: LongWord;
+  end;
+  TBSP29Leaf = packed record
+    Contents, VisOfs: LongInt;
+    Mins, Maxs: array[0..2] of SmallInt;
+    FirstMarkSurface, NumMarkSurfaces: Word;
+    AmbientLevel: array[0..3] of Byte;
+  end;
+  TBSP2PSBLeaf = packed record
+    Contents, VisOfs: LongInt;
+    Mins, Maxs: array[0..2] of SmallInt;
+    FirstMarkSurface, NumMarkSurfaces: LongWord;
+    AmbientLevel: array[0..3] of Byte;
+  end;
+  TBSP2Leaf = packed record
+    Contents, VisOfs: LongInt;
+    Mins, Maxs: array[0..2] of Single;
+    FirstMarkSurface, NumMarkSurfaces: LongWord;
+    AmbientLevel: array[0..3] of Byte;
+  end;
+  TBSP29ClipNode = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of SmallInt;
+  end;
+  TBSP2ClipNode = packed record
+    PlaneId: LongInt;
+    Children: array[0..1] of LongInt;
+  end;
+  TBSP29Edge = packed record
+    V0, V1: Word;
+  end;
+  TBSP2Edge = packed record
+    V0, V1: LongWord;
+  end;
+  TBSP29Face = packed record
+    PlaneId: Word;
+    Side: SmallInt;
+    FirstEdge: LongInt;
+    NumEdges: SmallInt;
+    TexInfoId: SmallInt;
+    Styles: array[0..3] of Byte;
+    LightmapOffset: LongInt;
+  end;
+  TBSP2Face = packed record
+    PlaneId, Side, FirstEdge, NumEdges, TexInfoId: LongInt;
+    Styles: array[0..3] of Byte;
+    LightmapOffset: LongInt;
+  end;
+
+function TQuakeBsp.LoadFromStream(const Stream: TMemoryStream; const AMapPath: String): Boolean;
+var
+  Hdr: TBSPHeader;
+  Count: Integer;
+  RawClipNodes: array of TBSPClipNode;
+  Base: PByte;
+
+  { Start of a lump and its number of Size byte records; 0 when the lump
+    lies outside the file }
+  function Lump(const Index, Size: Integer; out P: PByte): Integer;
+  begin
+    P := nil;
+    Result := 0;
+    if (Hdr.Lumps[Index].Length = 0) or
+       (Int64(Hdr.Lumps[Index].Offset) + Hdr.Lumps[Index].Length > Stream.Size) then
+      Exit;
+    P := Base + Hdr.Lumps[Index].Offset;
+    Result := Hdr.Lumps[Index].Length div Cardinal(Size);
+  end;
+
+  { A BSP29 node child: an unsigned short below the node count is a node,
+    else a leaf counted down from 65535 (QuakeSpasm, for maps with more
+    than 32767 nodes) }
+  function Bsp29Child(const Child: Word; const NodeCount: Integer): LongInt;
+  begin
+    if Child < NodeCount then
+      Result := Child
+    else
+      Result := LongInt(Child) - 65536;
+  end;
+
+  procedure ReadNodes;
+  var
+    I, J: Integer;
+    P: PByte;
+    N29: ^TBSP29Node;
+    N2P: ^TBSP2PSBNode;
+    N2: ^TBSP2Node;
+  begin
+    case FFormat of
+      bfBsp29: Count := Lump(LUMP_NODES, SizeOf(TBSP29Node), P);
+      bf2psb: Count := Lump(LUMP_NODES, SizeOf(TBSP2PSBNode), P);
+      else Count := Lump(LUMP_NODES, SizeOf(TBSP2Node), P);
+    end;
+    SetLength(FNodes, Count);
+    for I := 0 to Count - 1 do
+      case FFormat of
+        bfBsp29:
+          begin
+            N29 := Pointer(P + I * SizeOf(TBSP29Node));
+            FNodes[I].PlaneId := N29^.PlaneId;
+            for J := 0 to 1 do
+              FNodes[I].Children[J] := Bsp29Child(N29^.Children[J], Count);
+            for J := 0 to 2 do
+            begin
+              FNodes[I].Mins[J] := N29^.Mins[J];
+              FNodes[I].Maxs[J] := N29^.Maxs[J];
+            end;
+            FNodes[I].FirstFace := N29^.FirstFace;
+            FNodes[I].NumFaces := N29^.NumFaces;
+          end;
+        bf2psb:
+          begin
+            N2P := Pointer(P + I * SizeOf(TBSP2PSBNode));
+            FNodes[I].PlaneId := N2P^.PlaneId;
+            for J := 0 to 1 do
+              FNodes[I].Children[J] := N2P^.Children[J];
+            for J := 0 to 2 do
+            begin
+              FNodes[I].Mins[J] := N2P^.Mins[J];
+              FNodes[I].Maxs[J] := N2P^.Maxs[J];
+            end;
+            FNodes[I].FirstFace := N2P^.FirstFace;
+            FNodes[I].NumFaces := N2P^.NumFaces;
+          end;
+        else
+          begin
+            N2 := Pointer(P + I * SizeOf(TBSP2Node));
+            FNodes[I].PlaneId := N2^.PlaneId;
+            for J := 0 to 1 do
+              FNodes[I].Children[J] := N2^.Children[J];
+            for J := 0 to 2 do
+            begin
+              FNodes[I].Mins[J] := N2^.Mins[J];
+              FNodes[I].Maxs[J] := N2^.Maxs[J];
+            end;
+            FNodes[I].FirstFace := N2^.FirstFace;
+            FNodes[I].NumFaces := N2^.NumFaces;
+          end;
+      end;
+  end;
+
+  procedure ReadLeaves;
+  var
+    I, J: Integer;
+    P: PByte;
+    L29: ^TBSP29Leaf;
+    L2P: ^TBSP2PSBLeaf;
+    L2: ^TBSP2Leaf;
+  begin
+    case FFormat of
+      bfBsp29: Count := Lump(LUMP_LEAVES, SizeOf(TBSP29Leaf), P);
+      bf2psb: Count := Lump(LUMP_LEAVES, SizeOf(TBSP2PSBLeaf), P);
+      else Count := Lump(LUMP_LEAVES, SizeOf(TBSP2Leaf), P);
+    end;
+    SetLength(FLeaves, Count);
+    for I := 0 to Count - 1 do
+      case FFormat of
+        bfBsp29:
+          begin
+            L29 := Pointer(P + I * SizeOf(TBSP29Leaf));
+            FLeaves[I].Contents := L29^.Contents;
+            FLeaves[I].VisOfs := L29^.VisOfs;
+            for J := 0 to 2 do
+            begin
+              FLeaves[I].Mins[J] := L29^.Mins[J];
+              FLeaves[I].Maxs[J] := L29^.Maxs[J];
+            end;
+            FLeaves[I].FirstMarkSurface := L29^.FirstMarkSurface;
+            FLeaves[I].NumMarkSurfaces := L29^.NumMarkSurfaces;
+            FLeaves[I].AmbientLevel := L29^.AmbientLevel;
+          end;
+        bf2psb:
+          begin
+            L2P := Pointer(P + I * SizeOf(TBSP2PSBLeaf));
+            FLeaves[I].Contents := L2P^.Contents;
+            FLeaves[I].VisOfs := L2P^.VisOfs;
+            for J := 0 to 2 do
+            begin
+              FLeaves[I].Mins[J] := L2P^.Mins[J];
+              FLeaves[I].Maxs[J] := L2P^.Maxs[J];
+            end;
+            FLeaves[I].FirstMarkSurface := L2P^.FirstMarkSurface;
+            FLeaves[I].NumMarkSurfaces := L2P^.NumMarkSurfaces;
+            FLeaves[I].AmbientLevel := L2P^.AmbientLevel;
+          end;
+        else
+          begin
+            L2 := Pointer(P + I * SizeOf(TBSP2Leaf));
+            FLeaves[I].Contents := L2^.Contents;
+            FLeaves[I].VisOfs := L2^.VisOfs;
+            for J := 0 to 2 do
+            begin
+              FLeaves[I].Mins[J] := L2^.Mins[J];
+              FLeaves[I].Maxs[J] := L2^.Maxs[J];
+            end;
+            FLeaves[I].FirstMarkSurface := L2^.FirstMarkSurface;
+            FLeaves[I].NumMarkSurfaces := L2^.NumMarkSurfaces;
+            FLeaves[I].AmbientLevel := L2^.AmbientLevel;
+          end;
+      end;
+  end;
+
+  procedure ReadFacesEdgesMarks;
+  var
+    I, J: Integer;
+    P: PByte;
+    F29: ^TBSP29Face;
+    F2: ^TBSP2Face;
+    E29: ^TBSP29Edge;
+    E2: ^TBSP2Edge;
+  begin
+    if FFormat = bfBsp29 then
+    begin
+      Count := Lump(LUMP_FACES, SizeOf(TBSP29Face), P);
+      SetLength(FFaces, Count);
+      for I := 0 to Count - 1 do
+      begin
+        F29 := Pointer(P + I * SizeOf(TBSP29Face));
+        FFaces[I].PlaneId := F29^.PlaneId;
+        FFaces[I].Side := F29^.Side;
+        FFaces[I].FirstEdge := F29^.FirstEdge;
+        FFaces[I].NumEdges := F29^.NumEdges;
+        FFaces[I].TexInfoId := F29^.TexInfoId;
+        FFaces[I].Styles := F29^.Styles;
+        FFaces[I].LightmapOffset := F29^.LightmapOffset;
+      end;
+      Count := Lump(LUMP_EDGES, SizeOf(TBSP29Edge), P);
+      SetLength(FEdges, Count);
+      for I := 0 to Count - 1 do
+      begin
+        E29 := Pointer(P + I * SizeOf(TBSP29Edge));
+        FEdges[I].V0 := E29^.V0;
+        FEdges[I].V1 := E29^.V1;
+      end;
+      Count := Lump(LUMP_MARKSURFACES, SizeOf(Word), P);
+      SetLength(FMarkSurfaces, Count);
+      for I := 0 to Count - 1 do
+        FMarkSurfaces[I] := PWord(P + I * SizeOf(Word))^;
+    end else
+    begin
+      Count := Lump(LUMP_FACES, SizeOf(TBSP2Face), P);
+      SetLength(FFaces, Count);
+      for I := 0 to Count - 1 do
+      begin
+        F2 := Pointer(P + I * SizeOf(TBSP2Face));
+        FFaces[I].PlaneId := F2^.PlaneId;
+        FFaces[I].Side := F2^.Side;
+        FFaces[I].FirstEdge := F2^.FirstEdge;
+        FFaces[I].NumEdges := F2^.NumEdges;
+        FFaces[I].TexInfoId := F2^.TexInfoId;
+        FFaces[I].Styles := F2^.Styles;
+        FFaces[I].LightmapOffset := F2^.LightmapOffset;
+      end;
+      Count := Lump(LUMP_EDGES, SizeOf(TBSP2Edge), P);
+      SetLength(FEdges, Count);
+      for I := 0 to Count - 1 do
+      begin
+        E2 := Pointer(P + I * SizeOf(TBSP2Edge));
+        FEdges[I].V0 := E2^.V0;
+        FEdges[I].V1 := E2^.V1;
+      end;
+      Count := Lump(LUMP_MARKSURFACES, SizeOf(LongWord), P);
+      SetLength(FMarkSurfaces, Count);
+      for I := 0 to Count - 1 do
+        FMarkSurfaces[I] := PLongWord(P + I * SizeOf(LongWord))^;
+    end;
+  end;
+
+  procedure ReadClipNodes;
+  var
+    I, J: Integer;
+    P: PByte;
+    C29: ^TBSP29ClipNode;
+    C2: ^TBSP2ClipNode;
+  begin
+    if FFormat = bfBsp29 then
+    begin
+      Count := Lump(LUMP_CLIPNODES, SizeOf(TBSP29ClipNode), P);
+      SetLength(RawClipNodes, Count);
+      for I := 0 to Count - 1 do
+      begin
+        C29 := Pointer(P + I * SizeOf(TBSP29ClipNode));
+        RawClipNodes[I].PlaneId := C29^.PlaneId;
+        { Unsigned below the clipnode count, else contents (QuakeSpasm) }
+        for J := 0 to 1 do
+          if Word(C29^.Children[J]) < Count then
+            RawClipNodes[I].Children[J] := Word(C29^.Children[J])
+          else
+            RawClipNodes[I].Children[J] := LongInt(Word(C29^.Children[J])) - 65536;
+      end;
+    end else
+    begin
+      Count := Lump(LUMP_CLIPNODES, SizeOf(TBSP2ClipNode), P);
+      SetLength(RawClipNodes, Count);
+      for I := 0 to Count - 1 do
+      begin
+        C2 := Pointer(P + I * SizeOf(TBSP2ClipNode));
+        RawClipNodes[I].PlaneId := C2^.PlaneId;
+        RawClipNodes[I].Children[0] := C2^.Children[0];
+        RawClipNodes[I].Children[1] := C2^.Children[1];
+      end;
+    end;
+  end;
+
+  { Lumps whose layout is the same in every format }
+  procedure ReadPlain(const Index, Size: Integer; const Dest: Pointer; out ACount: Integer);
+  var
+    P: PByte;
+  begin
+    ACount := Lump(Index, Size, P);
+    if ACount > 0 then
+      Move(P^, Dest^, ACount * Size);
+  end;
+
+  function PlainCount(const Index, Size: Integer): Integer;
+  var
+    P: PByte;
+  begin
+    Result := Lump(Index, Size, P);
+  end;
+
+begin
+  Result := False;
+  FMapName := ChangeFileExt(ExtractFileName(AMapPath), '');
+  if Stream.Size < SizeOf(TBSPHeader) then
+    Exit;
+  Stream.Position := 0;
+  Stream.ReadBuffer(Hdr, SizeOf(TBSPHeader));
+  case Hdr.Version of
+    BSP_VERSION: FFormat := bfBsp29;
+    BSP2_VERSION_BSP2: FFormat := bfBsp2;
+    BSP2_VERSION_2PSB: FFormat := bf2psb;
+    else
+    begin
+      WritelnWarning('QuakeBsp', 'Map "%s" has an unsupported BSP version %d (expected %d, BSP2 or 2PSB)',
+        [AMapPath, Hdr.Version, BSP_VERSION]);
+      Exit;
+    end;
+  end;
+  Base := PByte(Stream.Memory);
+
+  { 0: Entities }
+  if (Hdr.Lumps[LUMP_ENTITIES].Length > 0) and
+     (Int64(Hdr.Lumps[LUMP_ENTITIES].Offset) + Hdr.Lumps[LUMP_ENTITIES].Length <= Stream.Size) then
+  begin
+    SetLength(FEntitiesText, Hdr.Lumps[LUMP_ENTITIES].Length);
+    Move((Base + Hdr.Lumps[LUMP_ENTITIES].Offset)^, FEntitiesText[1], Hdr.Lumps[LUMP_ENTITIES].Length);
+    FEntities.Free;
+    FEntities := ParseEntities(FEntitiesText);
+    WritelnLog('QuakeBsp', 'Parsed %d entities', [FEntities.Count]);
+  end;
+
+  { 1: Planes, 3: Vertices, 13: SurfEdges, 6: TexInfo, 14: Models }
+  SetLength(FPlanes, PlainCount(LUMP_PLANES, SizeOf(TBSPPlane)));
+  ReadPlain(LUMP_PLANES, SizeOf(TBSPPlane), Pointer(FPlanes), Count);
+  SetLength(FVertices, PlainCount(LUMP_VERTICES, SizeOf(TVector3)));
+  ReadPlain(LUMP_VERTICES, SizeOf(TVector3), Pointer(FVertices), Count);
+  SetLength(FSurfEdges, PlainCount(LUMP_SURFEDGES, SizeOf(LongInt)));
+  ReadPlain(LUMP_SURFEDGES, SizeOf(LongInt), Pointer(FSurfEdges), Count);
+  SetLength(FTexInfos, PlainCount(LUMP_TEXINFO, SizeOf(TBSPTexInfo)));
+  ReadPlain(LUMP_TEXINFO, SizeOf(TBSPTexInfo), Pointer(FTexInfos), Count);
+  SetLength(FModels, PlainCount(LUMP_MODELS, SizeOf(TBSPModel)));
+  ReadPlain(LUMP_MODELS, SizeOf(TBSPModel), Pointer(FModels), Count);
+
+  { 5: Nodes, 10: Leaves, 7: Faces, 12: Edges, 11: MarkSurfaces in the
+    format's own layout }
+  ReadNodes;
+  ReadLeaves;
+  ReadFacesEdgesMarks;
+
+  { 4: Visibility (run-length compressed PVS rows) }
+  SetLength(FVisData, PlainCount(LUMP_VISIBILITY, 1));
+  ReadPlain(LUMP_VISIBILITY, 1, Pointer(FVisData), Count);
+
+  { 9: ClipNodes, and the collision hulls built from them }
+  ReadClipNodes;
+  MakeHulls(RawClipNodes);
+
+  { 8: Lightmaps }
+  if FLightmaps <> nil then
+  begin
+    FreeMem(FLightmaps);
+    FLightmaps := nil;
+  end;
+  FLightmapsSize := PlainCount(LUMP_LIGHTMAPS, 1);
+  if FLightmapsSize > 0 then
+  begin
+    GetMem(FLightmaps, FLightmapsSize);
+    ReadPlain(LUMP_LIGHTMAPS, 1, FLightmaps, Count);
+  end;
+
+  { 2: Miptex }
+  FMiptexes.Clear;
+  if PlainCount(LUMP_MIPTEX, 1) > 0 then
+    ParseMiptexLump(Base + Hdr.Lumps[LUMP_MIPTEX].Offset, Hdr.Lumps[LUMP_MIPTEX].Length);
+
+  WritelnLog('QuakeBsp', 'Loaded map "%s" (%s): %d faces, %d vertices, %d textures, %d models',
+    [AMapPath, BSPFormatNames[FFormat], Length(FFaces), Length(FVertices), FMiptexes.Count, Length(FModels)]);
+  Result := True;
 end;
 
 function TQuakeBsp.LeafVisible(const FromLeaf, ToLeaf: Integer): Boolean;

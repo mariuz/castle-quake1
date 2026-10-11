@@ -68,6 +68,10 @@ Audio headless: without a sound device the sound engine stays off (no music, no 
 
 Mission packs and mods: `-game hipnotic` (or `rogue`, a mod directory, or a path) loads `<dir>/pak*.pak` on top of id1 from the working directory, next to the executable, the data or the config directory; `-game hipnotic -qc start` plays the pack with its QuakeC (hipnotic keys 9 / 0 are the laser cannon / Mjolnir). The packs are not bundled.
 
+BSP2 maps: `BSP2` and `2PSB` levels load like BSP29 ones (the log says `Loaded map "..." (BSP2)`); `python3 tests/bsp2convert.py e1m1 <dir>` writes E1M1 in both formats to `<dir>/pak0.pak` for `-game <dir>` (`e1m1_bsp2`, `e1m1_2psb`).
+
+Protocol 666: demos and network games use FitzQuake's protocol for a level with more than 255 models or sounds (16-bit numbers through extension bits), protocol 15 otherwise; `-protocol 666` always uses it. Demo playback and the network client read both.
+
 Lightmap atlas pages: the world's lightmaps fill 2048 x 2048 pages and a full page opens another; `-lmatlas <size>` makes the pages smaller to test that (the log says `Lightmaps of model 0: N atlas page(s) ...`).
 
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
@@ -83,11 +87,11 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Gameplay Scenarios
 
-`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays five scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode, E1M1 with small lightmap atlas pages), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
+`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays six scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode, E1M1 with small lightmap atlas pages, E1M1 converted to BSP2 and 2PSB), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
 
 ## Unit Tests
 
-`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the QuakeC VM, savegame round trips and the demo writer / reader against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
+`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the PVS rows, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
 
 ## Conventions & Rules
 

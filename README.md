@@ -33,7 +33,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 ## Features
 
 **World**
-- BSP v29 levels from `.pak` files turned into X3D scene graphs, with triangle collision and the Quake clipping hulls for movement.
+- BSP v29 levels, and the BSP2 / 2PSB formats of large community maps, from `.pak` files turned into X3D scene graphs, with triangle collision and the Quake clipping hulls for movement.
 - The scrolling two layer sky or a six face skybox (`sky` worldspawn key with `gfx/env/*.tga`), fullbright texture pixels, translucent liquids seen from both sides, lava splashes.
 - Two world lighting modes: Quake's own lightmaps, all lightstyle layers blended in a GLSL effect with the live lightstyle values and dynamic lights (muzzle flashes, explosions), or dynamic PBR lighting by the map's light entities with real-time shadow maps.
 - Dual-layer scrolling sky, turbulent liquid surfaces, animated textures, particles (gunshots, blood, explosions, trails, teleports), underwater warp and palette tints.
@@ -46,7 +46,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
 - Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
 - Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
-- Demos: `.dem` playback with server frame interpolation, and recording of your own games.
+- Demos: `.dem` playback with server frame interpolation (protocol 15 and FitzQuake 666), and recording of your own games.
 
 **QuakeC mode**
 - `progs.dat` runs the level: a QuakeC VM (`pr_exec.c` semantics, all builtins) with a world host for traces, movetypes and the player physics. Mods loaded with `-pak` run unchanged. Savegames and demo recording work here too.

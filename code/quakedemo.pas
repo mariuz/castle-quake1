@@ -17,6 +17,9 @@ uses
 
 const
   ProtocolNetQuake = 15;
+  { FitzQuake / QuakeSpasm: 16-bit model, frame and sound indexes and more
+    entities, through extension bits; coordinates stay 16-bit }
+  ProtocolFitzQuake = 666;
 
   { Server to client messages }
   svc_bad = 0;
@@ -54,6 +57,14 @@ const
   svc_cdtrack = 32;
   svc_sellscreen = 33;
   svc_cutscene = 34;
+  { PROTOCOL_FITZQUAKE }
+  svc_skybox = 37;
+  svc_bf = 40;
+  svc_fog = 41;
+  svc_spawnbaseline2 = 42;
+  svc_spawnstatic2 = 43;
+  svc_spawnstaticsound2 = 44;
+  svc_achievement = 52;
 
   { Entity update bits }
   U_MOREBITS = 1;
@@ -71,6 +82,19 @@ const
   U_SKIN = 4096;
   U_EFFECTS = 8192;
   U_LONGENTITY = 16384;
+  { PROTOCOL_FITZQUAKE }
+  U_EXTEND1 = 1 shl 15;
+  U_ALPHA = 1 shl 16;
+  U_FRAME2 = 1 shl 17;
+  U_MODEL2 = 1 shl 18;
+  U_LERPFINISH = 1 shl 19;
+  U_SCALE = 1 shl 20;
+  U_EXTEND2 = 1 shl 23;
+
+  { Baseline bits of svc_spawnbaseline2 / svc_spawnstatic2 }
+  B_LARGEMODEL = 1;
+  B_LARGEFRAME = 2;
+  B_ALPHA = 4;
 
   { Client data bits }
   SU_VIEWHEIGHT = 1;
@@ -82,9 +106,24 @@ const
   SU_WEAPONFRAME = 4096;
   SU_ARMOR = 8192;
   SU_WEAPON = 16384;
+  { PROTOCOL_FITZQUAKE }
+  SU_EXTEND1 = 1 shl 15;
+  SU_WEAPON2 = 1 shl 16;
+  SU_ARMOR2 = 1 shl 17;
+  SU_AMMO2 = 1 shl 18;
+  SU_SHELLS2 = 1 shl 19;
+  SU_NAILS2 = 1 shl 20;
+  SU_ROCKETS2 = 1 shl 21;
+  SU_CELLS2 = 1 shl 22;
+  SU_EXTEND2 = 1 shl 23;
+  SU_WEAPONFRAME2 = 1 shl 24;
+  SU_WEAPONALPHA = 1 shl 25;
 
   SND_VOLUME = 1;
   SND_ATTENUATION = 2;
+  { PROTOCOL_FITZQUAKE }
+  SND_LARGEENTITY = 8;
+  SND_LARGESOUND = 16;
 
   { Temp entities }
   TE_SPIKE = 0;
@@ -144,7 +183,7 @@ const
   STAT_SECRETS = 13;
   STAT_MONSTERS = 14;
 
-  MaxDemoEntities = 1024;
+  MaxDemoEntities = 8192;
   MaxLightStyles = 64;
   Signons = 4;
 
@@ -210,7 +249,7 @@ type
     procedure ParseMessages;
     procedure ParseServerInfo;
     procedure ParseUpdate(Bits: Integer);
-    procedure ParseBaseline(var State: TDemoEntityState);
+    procedure ParseBaseline(var State: TDemoEntityState; const Version: Integer = 1);
     procedure ParseClientData;
     procedure ParseTempEntity;
     procedure ClearState;
@@ -225,6 +264,10 @@ type
     ViewEntity: Integer;
     Signon: Integer;
     Protocol: Integer;
+    { The worldspawn sky and fog sent by a FitzQuake server (svc_skybox, svc_fog) }
+    SkyboxName: String;
+    FogDensity: Single;
+    FogColor: TVector3;
     LevelName: String;
     MaxClients: Integer;
     Models, Sounds: TStringList;        { 1-based like the protocol: index 0 unused }
@@ -292,6 +335,8 @@ type
         HasBaseline: array of Boolean;
         StartAngles: TVector3;
         TotalMonsters, TotalSecrets: Integer;
+        { A message needed PROTOCOL_FITZQUAKE (an index above 255) }
+        Fitz: Boolean;
         constructor Create;
         destructor Destroy; override;
       end;
@@ -304,6 +349,8 @@ type
     procedure WriteByte(const V: Integer);
     procedure WriteChar(const V: Integer);
     procedure WriteShort(const V: Integer);
+    { 16 bits, unsigned (entity, model and sound numbers above 32767) }
+    procedure WriteWord(const V: Integer);
     procedure WriteLong(const V: LongInt);
     procedure WriteFloat(const V: Single);
     procedure WriteString(const S: String);
@@ -347,6 +394,18 @@ type
 
 { The standard QuakeC lightstyles 0..11 (worldspawn precaches them) }
 function StandardLightStyle(const Index: Integer): String;
+
+
+var
+  { The protocol demos are recorded with: ProtocolNetQuake writes protocol
+    15 unless a level needs model, sound or frame numbers above 255, then
+    that level is PROTOCOL_FITZQUAKE; ProtocolFitzQuake always (-protocol 666) }
+  PreferredProtocol: Integer = ProtocolNetQuake;
+
+const
+  { Precache limits of PROTOCOL_FITZQUAKE (QuakeSpasm's MAX_MODELS, MAX_SOUNDS) }
+  MaxFitzModels = 2048;
+  MaxFitzSounds = 2048;
 
 implementation
 
@@ -398,6 +457,9 @@ begin
   { CL_ClearState }
   for I := 0 to High(Entities) do
     Entities[I] := Default(TDemoEntity);
+  SkyboxName := '';
+  FogDensity := 0;
+  FogColor := TVector3.Zero;
   SetLength(Statics, 0);
   for I := 0 to High(LightStyles) do
     LightStyles[I] := '';
@@ -590,9 +652,10 @@ var
   S: String;
 begin
   Protocol := ReadLong;
-  if Protocol <> ProtocolNetQuake then
+  if (Protocol <> ProtocolNetQuake) and (Protocol <> ProtocolFitzQuake) then
   begin
-    WritelnWarning('QuakeDemo', 'Demo protocol %d is not supported (only %d)', [Protocol, ProtocolNetQuake]);
+    WritelnWarning('QuakeDemo', 'Demo protocol %d is not supported (only %d and %d)',
+      [Protocol, ProtocolNetQuake, ProtocolFitzQuake]);
     FDisconnected := True;
     Exit;
   end;
@@ -612,15 +675,30 @@ begin
       Break;
     Sounds.Add(S);
   until FBadMessage;
-  WritelnLog('QuakeDemo', 'Level "%s": %d models, %d sounds', [LevelName, Models.Count - 1, Sounds.Count - 1]);
+  WritelnLog('QuakeDemo', 'Level "%s": %d models, %d sounds, protocol %d',
+    [LevelName, Models.Count - 1, Sounds.Count - 1, Protocol]);
   if Assigned(OnServerInfo) then
     OnServerInfo();
 end;
 
-procedure TQuakeDemoReader.ParseBaseline(var State: TDemoEntityState);
+procedure TQuakeDemoReader.ParseBaseline(var State: TDemoEntityState; const Version: Integer);
+var
+  Bits: Integer;
 begin
-  State.ModelIndex := ReadByte;
-  State.Frame := ReadByte;
+  { CL_ParseBaseline: version 2 (svc_spawnbaseline2 / svc_spawnstatic2)
+    starts with bits for 16-bit model and frame numbers and an alpha }
+  if Version = 2 then
+    Bits := ReadByte
+  else
+    Bits := 0;
+  if (Bits and B_LARGEMODEL) <> 0 then
+    State.ModelIndex := ReadShort and $FFFF
+  else
+    State.ModelIndex := ReadByte;
+  if (Bits and B_LARGEFRAME) <> 0 then
+    State.Frame := ReadShort and $FFFF
+  else
+    State.Frame := ReadByte;
   State.ColorMap := ReadByte;
   State.Skin := ReadByte;
   State.Origin.X := ReadCoord;
@@ -630,6 +708,8 @@ begin
   State.Origin.Z := ReadCoord;
   State.Angles.Z := ReadAngle;
   State.Effects := 0;
+  if (Bits and B_ALPHA) <> 0 then
+    ReadByte;
 end;
 
 procedure TQuakeDemoReader.ParseUpdate(Bits: Integer);
@@ -644,8 +724,15 @@ begin
     Signon := Signons;
   if (Bits and U_MOREBITS) <> 0 then
     Bits := Bits or (ReadByte shl 8);
+  if Protocol = ProtocolFitzQuake then
+  begin
+    if (Bits and U_EXTEND1) <> 0 then
+      Bits := Bits or (ReadByte shl 16);
+    if (Bits and U_EXTEND2) <> 0 then
+      Bits := Bits or (ReadByte shl 24);
+  end;
   if (Bits and U_LONGENTITY) <> 0 then
-    Num := ReadShort
+    Num := ReadShort and $FFFF
   else
     Num := ReadByte;
   if (Num < 0) or (Num >= MaxDemoEntities) then
@@ -663,8 +750,6 @@ begin
     E^.Msg[0].ModelIndex := ReadByte
   else
     E^.Msg[0].ModelIndex := E^.Baseline.ModelIndex;
-  if E^.Msg[0].ModelIndex <> Old.ModelIndex then
-    ForceLink := True;
   if (Bits and U_FRAME) <> 0 then
     E^.Msg[0].Frame := ReadByte
   else
@@ -707,6 +792,24 @@ begin
   else
     E^.Msg[0].Angles.Z := E^.Baseline.Angles.Z;
 
+  { PROTOCOL_FITZQUAKE: the high bytes of the model and frame, alpha,
+    scale (RMQ) and the lerp finish time }
+  if Protocol = ProtocolFitzQuake then
+  begin
+    if (Bits and U_ALPHA) <> 0 then
+      ReadByte;
+    if (Bits and U_SCALE) <> 0 then
+      ReadByte;
+    if (Bits and U_FRAME2) <> 0 then
+      E^.Msg[0].Frame := (E^.Msg[0].Frame and $FF) or (ReadByte shl 8);
+    if (Bits and U_MODEL2) <> 0 then
+      E^.Msg[0].ModelIndex := (E^.Msg[0].ModelIndex and $FF) or (ReadByte shl 8);
+    if (Bits and U_LERPFINISH) <> 0 then
+      ReadByte;
+  end;
+  if E^.Msg[0].ModelIndex <> Old.ModelIndex then
+    ForceLink := True;
+
   if (Bits and U_NOLERP) <> 0 then
     ForceLink := True;
   if ForceLink then
@@ -721,7 +824,14 @@ procedure TQuakeDemoReader.ParseClientData;
 var
   Bits, I: Integer;
 begin
-  Bits := ReadShort;
+  Bits := ReadShort and $FFFF;
+  if Protocol = ProtocolFitzQuake then
+  begin
+    if (Bits and SU_EXTEND1) <> 0 then
+      Bits := Bits or (ReadByte shl 16);
+    if (Bits and SU_EXTEND2) <> 0 then
+      Bits := Bits or (ReadByte shl 24);
+  end;
   if (Bits and SU_VIEWHEIGHT) <> 0 then
     ClientData.ViewHeight := ReadChar
   else
@@ -763,6 +873,28 @@ begin
   ClientData.Rockets := ReadByte;
   ClientData.Cells := ReadByte;
   ClientData.ActiveWeapon := ReadByte;
+  { PROTOCOL_FITZQUAKE: the high bytes }
+  if Protocol = ProtocolFitzQuake then
+  begin
+    if (Bits and SU_WEAPON2) <> 0 then
+      ClientData.Weapon := ClientData.Weapon or (ReadByte shl 8);
+    if (Bits and SU_ARMOR2) <> 0 then
+      ClientData.Armor := ClientData.Armor or (ReadByte shl 8);
+    if (Bits and SU_AMMO2) <> 0 then
+      ClientData.Ammo := ClientData.Ammo or (ReadByte shl 8);
+    if (Bits and SU_SHELLS2) <> 0 then
+      ClientData.Shells := ClientData.Shells or (ReadByte shl 8);
+    if (Bits and SU_NAILS2) <> 0 then
+      ClientData.Nails := ClientData.Nails or (ReadByte shl 8);
+    if (Bits and SU_ROCKETS2) <> 0 then
+      ClientData.Rockets := ClientData.Rockets or (ReadByte shl 8);
+    if (Bits and SU_CELLS2) <> 0 then
+      ClientData.Cells := ClientData.Cells or (ReadByte shl 8);
+    if (Bits and SU_WEAPONFRAME2) <> 0 then
+      ClientData.WeaponFrame := ClientData.WeaponFrame or (ReadByte shl 8);
+    if (Bits and SU_WEAPONALPHA) <> 0 then
+      ReadByte;
+  end;
 end;
 
 procedure TQuakeDemoReader.ParseTempEntity;
@@ -838,10 +970,20 @@ begin
             Atten := ReadByte / 64
           else
             Atten := 1;
-          Channel := ReadShort;
-          Ent := Channel shr 3;
-          Channel := Channel and 7;
-          SoundNum := ReadByte;
+          if (I and SND_LARGEENTITY) <> 0 then
+          begin
+            Ent := ReadShort and $FFFF;
+            Channel := ReadByte;
+          end else
+          begin
+            Channel := ReadShort and $FFFF;
+            Ent := Channel shr 3;
+            Channel := Channel and 7;
+          end;
+          if (I and SND_LARGESOUND) <> 0 then
+            SoundNum := ReadShort and $FFFF
+          else
+            SoundNum := ReadByte;
           Pos := ReadVector;
           if Assigned(OnSound) then
             OnSound(Ent, Channel, SoundNum, Vol, Atten, Pos);
@@ -1000,6 +1142,39 @@ begin
             OnCdTrack(I, Count);
         end;
       svc_sellscreen: ;
+      svc_spawnbaseline2:
+        begin
+          I := ReadShort and $FFFF;
+          ParseBaseline(State, 2);
+          if (I >= 0) and (I < MaxDemoEntities) then
+            Entities[I].Baseline := State;
+        end;
+      svc_spawnstatic2:
+        begin
+          ParseBaseline(State, 2);
+          SetLength(Statics, Length(Statics) + 1);
+          Statics[High(Statics)] := State;
+        end;
+      svc_spawnstaticsound2:
+        begin
+          ReadVector;
+          ReadShort;
+          ReadByte;
+          ReadByte;
+        end;
+      svc_skybox:
+        SkyboxName := ReadString;
+      svc_bf: ;
+      svc_fog:
+        begin
+          FogDensity := ReadByte / 255;
+          FogColor.X := ReadByte / 255;
+          FogColor.Y := ReadByte / 255;
+          FogColor.Z := ReadByte / 255;
+          ReadShort; { fade time }
+        end;
+      svc_achievement:
+        ReadString;
       else
       begin
         WritelnWarning('QuakeDemo', 'Illegible server message %d', [Cmd]);
@@ -1250,7 +1425,7 @@ begin
   Result := FCur.Models.IndexOf(Path);
   if Result < 0 then
   begin
-    if FCur.Models.Count >= 255 then
+    if FCur.Models.Count >= MaxFitzModels - 1 then
       Exit(0);
     Result := FCur.Models.Add(Path);
   end;
@@ -1269,7 +1444,7 @@ begin
   Result := FCur.Sounds.IndexOf(P);
   if Result < 0 then
   begin
-    if FCur.Sounds.Count >= 255 then
+    if FCur.Sounds.Count >= MaxFitzSounds - 1 then
       Exit(0);
     Result := FCur.Sounds.Add(P);
   end;
@@ -1295,6 +1470,14 @@ var
 begin
   S := EnsureRange(V, -32768, 32767);
   FMsg.WriteBuffer(S, 2);
+end;
+
+procedure TQuakeDemoWriter.WriteWord(const V: Integer);
+var
+  W: Word;
+begin
+  W := V and $FFFF;
+  FMsg.WriteBuffer(W, 2);
 end;
 
 procedure TQuakeDemoWriter.WriteLong(const V: LongInt);
@@ -1388,9 +1571,37 @@ begin
     Bits := Bits or SU_ARMOR;
   if CD.Weapon <> 0 then
     Bits := Bits or SU_WEAPON;
+  { PROTOCOL_FITZQUAKE high bytes for values above 255 }
+  if CD.Weapon > 255 then
+    Bits := Bits or SU_WEAPON2;
+  if CD.Armor > 255 then
+    Bits := Bits or SU_ARMOR2;
+  if CD.Ammo > 255 then
+    Bits := Bits or SU_AMMO2;
+  if CD.Shells > 255 then
+    Bits := Bits or SU_SHELLS2;
+  if CD.Nails > 255 then
+    Bits := Bits or SU_NAILS2;
+  if CD.Rockets > 255 then
+    Bits := Bits or SU_ROCKETS2;
+  if CD.Cells > 255 then
+    Bits := Bits or SU_CELLS2;
+  if CD.WeaponFrame > 255 then
+    Bits := Bits or SU_WEAPONFRAME2;
+  if (Bits and LongInt($FF000000)) <> 0 then
+    Bits := Bits or SU_EXTEND2;
+  if (Bits and LongInt($FFFF0000)) <> 0 then
+  begin
+    Bits := Bits or SU_EXTEND1;
+    FCur.Fitz := True;
+  end;
 
   WriteByte(svc_clientdata);
-  WriteShort(Bits);
+  WriteWord(Bits);
+  if (Bits and SU_EXTEND1) <> 0 then
+    WriteByte(Bits shr 16);
+  if (Bits and SU_EXTEND2) <> 0 then
+    WriteByte(Bits shr 24);
   if (Bits and SU_VIEWHEIGHT) <> 0 then
     WriteChar(Round(CD.ViewHeight));
   for I := 0 to 2 do
@@ -1410,6 +1621,22 @@ begin
   WriteByte(CD.Rockets);
   WriteByte(CD.Cells);
   WriteByte(CD.ActiveWeapon);
+  if (Bits and SU_WEAPON2) <> 0 then
+    WriteByte(CD.Weapon shr 8);
+  if (Bits and SU_ARMOR2) <> 0 then
+    WriteByte(CD.Armor shr 8);
+  if (Bits and SU_AMMO2) <> 0 then
+    WriteByte(CD.Ammo shr 8);
+  if (Bits and SU_SHELLS2) <> 0 then
+    WriteByte(CD.Shells shr 8);
+  if (Bits and SU_NAILS2) <> 0 then
+    WriteByte(CD.Nails shr 8);
+  if (Bits and SU_ROCKETS2) <> 0 then
+    WriteByte(CD.Rockets shr 8);
+  if (Bits and SU_CELLS2) <> 0 then
+    WriteByte(CD.Cells shr 8);
+  if (Bits and SU_WEAPONFRAME2) <> 0 then
+    WriteByte(CD.WeaponFrame shr 8);
 end;
 
 procedure TQuakeDemoWriter.WriteEntity(const Num: Integer; const State: TDemoEntityState);
@@ -1457,14 +1684,26 @@ begin
     Bits := Bits or U_ANGLE3;
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
+  { PROTOCOL_FITZQUAKE: the high bytes of a model or frame above 255 }
+  if ((Bits and U_MODEL) <> 0) and (State.ModelIndex > 255) then
+    Bits := Bits or U_MODEL2;
+  if ((Bits and U_FRAME) <> 0) and (State.Frame > 255) then
+    Bits := Bits or U_FRAME2;
+  if (Bits and $FF0000) <> 0 then
+  begin
+    Bits := Bits or U_EXTEND1;
+    FCur.Fitz := True;
+  end;
   if (Bits and $FF00) <> 0 then
     Bits := Bits or U_MOREBITS;
 
   WriteByte(Bits and 255);
   if (Bits and U_MOREBITS) <> 0 then
     WriteByte(Bits shr 8);
+  if (Bits and U_EXTEND1) <> 0 then
+    WriteByte(Bits shr 16);
   if (Bits and U_LONGENTITY) <> 0 then
-    WriteShort(Num)
+    WriteWord(Num)
   else
     WriteByte(Num);
   if (Bits and U_MODEL) <> 0 then
@@ -1487,6 +1726,10 @@ begin
     WriteCoord(State.Origin.Z);
   if (Bits and U_ANGLE3) <> 0 then
     WriteAngle(State.Angles.Z);
+  if (Bits and U_FRAME2) <> 0 then
+    WriteByte(State.Frame shr 8);
+  if (Bits and U_MODEL2) <> 0 then
+    WriteByte(State.ModelIndex shr 8);
 end;
 
 procedure TQuakeDemoWriter.WriteSound(const Entity, Channel, SoundIdx: Integer;
@@ -1501,14 +1744,28 @@ begin
     Mask := Mask or SND_VOLUME;
   if Attenuation <> 1 then
     Mask := Mask or SND_ATTENUATION;
+  if (Entity >= 8192) or (Channel > 7) then
+    Mask := Mask or SND_LARGEENTITY;
+  if SoundIdx > 255 then
+    Mask := Mask or SND_LARGESOUND;
+  if (Mask and (SND_LARGEENTITY or SND_LARGESOUND)) <> 0 then
+    FCur.Fitz := True;
   WriteByte(svc_sound);
   WriteByte(Mask);
   if (Mask and SND_VOLUME) <> 0 then
     WriteByte(Round(EnsureRange(Volume, 0, 1) * 255));
   if (Mask and SND_ATTENUATION) <> 0 then
     WriteByte(Round(EnsureRange(Attenuation, 0, 3.98) * 64));
-  WriteShort((Entity shl 3) or (Channel and 7));
-  WriteByte(SoundIdx);
+  if (Mask and SND_LARGEENTITY) <> 0 then
+  begin
+    WriteWord(Entity);
+    WriteByte(Channel);
+  end else
+    WriteWord((Entity shl 3) or (Channel and 7));
+  if (Mask and SND_LARGESOUND) <> 0 then
+    WriteWord(SoundIdx)
+  else
+    WriteByte(SoundIdx);
   WriteVector(Origin);
 end;
 
@@ -1638,8 +1895,15 @@ begin
       FMsg.Clear;
       WriteByte(svc_print);
       WriteString(#2 + #10 + 'Castle Quake demo' + #10);
+      { Baselines above 255 need PROTOCOL_FITZQUAKE too }
+      for I := 1 to MaxDemoEntities - 1 do
+        if Sec.HasBaseline[I] and ((Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255)) then
+          Sec.Fitz := True;
       WriteByte(svc_serverinfo);
-      WriteLong(ProtocolNetQuake);
+      if Sec.Fitz or (PreferredProtocol = ProtocolFitzQuake) then
+        WriteLong(ProtocolFitzQuake)
+      else
+        WriteLong(ProtocolNetQuake);
       WriteByte(1); { maxclients }
       WriteByte(0); { gametype }
       WriteString(Sec.LevelName);
@@ -1663,10 +1927,21 @@ begin
       for I := 1 to MaxDemoEntities - 1 do
         if Sec.HasBaseline[I] then
         begin
-          WriteByte(svc_spawnbaseline);
-          WriteShort(I);
-          WriteByte(Sec.Baselines[I].ModelIndex);
-          WriteByte(Sec.Baselines[I].Frame);
+          if (Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255) then
+          begin
+            { svc_spawnbaseline2 with 16-bit model and frame }
+            WriteByte(svc_spawnbaseline2);
+            WriteWord(I);
+            WriteByte(B_LARGEMODEL or B_LARGEFRAME);
+            WriteWord(Sec.Baselines[I].ModelIndex);
+            WriteWord(Sec.Baselines[I].Frame);
+          end else
+          begin
+            WriteByte(svc_spawnbaseline);
+            WriteWord(I);
+            WriteByte(Sec.Baselines[I].ModelIndex);
+            WriteByte(Sec.Baselines[I].Frame);
+          end;
           WriteByte(Sec.Baselines[I].ColorMap);
           WriteByte(Sec.Baselines[I].Skin);
           WriteCoord(Sec.Baselines[I].Origin.X);
