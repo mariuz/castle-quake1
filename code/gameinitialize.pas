@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, GameInput, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -271,6 +271,27 @@ begin
     if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
       CmdNoPredict := True
     else
+    if ((Parameters[I] = '-protocol') or (Parameters[I] = '--protocol')) and (I + 1 <= Parameters.High) then
+    begin
+      { 666: recorded demos and the network game always use FitzQuake;
+        else 15 unless a level needs more than 255 models or sounds }
+      if Parameters[I + 1] = '666' then
+      begin
+        PreferredProtocol := ProtocolFitzQuake;
+        NetForceFitzQuake := True;
+      end;
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-lmatlas') or (Parameters[I] = '--lmatlas')) and (I + 1 <= Parameters.High) then
+    begin
+      { Lightmap atlas page size (testing: small pages force several) }
+      LightmapAtlasSize := StrToIntDef(Parameters[I + 1], 2048);
+      if LightmapAtlasSize < 64 then
+        LightmapAtlasSize := 64;
+      if LightmapAtlasSize > 4096 then
+        LightmapAtlasSize := 4096;
+      Inc(I);
+    end else
     if ((Parameters[I] = '-skill') or (Parameters[I] = '--skill')) and (I + 1 <= Parameters.High) then
     begin
       CmdSkill := StrToIntDef(Parameters[I + 1], 1);

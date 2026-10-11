@@ -307,6 +307,16 @@ function BytesToAddress(const B: TNetBytes; const Offset: Integer; out A: TInetS
 function NameBytes(const S: String): TNetBytes;
 function BytesName(const B: TNetBytes; const Offset: Integer): String;
 
+
+var
+  { The game protocol the server's messages use: 15 (NetQuake), or 666
+    (FitzQuake: 16-bit model, frame and sound numbers through extension
+    bits) when a level precaches more than 255 models or sounds, or always
+    with -protocol 666. Set by TQuakeServer for each level. }
+  NetGameProtocol: Integer = 15;
+  { -protocol 666: the server always uses FitzQuake }
+  NetForceFitzQuake: Boolean = False;
+
 implementation
 
 uses
@@ -599,7 +609,7 @@ var
 begin
   BeginMessage;
   WriteByte(11);
-  WriteLong(15);
+  WriteLong(NetGameProtocol);
   WriteByte(MaxClients);
   WriteByte(1); { gametype: deathmatch }
   WriteString(LevelName);
@@ -636,9 +646,19 @@ end;
 procedure TQuakeNetMessage.SpawnStatic(const ModelIndex, Frame, Skin: Integer; const Origin, Angles: TVector3);
 begin
   BeginMessage;
-  WriteByte(20);
-  WriteByte(ModelIndex);
-  WriteByte(Frame);
+  if (NetGameProtocol = 666) and ((ModelIndex > 255) or (Frame > 255)) then
+  begin
+    { svc_spawnstatic2: B_LARGEMODEL, B_LARGEFRAME }
+    WriteByte(43);
+    WriteByte(3);
+    WriteShort(ModelIndex);
+    WriteShort(Frame);
+  end else
+  begin
+    WriteByte(20);
+    WriteByte(ModelIndex);
+    WriteByte(Frame);
+  end;
   WriteByte(0);
   WriteByte(Skin);
   WriteCoord(Origin.X);
@@ -686,6 +706,7 @@ procedure TQuakeNetMessage.Entity(const Num, ModelIndex, Frame, Skin, Effects: I
 const
   U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_FRAME = 64; U_SIGNAL = 128;
   U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_SKIN = 4096; U_EFFECTS = 8192; U_LONGENTITY = 16384;
+  U_EXTEND1 = 1 shl 15; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
 var
   Bits: Integer;
 begin
@@ -697,9 +718,19 @@ begin
     Bits := Bits or U_EFFECTS;
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
+  { FitzQuake: the high bytes of a model or frame above 255 }
+  if NetGameProtocol = 666 then
+  begin
+    if ModelIndex > 255 then
+      Bits := Bits or U_MODEL2 or U_EXTEND1;
+    if Frame > 255 then
+      Bits := Bits or U_FRAME2 or U_EXTEND1;
+  end;
   Bits := Bits or U_MOREBITS;
   WriteByte(Bits and 255);
-  WriteByte(Bits shr 8);
+  WriteByte((Bits shr 8) and 255);
+  if (Bits and U_EXTEND1) <> 0 then
+    WriteByte(Bits shr 16);
   if (Bits and U_LONGENTITY) <> 0 then
     WriteShort(Num)
   else
@@ -716,20 +747,37 @@ begin
   WriteAngle(Angles.Y);
   WriteCoord(Origin.Z);
   WriteAngle(Angles.Z);
+  if (Bits and U_FRAME2) <> 0 then
+    WriteByte(Frame shr 8);
+  if (Bits and U_MODEL2) <> 0 then
+    WriteByte(ModelIndex shr 8);
 end;
 
 procedure TQuakeNetMessage.ClientData(const ViewHeight: Single; const Velocity: TVector3; const Items: Cardinal;
   const WeaponFrame, Armor, WeaponModel, Health, Ammo, Shells, Nails, Rockets, Cells, ActiveWeapon: Integer);
 const
   SU_VIEWHEIGHT = 1; SU_VELOCITY1 = 32; SU_WEAPONFRAME = 4096; SU_ARMOR = 8192; SU_WEAPON = 16384;
+  SU_EXTEND1 = 1 shl 15; SU_WEAPON2 = 1 shl 16; SU_WEAPONFRAME2 = 1 shl 24; SU_EXTEND2 = 1 shl 23;
 var
   Bits, I: Integer;
 begin
   BeginMessage;
   Bits := SU_VIEWHEIGHT or SU_VELOCITY1 or (SU_VELOCITY1 shl 1) or (SU_VELOCITY1 shl 2) or SU_WEAPONFRAME or
     SU_ARMOR or SU_WEAPON;
+  { FitzQuake: the weapon model and frame above 255 }
+  if NetGameProtocol = 666 then
+  begin
+    if WeaponModel > 255 then
+      Bits := Bits or SU_WEAPON2 or SU_EXTEND1;
+    if WeaponFrame > 255 then
+      Bits := Bits or SU_WEAPONFRAME2 or SU_EXTEND2 or SU_EXTEND1;
+  end;
   WriteByte(15);
-  WriteShort(Bits);
+  WriteShort(SmallInt(Bits and $FFFF));
+  if (Bits and SU_EXTEND1) <> 0 then
+    WriteByte((Bits shr 16) and 255);
+  if (Bits and SU_EXTEND2) <> 0 then
+    WriteByte((Bits shr 24) and 255);
   WriteChar(Round(ViewHeight));
   for I := 0 to 2 do
     WriteChar(Round(Velocity.Data[I] / 16));
@@ -744,20 +792,44 @@ begin
   WriteByte(EnsureRange(Rockets, 0, 255));
   WriteByte(EnsureRange(Cells, 0, 255));
   WriteByte(ActiveWeapon and 255);
+  if (Bits and SU_WEAPON2) <> 0 then
+    WriteByte(WeaponModel shr 8);
+  if (Bits and SU_WEAPONFRAME2) <> 0 then
+    WriteByte(WeaponFrame shr 8);
 end;
 
 procedure TQuakeNetMessage.Sound(const E, Channel, SoundIdx: Integer; const Volume, Attenuation: Single;
   const Origin: TVector3);
+var
+  Mask: Integer;
 begin
   if SoundIdx <= 0 then
     Exit;
   BeginMessage;
+  { SND_VOLUME, SND_ATTENUATION, and in FitzQuake SND_LARGEENTITY /
+    SND_LARGESOUND for entities from 8192 and sounds above 255 }
+  Mask := 3;
+  if NetGameProtocol = 666 then
+  begin
+    if (E >= 8192) or (Channel > 7) then
+      Mask := Mask or 8;
+    if SoundIdx > 255 then
+      Mask := Mask or 16;
+  end;
   WriteByte(6);
-  WriteByte(3);
+  WriteByte(Mask);
   WriteByte(Round(EnsureRange(Volume, 0, 1) * 255));
   WriteByte(Round(EnsureRange(Attenuation, 0, 3.98) * 64));
-  WriteShort((E shl 3) or (Channel and 7));
-  WriteByte(SoundIdx);
+  if (Mask and 8) <> 0 then
+  begin
+    WriteShort(SmallInt(E and $FFFF));
+    WriteByte(Channel);
+  end else
+    WriteShort(SmallInt(((E shl 3) or (Channel and 7)) and $FFFF));
+  if (Mask and 16) <> 0 then
+    WriteShort(SoundIdx)
+  else
+    WriteByte(SoundIdx);
   WriteVector(Origin);
 end;
 

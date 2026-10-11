@@ -37,8 +37,9 @@ PROCESS_TIMEOUT = 300
 
 
 class Scenario:
-    def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD):
+    def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD, prepare=None):
         self.name = name
+        self.prepare = prepare        # function(out_dir) run before the processes, or None
         self.runs = runs              # [(prefix, args, delay before start)]
         self.checks = checks          # function(logs) -> [(ok, description)]
         self.references = references  # screenshot names compared with tests/reference
@@ -55,6 +56,8 @@ def game_command(exe, args):
 def run_scenario(exe, out_dir, scenario):
     """Start the scenario's processes (in parallel, each after its delay) and
     return {prefix: log text}."""
+    if scenario.prepare is not None:
+        scenario.prepare(out_dir)
     processes = []
     start = time.time()
     for prefix, args, delay in scenario.runs:
@@ -170,6 +173,40 @@ def check_quakec(logs):
     return result
 
 
+def check_lightmap_pages(logs):
+    log = logs['pages']
+    result = common_checks(logs, 'pages')
+    m = re.search(r'Lightmaps of model 0: (\d+) atlas page\(s\) of \d+x\d+, \d+ rows used, (\d+) faces without room', log)
+    pages = int(m.group(1)) if m else 0
+    result.append((pages > 1, 'small atlas pages: the world lightmaps fill several (%d)' % pages))
+    result.append((m is not None and m.group(2) == '0', 'every face found room (%s without)' % (m.group(2) if m else '?')))
+    return result
+
+
+def prepare_bsp2(out_dir):
+    # E1M1 rewritten in the BSP2 and 2PSB formats, in a -game directory
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    bsp2convert.write_pak(os.path.join(out_dir, 'pak0.pak'),
+                          [('maps/e1m1_bsp2.bsp', bsp2convert.convert(data, 'BSP2')),
+                           ('maps/e1m1_2psb.bsp', bsp2convert.convert(data, '2PSB'))])
+
+
+def check_bsp2(logs):
+    result = []
+    for prefix, kind in (('bsp2', 'BSP2'), ('psb', '2PSB')):
+        log = logs[prefix]
+        result += common_checks(logs, prefix)
+        result.append(('(%s): 5516 faces' % kind in log, '%s map loads with the faces of e1m1' % kind))
+        v = views(log)
+        result.append((len(v) == 2, '%s: two screenshots (got %d)' % (prefix, len(v))))
+        if len(v) == 2:
+            result.append((v[1]['eye'][1] - v[0]['eye'][1] > 200,
+                           '%s: walked forward on its hulls (%.0f units)' % (prefix, v[1]['eye'][1] - v[0]['eye'][1])))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -187,6 +224,18 @@ SCENARIOS = [
              check_deathmatch, []),
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0)],
              check_quakec, ['qc_1']),
+    # The same view as finish_1 with 128 x 128 lightmap atlas pages: its
+    # reference is a copy of e1m1_finish_finish_1 (one 2048 x 2048 page)
+    Scenario('lightmap_pages', [('pages', ['-lmatlas', '128', '--autotest', 'e1m1', '{out}/pages', '--demo',
+                                           'W:0.5,Y,S,Q'], 0)],
+             check_lightmap_pages, ['pages_1']),
+    # E1M1 converted to BSP2 and 2PSB: the same start view as finish_1 (the
+    # references are copies of e1m1_finish_finish_1) and the same walk
+    Scenario('bsp2', [('bsp2', ['-game', '{out}', '--autotest', 'e1m1_bsp2', '{out}/bsp2', '--demo',
+                                'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0),
+                      ('psb', ['-game', '{out}', '--autotest', 'e1m1_2psb', '{out}/psb', '--demo',
+                               'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
+             check_bsp2, ['bsp2_1', 'psb_1'], prepare=prepare_bsp2),
 ]
 
 

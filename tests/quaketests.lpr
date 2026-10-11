@@ -306,6 +306,10 @@ type
     destructor Destroy; override;
     procedure OnPrint(const S: String);
     procedure OnServerInfo;
+    procedure OnSound(const Entity, Channel, SoundIndex: Integer;
+      const Volume, Attenuation: Single; const Origin: TVector3);
+  public
+    LastSoundEntity, LastSoundChannel, LastSoundIndex: Integer;
   end;
 
 constructor TDemoListener.Create;
@@ -328,6 +332,14 @@ end;
 procedure TDemoListener.OnServerInfo;
 begin
   Inc(ServerInfos);
+end;
+
+procedure TDemoListener.OnSound(const Entity, Channel, SoundIndex: Integer;
+  const Volume, Attenuation: Single; const Origin: TVector3);
+begin
+  LastSoundEntity := Entity;
+  LastSoundChannel := Channel;
+  LastSoundIndex := SoundIndex;
 end;
 
 procedure TestDemoRoundTrip;
@@ -397,6 +409,78 @@ begin
       CheckVector(Vector3(140, 200, 300), R.Entities[1].Msg[0].Origin, 0.2, 'last entity origin');
       CheckEquals(4, R.Entities[1].Msg[0].Frame, 'last entity frame');
     end;
+    Check(R.Finished, 'demo finished');
+  finally
+    Listener.Free;
+    R.Free;
+    W.Free;
+  end;
+end;
+
+procedure TestDemoFitzQuake;
+var
+  W: TQuakeDemoWriter;
+  R: TQuakeDemoReader;
+  Listener: TDemoListener;
+  CD: TDemoClientData;
+  State: TDemoEntityState;
+  Url: String;
+  I, BigModel, BigSound: Integer;
+begin
+  StartTest('Demo round trip with FitzQuake 16-bit numbers (protocol 666)');
+  W := TQuakeDemoWriter.Create;
+  R := TQuakeDemoReader.Create;
+  Listener := TDemoListener.Create;
+  try
+    W.BeginLevel('maps/big.bsp', 'Big level', Vector3(0, 0, 0), 0, 0);
+    BigModel := 0;
+    for I := 1 to 300 do
+      BigModel := W.ModelIndex(Format('progs/m%d.mdl', [I]));
+    BigSound := 0;
+    for I := 1 to 280 do
+      BigSound := W.SoundIndex(Format('misc/s%d.wav', [I]));
+    Check(BigModel > 255, Format('model index above 255 (%d)', [BigModel]));
+    Check(BigSound > 255, Format('sound index above 255 (%d)', [BigSound]));
+    CD := Default(TDemoClientData);
+    CD.ViewHeight := 22;
+    CD.Health := 100;
+    CD.Weapon := BigModel;
+    CD.Armor := 300;
+    CD.Cells := 400;
+    CD.WeaponFrame := 260;
+    State := Default(TDemoEntityState);
+    { The first state is the baseline (svc_spawnbaseline2), the second an update }
+    for I := 0 to 1 do
+    begin
+      W.BeginFrame(1.0 + I * 0.1);
+      W.WriteClientData(CD);
+      State.ModelIndex := BigModel - I;
+      State.Frame := 270 + I;
+      State.Origin := Vector3(10, 20, 30 + I);
+      W.WriteEntity(700, State);
+      W.WriteSound(9000, 5, BigSound, 1, 1, Vector3(1, 2, 3));
+      W.EndFrame(TVector3.Zero);
+    end;
+    Url := TempUrl('quaketests_fitz.dem');
+    Check(W.SaveToUrl(Url), 'demo saved');
+
+    R.OnSound := @Listener.OnSound;
+    Check(R.Load(Url), 'demo loads');
+    for I := 1 to 40 do
+      R.Advance(0.05);
+    CheckEquals(ProtocolFitzQuake, R.Protocol, 'the level is protocol 666');
+    CheckEqualsStr(Format('progs/m%d.mdl', [300]), R.ModelName(BigModel), 'model above 255 in the serverinfo');
+    CheckEquals(BigModel, R.Entities[700].Baseline.ModelIndex, 'baseline model above 255');
+    CheckEquals(270, R.Entities[700].Baseline.Frame, 'baseline frame above 255');
+    CheckEquals(BigModel - 1, R.Entities[700].Msg[0].ModelIndex, 'updated model above 255');
+    CheckEquals(271, R.Entities[700].Msg[0].Frame, 'updated frame above 255');
+    CheckEquals(BigModel, R.ClientData.Weapon, 'weapon model above 255');
+    CheckEquals(300, R.ClientData.Armor, 'armor above 255');
+    CheckEquals(400, R.ClientData.Cells, 'cells above 255');
+    CheckEquals(260, R.ClientData.WeaponFrame, 'weapon frame above 255');
+    CheckEquals(9000, Listener.LastSoundEntity, 'sound entity from 8192');
+    CheckEquals(5, Listener.LastSoundChannel, 'sound channel');
+    CheckEquals(BigSound, Listener.LastSoundIndex, 'sound above 255');
     Check(R.Finished, 'demo finished');
   finally
     Listener.Free;
@@ -562,6 +646,7 @@ begin
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;
+  TestDemoFitzQuake;
   TestBindings;
   TestWebSocket;
   TestGamepad;

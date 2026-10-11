@@ -42,6 +42,8 @@ type
     Material: TMaterialNode;
     IsSky: Boolean;
     IsLiquid: Boolean;
+    { Index of the lightmap atlas page the batch's lightmap coordinates use }
+    LightmapPage: Integer;
     { Shader uniforms of the sky effect (only when IsSky), owned by the X3D graph }
     SkyTimeField: TSFFloat;
     SkyEyeField: TSFVec3f;
@@ -73,7 +75,10 @@ type
     function CreateTextureNode(const Layer: Integer): TPixelTextureNode;
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
+    { Rows packed so far }
+    property UsedHeight: Integer read FUsedHeight;
   end;
+  TQuakeLightmapAtlasList = specialize TObjectList<TQuakeLightmapAtlas>;
 
   TQuakeGeomBatchDict = specialize TObjectDictionary<String, TQuakeGeomBatch>;
 
@@ -173,14 +178,15 @@ type
     FVisLiquidSeeThrough: Boolean;
     FVisibleClusters, FVisibleShapes, FShapeCount: Integer;
     FAllVisible: Boolean;
+    FFullbrightFaces: Integer; { faces whose lightmap found no room, while building a model }
     FEntityCount, FVisibleEntities: Integer;
     function LeafInPvs(const Leaf: Integer): Boolean;
     procedure SetLiquidAlpha(const Value: Single);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
-      const Atlas: TQuakeLightmapAtlas);
+      const Atlases: TQuakeLightmapAtlasList);
     procedure FinishBatches(const Batches: TQuakeGeomBatchDict;
-      const LMSet: TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
+      const LMSets: array of TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
     procedure BuildClusters(out FaceCluster: TQuakeIntArray);
     procedure BuildModelGeometry(const ModelIdx: Integer; const RootNode: TX3DRootNode;
       var OutBatches: TQuakeGeomBatchDict; const Clustered: Boolean = False);
@@ -255,6 +261,10 @@ var
     (lightstyles, dynamic lights), False = lit materials under the engine's
     real-time lights. Takes effect when a map is loaded. }
   WorldLightmaps: Boolean = True;
+
+  { Size of the world's lightmap atlas pages (brush entities use at most
+    512); a full page opens another. Smaller values only for testing. }
+  LightmapAtlasSize: Integer = 2048;
 
   { r_novis off: draw only the world in the camera's potentially visible set }
   WorldPvsCulling: Boolean = True;
@@ -1026,8 +1036,12 @@ begin
 end;
 
 procedure TQuakeGeometry.AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
-  const Atlas: TQuakeLightmapAtlas);
+  const Atlases: TQuakeLightmapAtlasList);
 var
+  Atlas: TQuakeLightmapAtlas;
+  Page: Integer;
+  BatchKey: String;
+  NoLightmap: Boolean;
   Face: TBSPFace;
   TexInfo: TBSPTexInfo;
   MipName: String;
@@ -1067,12 +1081,10 @@ begin
 
   if IsInvisibleToolTexture(MipName) then
     Exit;
-
-  if not Batches.TryGetValue(MipName, Batch) then
-  begin
-    Batch := TQuakeGeomBatch.Create(MipName);
-    Batches.Add(MipName, Batch);
-  end;
+  { Sky and liquids are drawn without lightmaps (the TQuakeGeomBatch rule) }
+  NoLightmap := (Pos('sky', LowerCase(MipName)) = 1) or (Copy(MipName, 1, 1) = '*');
+  Atlas := Atlases.Last;
+  Page := Atlases.Count - 1;
 
   SetLength(PolyVerts, VertCount);
   SetLength(PolyUVs, VertCount);
@@ -1125,12 +1137,23 @@ begin
   HasLightmap := (Face.LightmapOffset >= 0) and (FBsp.Lightmaps <> nil) and (NumStyles > 0) and
                  (SurfW > 0) and (SurfH > 0) and (SurfW <= 256) and (SurfH <= 256) and
                  (Face.LightmapOffset + SurfSize * NumStyles <= LongInt(FBsp.LightmapsSize)) and
-                 (not Batch.IsSky) and (not Batch.IsLiquid);
+                 not NoLightmap;
 
   AllocOk := False;
   if HasLightmap then
   begin
     AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
+    if not AllocOk and (SurfW + 1 <= Atlas.Width) and (SurfH + 5 <= Atlas.Height) then
+    begin
+      { This page is full: the face starts the next one (it fits an empty
+        page below the 4x4 gray block) }
+      Atlases.Add(TQuakeLightmapAtlas.Create(Atlas.Width, Atlas.Height));
+      Atlas := Atlases.Last;
+      Page := Atlases.Count - 1;
+      AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
+    end;
+    if not AllocOk then
+      Inc(FFullbrightFaces);
     if AllocOk then
     begin
       for K := 0 to NumStyles - 1 do
@@ -1161,11 +1184,23 @@ begin
     FaceStyles := Vector4(0, 255, 255, 255);
   end;
 
+  { A batch per texture and atlas page (the first page keeps the plain name) }
+  if Page = 0 then
+    BatchKey := MipName
+  else
+    BatchKey := MipName + '@' + IntToStr(Page);
+  if not Batches.TryGetValue(BatchKey, Batch) then
+  begin
+    Batch := TQuakeGeomBatch.Create(MipName);
+    Batch.LightmapPage := Page;
+    Batches.Add(BatchKey, Batch);
+  end;
+
   Batch.AddPolygon(PolyVerts, PolyUVs, PolyLMUVs, PolyNormal, FaceStyles);
 end;
 
 procedure TQuakeGeometry.FinishBatches(const Batches: TQuakeGeomBatchDict;
-  const LMSet: TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
+  const LMSets: array of TQuakeLightmapSet; const RootNode: TX3DRootNode; const Cluster: TQuakeVisCluster);
 var
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
   Batch: TQuakeGeomBatch;
@@ -1173,7 +1208,7 @@ begin
   for BatchPair in Batches do
   begin
     Batch := BatchPair.Value;
-    Batch.CreateNodes(FBsp.MapName, LMSet);
+    Batch.CreateNodes(FBsp.MapName, LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))]);
     if Batch.Shape <> nil then
     begin
       RootNode.AddChildren(Batch.Shape);
@@ -1395,29 +1430,38 @@ procedure TQuakeGeometry.BuildModelGeometry(const ModelIdx: Integer; const RootN
   var OutBatches: TQuakeGeomBatchDict; const Clustered: Boolean);
 var
   Mdl: TBSPModel;
-  FaceIdx, C: Integer;
-  Atlas: TQuakeLightmapAtlas;
-  LMSet: TQuakeLightmapSet;
-  AtlasW, AtlasH: Integer;
+  FaceIdx, C, P: Integer;
+  Atlases: TQuakeLightmapAtlasList;
+  LMSets: array of TQuakeLightmapSet;
+  AtlasSize: Integer;
   FaceCluster: TQuakeIntArray;
   ClusterBatches: array of TQuakeGeomBatchDict;
   TotalShapes: Integer;
+
+  procedure CreateLightmapSets;
+  var
+    I: Integer;
+  begin
+    SetLength(LMSets, Atlases.Count);
+    for I := 0 to Atlases.Count - 1 do
+      LMSets[I] := CreateLightmapSet(Atlases[I]);
+  end;
+
 begin
   if (ModelIdx < 0) or (ModelIdx >= FBsp.ModelCount) then
     Exit;
 
+  { The world gets big atlas pages, brush entities small ones; a full page
+    opens the next one }
   if ModelIdx = 0 then
-  begin
-    AtlasW := 2048;
-    AtlasH := 2048;
-  end else
-  begin
-    AtlasW := 512;
-    AtlasH := 512;
-  end;
+    AtlasSize := LightmapAtlasSize
+  else
+    AtlasSize := Min(512, LightmapAtlasSize);
+  FFullbrightFaces := 0;
 
-  Atlas := TQuakeLightmapAtlas.Create(AtlasW, AtlasH);
+  Atlases := TQuakeLightmapAtlasList.Create(True);
   try
+    Atlases.Add(TQuakeLightmapAtlas.Create(AtlasSize, AtlasSize));
     Mdl := FBsp.Models[ModelIdx];
     if Clustered then
     begin
@@ -1430,13 +1474,13 @@ begin
       try
         for FaceIdx := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
           if (FaceCluster[FaceIdx] >= 0) then
-            AddFace(FaceIdx, ClusterBatches[FaceCluster[FaceIdx]], Atlas)
+            AddFace(FaceIdx, ClusterBatches[FaceCluster[FaceIdx]], Atlases)
           else
-            AddFace(FaceIdx, OutBatches, Atlas);
-        LMSet := CreateLightmapSet(Atlas);
+            AddFace(FaceIdx, OutBatches, Atlases);
+        CreateLightmapSets;
         for C := 0 to High(ClusterBatches) do
-          FinishBatches(ClusterBatches[C], LMSet, RootNode, FClusters[C]);
-        FinishBatches(OutBatches, LMSet, RootNode, nil);
+          FinishBatches(ClusterBatches[C], LMSets, RootNode, FClusters[C]);
+        FinishBatches(OutBatches, LMSets, RootNode, nil);
       finally
         for C := 0 to High(ClusterBatches) do
           ClusterBatches[C].Free;
@@ -1452,12 +1496,20 @@ begin
     end else
     begin
       for FaceIdx := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
-        AddFace(FaceIdx, OutBatches, Atlas);
-      LMSet := CreateLightmapSet(Atlas);
-      FinishBatches(OutBatches, LMSet, RootNode, nil);
+        AddFace(FaceIdx, OutBatches, Atlases);
+      CreateLightmapSets;
+      FinishBatches(OutBatches, LMSets, RootNode, nil);
+    end;
+    if (ModelIdx = 0) or (Atlases.Count > 1) or (FFullbrightFaces > 0) then
+    begin
+      P := 0;
+      for C := 0 to Atlases.Count - 1 do
+        Inc(P, Atlases[C].UsedHeight);
+      WritelnLog('QuakeGeometry', 'Lightmaps of model %d: %d atlas page(s) of %dx%d, %d rows used, %d faces without room',
+        [ModelIdx, Atlases.Count, AtlasSize, AtlasSize, P, FFullbrightFaces]);
     end;
   finally
-    Atlas.Free;
+    Atlases.Free;
   end;
 end;
 

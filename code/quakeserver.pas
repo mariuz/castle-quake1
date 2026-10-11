@@ -163,6 +163,13 @@ begin
   FSounds.Clear;
   for I := 0 to FGame.Progs.PrecachedSounds.Count - 1 do
     FSounds.Add(FGame.Progs.PrecachedSounds[I]);
+  { More than 255 models or sounds need FitzQuake's 16-bit indexes }
+  if NetForceFitzQuake or (FModels.Count > 255) or (FSounds.Count > 255) then
+    NetGameProtocol := 666
+  else
+    NetGameProtocol := 15;
+  WritelnLog('QuakeServer', 'Level "%s": %d models, %d sounds, protocol %d',
+    [FMapName, FModels.Count, FSounds.Count, NetGameProtocol]);
 end;
 
 function TQuakeServer.NetModelIndex(const Model: String): Integer;
@@ -386,7 +393,7 @@ end;
 
 procedure TQuakeServer.WriteEntities(const Msg: TQuakeNetMessage);
 var
-  E, Idx: Integer;
+  E, Idx, Frame: Integer;
 begin
   { SV_WriteEntitiesToClient: everything with a model, the players too }
   for E := 1 to FGame.Progs.NumEdicts - 1 do
@@ -398,9 +405,13 @@ begin
     if not FGame.EntityVisible(E) then
       Continue;
     Idx := NetModelIndex(FGame.EntityModel(E));
-    if (Idx <= 0) or (Idx > 255) then
+    if (Idx <= 0) or ((Idx > 255) and (NetGameProtocol <> 666)) then
       Continue;
-    Msg.Entity(E, Idx, FGame.EntityFrame(E) and 255, FGame.EntitySkin(E) and 255, FGame.EntityEffects(E) and 255,
+    if NetGameProtocol = 666 then
+      Frame := FGame.EntityFrame(E) and $FFFF
+    else
+      Frame := FGame.EntityFrame(E) and 255;
+    Msg.Entity(E, Idx, Frame, FGame.EntitySkin(E) and 255, FGame.EntityEffects(E) and 255,
       FGame.EntityOrigin(E), FGame.EntityAngles(E));
   end;
 end;
