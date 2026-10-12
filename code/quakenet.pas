@@ -114,6 +114,12 @@ type
     class function AddressToString(const A: TInetSockAddr): String;
   end;
 
+  { The fields of an entity update (entity_state_t) }
+  TNetEntityState = record
+    ModelIndex, Frame, Skin, Effects: Integer;
+    Origin, Angles: TVector3;
+  end;
+
   { Builds svc messages; the boundaries let the signon be cut into
     datagrams between messages }
   TQuakeNetMessage = class
@@ -148,7 +154,11 @@ type
     procedure UpdateFrags(const Client, Frags: Integer);
     procedure UpdateName(const Client: Integer; const Name: String);
     { Every field is sent: the client has no baselines }
-    procedure Entity(const Num, ModelIndex, Frame, Skin, Effects: Integer; const Origin, Angles: TVector3);
+    { An entity update with only the fields that differ from its baseline
+      (SV_WriteEntitiesToClient); the client takes the rest from it }
+    procedure Entity(const Num: Integer; const State, Baseline: TNetEntityState);
+    { svc_spawnbaseline (svc_spawnbaseline2 in FitzQuake for numbers above 255) }
+    procedure SpawnBaseline(const Num: Integer; const Baseline: TNetEntityState);
     procedure ClientData(const ViewHeight: Single; const Velocity: TVector3; const Items: Cardinal;
       const WeaponFrame, Armor, WeaponModel, Health, Ammo, Shells, Nails, Rockets, Cells,
       ActiveWeapon: Integer);
@@ -702,55 +712,114 @@ begin
   WriteString(Name);
 end;
 
-procedure TQuakeNetMessage.Entity(const Num, ModelIndex, Frame, Skin, Effects: Integer; const Origin, Angles: TVector3);
+procedure TQuakeNetMessage.Entity(const Num: Integer; const State, Baseline: TNetEntityState);
 const
   U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_FRAME = 64; U_SIGNAL = 128;
   U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_SKIN = 4096; U_EFFECTS = 8192; U_LONGENTITY = 16384;
   U_EXTEND1 = 1 shl 15; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
 var
   Bits: Integer;
+
+  function AngleByte(const A: Single): Integer;
+  begin
+    Result := Round(A * 256 / 360) and 255;
+  end;
+
 begin
   BeginMessage;
-  Bits := U_SIGNAL or U_MODEL or U_FRAME or U_ORIGIN1 or U_ORIGIN2 or U_ORIGIN3 or U_ANGLE1 or U_ANGLE2 or U_ANGLE3;
-  if Skin <> 0 then
+  Bits := U_SIGNAL;
+  if State.ModelIndex <> Baseline.ModelIndex then
+    Bits := Bits or U_MODEL;
+  if State.Frame <> Baseline.Frame then
+    Bits := Bits or U_FRAME;
+  if State.Skin <> Baseline.Skin then
     Bits := Bits or U_SKIN;
-  if Effects <> 0 then
+  if State.Effects <> Baseline.Effects then
     Bits := Bits or U_EFFECTS;
+  if Round(State.Origin.X * 8) <> Round(Baseline.Origin.X * 8) then
+    Bits := Bits or U_ORIGIN1;
+  if Round(State.Origin.Y * 8) <> Round(Baseline.Origin.Y * 8) then
+    Bits := Bits or U_ORIGIN2;
+  if Round(State.Origin.Z * 8) <> Round(Baseline.Origin.Z * 8) then
+    Bits := Bits or U_ORIGIN3;
+  if AngleByte(State.Angles.X) <> AngleByte(Baseline.Angles.X) then
+    Bits := Bits or U_ANGLE1;
+  if AngleByte(State.Angles.Y) <> AngleByte(Baseline.Angles.Y) then
+    Bits := Bits or U_ANGLE2;
+  if AngleByte(State.Angles.Z) <> AngleByte(Baseline.Angles.Z) then
+    Bits := Bits or U_ANGLE3;
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
   { FitzQuake: the high bytes of a model or frame above 255 }
   if NetGameProtocol = 666 then
   begin
-    if ModelIndex > 255 then
+    if ((Bits and U_MODEL) <> 0) and (State.ModelIndex > 255) then
       Bits := Bits or U_MODEL2 or U_EXTEND1;
-    if Frame > 255 then
+    if ((Bits and U_FRAME) <> 0) and (State.Frame > 255) then
       Bits := Bits or U_FRAME2 or U_EXTEND1;
   end;
-  Bits := Bits or U_MOREBITS;
+  if (Bits and $FF00) <> 0 then
+    Bits := Bits or U_MOREBITS;
   WriteByte(Bits and 255);
-  WriteByte((Bits shr 8) and 255);
+  if (Bits and U_MOREBITS) <> 0 then
+    WriteByte((Bits shr 8) and 255);
   if (Bits and U_EXTEND1) <> 0 then
     WriteByte(Bits shr 16);
   if (Bits and U_LONGENTITY) <> 0 then
     WriteShort(Num)
   else
     WriteByte(Num);
-  WriteByte(ModelIndex);
-  WriteByte(Frame);
+  if (Bits and U_MODEL) <> 0 then
+    WriteByte(State.ModelIndex);
+  if (Bits and U_FRAME) <> 0 then
+    WriteByte(State.Frame);
   if (Bits and U_SKIN) <> 0 then
-    WriteByte(Skin);
+    WriteByte(State.Skin);
   if (Bits and U_EFFECTS) <> 0 then
-    WriteByte(Effects);
-  WriteCoord(Origin.X);
-  WriteAngle(Angles.X);
-  WriteCoord(Origin.Y);
-  WriteAngle(Angles.Y);
-  WriteCoord(Origin.Z);
-  WriteAngle(Angles.Z);
+    WriteByte(State.Effects);
+  if (Bits and U_ORIGIN1) <> 0 then
+    WriteCoord(State.Origin.X);
+  if (Bits and U_ANGLE1) <> 0 then
+    WriteAngle(State.Angles.X);
+  if (Bits and U_ORIGIN2) <> 0 then
+    WriteCoord(State.Origin.Y);
+  if (Bits and U_ANGLE2) <> 0 then
+    WriteAngle(State.Angles.Y);
+  if (Bits and U_ORIGIN3) <> 0 then
+    WriteCoord(State.Origin.Z);
+  if (Bits and U_ANGLE3) <> 0 then
+    WriteAngle(State.Angles.Z);
   if (Bits and U_FRAME2) <> 0 then
-    WriteByte(Frame shr 8);
+    WriteByte(State.Frame shr 8);
   if (Bits and U_MODEL2) <> 0 then
-    WriteByte(ModelIndex shr 8);
+    WriteByte(State.ModelIndex shr 8);
+end;
+
+procedure TQuakeNetMessage.SpawnBaseline(const Num: Integer; const Baseline: TNetEntityState);
+begin
+  BeginMessage;
+  if (NetGameProtocol = 666) and ((Baseline.ModelIndex > 255) or (Baseline.Frame > 255)) then
+  begin
+    WriteByte(42); { svc_spawnbaseline2: B_LARGEMODEL, B_LARGEFRAME }
+    WriteShort(Num);
+    WriteByte(3);
+    WriteShort(Baseline.ModelIndex);
+    WriteShort(Baseline.Frame);
+  end else
+  begin
+    WriteByte(22); { svc_spawnbaseline }
+    WriteShort(Num);
+    WriteByte(Baseline.ModelIndex);
+    WriteByte(Baseline.Frame);
+  end;
+  WriteByte(0); { colormap }
+  WriteByte(Baseline.Skin);
+  WriteCoord(Baseline.Origin.X);
+  WriteAngle(Baseline.Angles.X);
+  WriteCoord(Baseline.Origin.Y);
+  WriteAngle(Baseline.Angles.Y);
+  WriteCoord(Baseline.Origin.Z);
+  WriteAngle(Baseline.Angles.Z);
 end;
 
 procedure TQuakeNetMessage.ClientData(const ViewHeight: Single; const Velocity: TVector3; const Items: Cardinal;

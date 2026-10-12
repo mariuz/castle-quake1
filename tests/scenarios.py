@@ -89,6 +89,7 @@ VIEW_RE = re.compile(r'View: map (\S+), eye (\S+) (\S+) (\S+), yaw (\S+), pitch 
                      r'health (-?\d+), kills (\d+)/(\d+), intermission (\w+)')
 NET_SHOT_RE = re.compile(r'Saved screenshot to .*\(signon (\d+), health (-?\d+), ammo (\d+), frags (-?\d+)')
 PREDICTION_RE = re.compile(r'Prediction on: .* error \S+ \(max (\S+)\)')
+SERVER_STATS_RE = re.compile(r'entities per frame: (\S+) sent, (\S+) outside the PVS, (\S+) dropped')
 SAVE_RE = re.compile(r'(Saved|Loaded) game (?:to|from) "[^"]*" \((health -?\d+, armor \d+, shells \d+, kills \d+/\d+, '
                      r'monsters \d+)\)')
 
@@ -158,6 +159,13 @@ def check_deathmatch(logs):
         result.append((shots[0][0] == '4' and shots[1][0] == '4', 'signon complete'))
         result.append((int(shots[1][2]) < int(shots[0][2]),
                        'the client\'s shot reached the server (ammo %s -> %s)' % (shots[0][2], shots[1][2])))
+    stats = SERVER_STATS_RE.findall(logs['dm_host'])
+    result.append((bool(stats), 'the server logs its client frames'))
+    if stats:
+        sent, culled, dropped = (float(x) for x in stats[-1])
+        result.append((dropped == 0, 'no entity dropped from a full frame (%.1f per frame)' % dropped))
+        result.append((culled > 0, 'entities outside the client\'s PVS are not sent (%.1f per frame, %.1f sent)'
+                       % (culled, sent)))
     errors = [float(e) for e in PREDICTION_RE.findall(logs['dm_client'])]
     result.append((bool(errors) and max(errors) < 32,
                    'prediction stays close to the server (max error %s)' % (max(errors) if errors else 'none')))

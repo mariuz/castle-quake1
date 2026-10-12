@@ -180,7 +180,6 @@ type
     FAllVisible: Boolean;
     FFullbrightFaces: Integer; { faces whose lightmap found no room, while building a model }
     FEntityCount, FVisibleEntities: Integer;
-    function LeafInPvs(const Leaf: Integer): Boolean;
     procedure SetLiquidAlpha(const Value: Single);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
@@ -2033,57 +2032,11 @@ begin
     FLiquidTimeFields[I].Send(FLiquidTime);
 end;
 
-function TQuakeGeometry.LeafInPvs(const Leaf: Integer): Boolean;
-begin
-  Result := (Leaf >= 1) and ((Leaf - 1) div 8 < Length(FVisBits)) and
-    ((FVisBits[(Leaf - 1) div 8] and (1 shl ((Leaf - 1) and 7))) <> 0);
-end;
-
 function TQuakeGeometry.BoxVisible(const Mins, Maxs: TVector3): Boolean;
-
-  function Walk(Node: Integer): Boolean;
-  var
-    Plane: TBSPPlane;
-    Front, Back: Single;
-    I: Integer;
-  begin
-    while Node >= 0 do
-    begin
-      if (Node >= Length(FBsp.Nodes)) or (FBsp.Nodes[Node].PlaneId < 0) or
-         (FBsp.Nodes[Node].PlaneId >= Length(FBsp.Planes)) then
-        Exit(True);
-      Plane := FBsp.Planes[FBsp.Nodes[Node].PlaneId];
-      { BoxOnPlaneSide: the box corners nearest and farthest along the normal }
-      Front := -Plane.Dist;
-      Back := -Plane.Dist;
-      for I := 0 to 2 do
-        if Plane.Normal[I] >= 0 then
-        begin
-          Front := Front + Plane.Normal[I] * Maxs[I];
-          Back := Back + Plane.Normal[I] * Mins[I];
-        end else
-        begin
-          Front := Front + Plane.Normal[I] * Mins[I];
-          Back := Back + Plane.Normal[I] * Maxs[I];
-        end;
-      if Back >= 0 then
-        Node := FBsp.Nodes[Node].Children[0]
-      else if Front < 0 then
-        Node := FBsp.Nodes[Node].Children[1]
-      else
-      begin
-        if Walk(FBsp.Nodes[Node].Children[0]) then
-          Exit(True);
-        Node := FBsp.Nodes[Node].Children[1];
-      end;
-    end;
-    Result := LeafInPvs(-(Node + 1));
-  end;
-
 begin
-  if FAllVisible or (FBsp.ModelCount = 0) or (Length(FBsp.Nodes) = 0) then
+  if FAllVisible then
     Exit(True);
-  Result := Walk(FBsp.Models[0].HeadNodes[0]);
+  Result := FBsp.BoxInPvs(Mins, Maxs, FVisBits);
 end;
 
 procedure TQuakeGeometry.CullScene(const Scene: TCastleTransform);
