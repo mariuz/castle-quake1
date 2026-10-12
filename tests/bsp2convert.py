@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Rewrite a BSP29 map in the BSP2 and 2PSB formats and pack the results.
+"""Rewrite a BSP29 map in the BSP2 and 2PSB formats and pack the results
+(and the .lit / worldspawn helpers of the colored light and fog tests).
 
 The bundled paks have no BSP2 map, so the tests convert one: the same
 level in the larger formats must load and render exactly like the
@@ -96,6 +97,33 @@ def convert(data, kind):
         body += chunk + b'\0' * (-len(chunk) % 4)
     header = kind.encode('ascii') + b''.join(struct.pack('<ii', *d) for d in directory)
     return header + body
+
+
+def make_lit(data, tint=(1.0, 1.0, 1.0)):
+    """A .lit (QLIT version 1) for a BSP29 map: its own lightmaps as RGB,
+    each byte times tint (1, 1, 1 gives the gray light unchanged)."""
+    offset, length = struct.unpack_from('<ii', data, 4 + 8 * 8)
+    gray = data[offset:offset + length]
+    rgb = bytearray(3 * len(gray))
+    for i, v in enumerate(gray):
+        rgb[3 * i] = min(255, int(v * tint[0] + 0.5))
+        rgb[3 * i + 1] = min(255, int(v * tint[1] + 0.5))
+        rgb[3 * i + 2] = min(255, int(v * tint[2] + 0.5))
+    return b'QLIT' + struct.pack('<i', 1) + bytes(rgb)
+
+
+def set_worldspawn_key(data, key, value):
+    """The map with "key" "value" added to its worldspawn (the entity lump
+    moved to the end of the file)."""
+    offset, length = struct.unpack_from('<ii', data, 4)
+    text = data[offset:offset + length].rstrip(b'\0')
+    brace = text.index(b'{')
+    text = text[:brace + 1] + b'\n"%s" "%s"' % (key.encode(), value.encode()) + text[brace + 1:] + b'\0'
+    body = bytearray(data) + b'\0' * (-len(data) % 4)
+    new_offset = len(body)
+    body += text
+    struct.pack_into('<ii', body, 4, new_offset, len(text))
+    return bytes(body)
 
 
 def write_pak(path, files):
