@@ -244,6 +244,32 @@ def check_gamedir(logs):
     return result
 
 
+def prepare_litfog(out_dir):
+    # E1M1 with a .lit of its own gray light (must look unchanged), with a
+    # red tinted .lit, and with a worldspawn fog key
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    maps = os.path.join(out_dir, 'mod', 'maps')
+    os.makedirs(maps, exist_ok=True)
+    files = {'e1m1_gray.bsp': data, 'e1m1_gray.lit': bsp2convert.make_lit(data),
+             'e1m1_red.bsp': data, 'e1m1_red.lit': bsp2convert.make_lit(data, (1.6, 0.6, 0.4)),
+             'e1m1_fog.bsp': bsp2convert.set_worldspawn_key(data, 'fog', '0.1 0.5 0.35 0.25')}
+    for name, content in files.items():
+        with open(os.path.join(maps, name), 'wb') as f:
+            f.write(content)
+
+
+def check_litfog(logs):
+    result = []
+    for prefix in ('gray', 'red', 'fog'):
+        result += common_checks(logs, prefix)
+    result.append(('Colored lightmaps from "maps/e1m1_gray.lit"' in logs['gray'], 'the gray .lit is read'))
+    result.append(('Colored lightmaps from "maps/e1m1_red.lit"' in logs['red'], 'the red .lit is read'))
+    result.append(('Fog: density 0.100, color 0.5 0.35 0.25' in logs['fog'], 'the worldspawn fog key is applied'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -284,6 +310,15 @@ SCENARIOS = [
                          ('paktest', ['-game', '{out}/mod', '--autotest', 'e1m1_paktest', '{out}/paktest', '--demo',
                                       'W:0.5,Q'], 0)],
              check_gamedir, ['loose_1', 'pk3_1'], prepare=prepare_gamedir),
+    # Colored light and fog: gray_1 is the finish_1 view (copied reference),
+    # red_1 and fog_1 have their own references
+    Scenario('litfog', [('gray', ['-game', '{out}/mod', '--autotest', 'e1m1_gray', '{out}/gray', '--demo',
+                                  'W:0.5,Y,S,Q'], 0),
+                        ('red', ['-game', '{out}/mod', '--autotest', 'e1m1_red', '{out}/red', '--demo',
+                                 'W:0.5,Y,S,Q'], 0),
+                        ('fog', ['-game', '{out}/mod', '--autotest', 'e1m1_fog', '{out}/fog', '--demo',
+                                 'W:0.5,Y,S,Q'], 0)],
+             check_litfog, ['gray_1', 'red_1', 'fog_1'], prepare=prepare_litfog),
 ]
 
 

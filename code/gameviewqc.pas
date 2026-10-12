@@ -313,6 +313,7 @@ begin
   ResetComponentNames;
   FGeometry := TQuakeGeometry.Create(FGame.Bsp);
   FGeometry.AddToWorld(FViewport.Items);
+  ApplyWorldFog(FViewport, FGeometry);
   Lighting.CreateLightsFromBsp(FGame.Bsp, FViewport.Items);
   Lighting.ResetStyles;
   { The lightstyles the progs set while spawning (or the saved ones) }

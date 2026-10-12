@@ -72,6 +72,8 @@ BSP2 maps: `BSP2` and `2PSB` levels load like BSP29 ones (the log says `Loaded m
 
 Protocol 666: demos and network games use FitzQuake's protocol for a level with more than 255 models or sounds (16-bit numbers through extension bits), protocol 15 otherwise; `-protocol 666` always uses it. Demo playback and the network client read both.
 
+Colored light and fog: a `maps/<name>.lit` next to a map (in a pak, a `-game` directory or a `.pk3`) colors its lightmaps (the log says `Colored lightmaps from ...`), and a worldspawn `fog` key (`density [r g b]`, FitzQuake style) fogs the level (`Fog: density ...`); the console `fog <density> [r g b]` changes it, `fog 0` turns it off. `tests/bsp2convert.py` has `make_lit` and `set_worldspawn_key` to make test maps.
+
 Lightmap atlas pages: the world's lightmaps fill 2048 x 2048 pages and a full page opens another; `-lmatlas <size>` makes the pages smaller to test that (the log says `Lightmaps of model 0: N atlas page(s) ...`).
 
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
@@ -87,7 +89,7 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Gameplay Scenarios
 
-`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays seven scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode, E1M1 with small lightmap atlas pages, E1M1 converted to BSP2 and 2PSB, a mod directory with loose files, a pak and a .pk3), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
+`python3 tests/scenarios.py` (after a release build, Pillow and on Linux xvfb-run needed) plays eight scripted games headless (E1M1 to E1M2, a save / load in a fight, a deathmatch host and client, QuakeC mode, E1M1 with small lightmap atlas pages, E1M1 converted to BSP2 and 2PSB, a mod directory with loose files, a pak and a .pk3, E1M1 with colored light and fog), checks their logs and compares the stable screenshots with `tests/reference/*.png`; `--only <name>` runs one, `--update` rewrites the references after an intended visual change. Output and `*_compare.png` images go to `castle-engine-output/scenarios/`. The Build workflow runs it on Linux and the release depends on it. Save and load logs print the stats they write and restore, and play view screenshots log the map, eye, angles, weapon, ammo, health, kills and the intermission state, so scenarios assert on logs rather than on pixels where they can.
 
 ## Unit Tests
 

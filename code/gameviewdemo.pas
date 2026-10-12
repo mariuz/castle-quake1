@@ -667,6 +667,7 @@ begin
   end;
   FGeometry := TQuakeGeometry.Create(FBsp);
   FGeometry.AddToWorld(FViewport.Items);
+  ApplyWorldFog(FViewport, FGeometry);
   Lighting.CreateLightsFromBsp(FBsp, FViewport.Items);
   Lighting.ResetStyles;
   FAmbient.Setup(FBsp, FViewport.Items);

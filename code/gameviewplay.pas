@@ -334,6 +334,7 @@ begin
 
   if FWorld.LoadMap(FMapName) then
   begin
+    ApplyWorldFog(FViewport, FWorld.Geometry);
     { Place player at map spawn point }
     FViewport.Camera.Translation := FWorld.PlayerEyePosition;
 
@@ -1002,6 +1003,9 @@ begin
 end;
 
 procedure TViewPlay.HandleConsoleCommand(const Cmd, Args: String);
+var
+  Parts: TStringArray;
+  FogColor: TVector3;
 begin
   if (Cmd = 'map') or (Cmd = 'warp') then
   begin
@@ -1041,6 +1045,24 @@ begin
     if Args <> '' then
       WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
     FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
+  end else
+  if Cmd = 'fog' then
+  begin
+    { FitzQuake's fog: fog <density> [r g b] for this level, 0 off; no
+      argument shows it }
+    if Args <> '' then
+    begin
+      Parts := Args.Split([' '], TStringSplitOptions.ExcludeEmpty);
+      FogColor := Vector3(0.3, 0.3, 0.3);
+      if Length(Parts) >= 4 then
+        FogColor := Vector3(StrToFloatDef(Parts[1], 0.3), StrToFloatDef(Parts[2], 0.3), StrToFloatDef(Parts[3], 0.3));
+      SetViewportFog(FViewport, StrToFloatDef(Parts[0], 0), FogColor);
+    end;
+    if FViewport.Fog <> nil then
+      FConsole.Print(Format('Fog: visibility range %.0f, color %s',
+        [FViewport.Fog.VisibilityRange, FViewport.Fog.Color.ToString]))
+    else
+      FConsole.Print('Fog: off');
   end else
   if Cmd = 'lightmaps' then
   begin
@@ -1117,6 +1139,7 @@ begin
     FConsole.Print('  give all       - Give all weapons, ammo, keys');
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
     FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
+    FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
     FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
     FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
     FConsole.Print('  fps            - Show the frame rate in the stats line');

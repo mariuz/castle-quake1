@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleBoxes, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
-  CastleImages, CastleUtils, CastleRenderOptions, X3DFields,
+  CastleImages, CastleUtils, CastleRenderOptions, X3DFields, CastleViewport,
   QuakeBsp, QuakePalette, QuakeLight, QuakePak, X3DLoad, CastleUriUtils;
 
 type
@@ -63,20 +63,25 @@ type
   private
     FWidth, FHeight: Integer;
     FData: array[0..3] of array of Byte;
+    FRgb: Boolean;
+    FChannels: Integer;
     FLayerUsed: array[0..3] of Boolean;
     FShelfX, FShelfY, FShelfH: Integer;
     FUsedHeight: Integer;
   public
-    constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096);
+    { ARgb: three bytes per texel (colored .lit lightmaps), else one }
+    constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096; const ARgb: Boolean = False);
     { Reserve a W x H block. Returns False if the atlas is full. }
     function Allocate(const W, H: Integer; out X, Y: Integer): Boolean;
     procedure SetTexel(const Layer, X, Y: Integer; const Value: Byte);
+    procedure SetTexelRgb(const Layer, X, Y: Integer; const R, G, B: Byte);
     { Create the texture of a lightstyle slot; nil if nothing was packed in it }
     function CreateTextureNode(const Layer: Integer): TPixelTextureNode;
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     { Rows packed so far }
     property UsedHeight: Integer read FUsedHeight;
+    property Rgb: Boolean read FRgb;
   end;
   TQuakeLightmapAtlasList = specialize TObjectList<TQuakeLightmapAtlas>;
 
@@ -231,6 +236,10 @@ type
     { CullScene for the brush entities (doors, plats, trains...) }
     procedure CullSubmodels;
 
+    { The worldspawn "fog" key of FitzQuake and QuakeSpasm maps: "density"
+      (gray 0.3) or "density r g b". False when the map has none. }
+    function WorldFog(out Density: Single; out Color: TVector3): Boolean;
+
     { True if T is the world scene or the scene of a brush entity (door, plat...) }
     function IsGeometryScene(const T: TCastleTransform): Boolean;
 
@@ -267,6 +276,12 @@ var
 
   { r_novis off: draw only the world in the camera's potentially visible set }
   WorldPvsCulling: Boolean = True;
+
+{ Set the viewport's fog from the map's worldspawn "fog" key (WorldFog),
+  or remove it when the map has none. The fog component belongs to the
+  viewport and is reused by the next level. Density 0 turns it off. }
+procedure ApplyWorldFog(const Viewport: TCastleViewport; const Geometry: TQuakeGeometry);
+procedure SetViewportFog(const Viewport: TCastleViewport; const Density: Single; const Color: TVector3);
 
 const
   { Faces of a BSP subtree grouped into one PVS cluster }
@@ -385,6 +400,7 @@ const
     'uniform sampler2D quake_lm2;' + LineEnding +
     'uniform sampler2D quake_lm3;' + LineEnding +
     'uniform int quake_lm_layers;' + LineEnding +
+    'uniform int quake_lm_rgb;' + LineEnding +
     'uniform float quake_lightstyles[64];' + LineEnding +
     'uniform vec4 quake_dlights[4];' + LineEnding +
     'varying vec2 quake_lm_coord_v;' + LineEnding +
@@ -396,25 +412,31 @@ const
     '  if (i < 0 || i > 63) return 0.0;' + LineEnding +
     '  return quake_lightstyles[i];' + LineEnding +
     '}' + LineEnding +
+    '/* A lightmap texel: gray (one channel) or colored (.lit) */' + LineEnding +
+    'vec3 quake_lm(sampler2D lm)' + LineEnding +
+    '{' + LineEnding +
+    '  vec4 t = texture2D(lm, quake_lm_coord_v);' + LineEnding +
+    '  return quake_lm_rgb != 0 ? t.rgb : vec3(t.r);' + LineEnding +
+    '}' + LineEnding +
     'void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)' + LineEnding +
     '{' + LineEnding +
-    '  float light = 0.0;' + LineEnding +
+    '  vec3 light = vec3(0.0);' + LineEnding +
     '  if (quake_lm_layers > 0 && quake_styles_v.x < 254.5)' + LineEnding +
-    '    light += texture2D(quake_lm0, quake_lm_coord_v).r * quake_style(quake_styles_v.x);' + LineEnding +
+    '    light += quake_lm(quake_lm0) * quake_style(quake_styles_v.x);' + LineEnding +
     '  if (quake_lm_layers > 1 && quake_styles_v.y < 254.5)' + LineEnding +
-    '    light += texture2D(quake_lm1, quake_lm_coord_v).r * quake_style(quake_styles_v.y);' + LineEnding +
+    '    light += quake_lm(quake_lm1) * quake_style(quake_styles_v.y);' + LineEnding +
     '  if (quake_lm_layers > 2 && quake_styles_v.z < 254.5)' + LineEnding +
-    '    light += texture2D(quake_lm2, quake_lm_coord_v).r * quake_style(quake_styles_v.z);' + LineEnding +
+    '    light += quake_lm(quake_lm2) * quake_style(quake_styles_v.z);' + LineEnding +
     '  if (quake_lm_layers > 3 && quake_styles_v.w < 254.5)' + LineEnding +
-    '    light += texture2D(quake_lm3, quake_lm_coord_v).r * quake_style(quake_styles_v.w);' + LineEnding +
+    '    light += quake_lm(quake_lm3) * quake_style(quake_styles_v.w);' + LineEnding +
     '  for (int i = 0; i < 4; i++)' + LineEnding +
     '  {' + LineEnding +
     '    float rad = quake_dlights[i].w;' + LineEnding +
     '    if (rad > 0.0)' + LineEnding +
-    '      light += max(rad - distance(quake_pos_v, quake_dlights[i].xyz), 0.0) / 255.0;' + LineEnding +
+    '      light += vec3(max(rad - distance(quake_pos_v, quake_dlights[i].xyz), 0.0) / 255.0);' + LineEnding +
     '  }' + LineEnding +
     '  /* The fullbright palette entries (alpha 255 of the texture) keep their color */' + LineEnding +
-    '  fragment_color.rgb *= mix(min(light, 1.0) * 2.0, 1.0, fragment_color.a);' + LineEnding +
+    '  fragment_color.rgb *= mix(min(light, vec3(1.0)) * 2.0, vec3(1.0), fragment_color.a);' + LineEnding +
     '  fragment_color.a = 1.0;' + LineEnding +
     '}' + LineEnding;
 
@@ -679,23 +701,28 @@ end;
 
 { TQuakeLightmapAtlas }
 
-constructor TQuakeLightmapAtlas.Create(const AWidth, AMaxHeight: Integer);
+constructor TQuakeLightmapAtlas.Create(const AWidth, AMaxHeight: Integer; const ARgb: Boolean);
 var
   X, Y, L: Integer;
 begin
   inherited Create;
   FWidth := AWidth;
   FHeight := AMaxHeight;
+  FRgb := ARgb;
+  if FRgb then
+    FChannels := 3
+  else
+    FChannels := 1;
   for L := 0 to 3 do
   begin
-    SetLength(FData[L], FWidth * FHeight);
+    SetLength(FData[L], FWidth * FHeight * FChannels);
     FillChar(FData[L][0], Length(FData[L]), 0);
   end;
   { Reserve a 4x4 block at (0,0) filled with 128 (mid-gray = 1.0 with the x2
     overbright) so faces without a lightmap can sample (2,2) without bleeding }
   for Y := 0 to 3 do
     for X := 0 to 3 do
-      FData[0][Y * FWidth + X] := 128;
+      FillChar(FData[0][(Y * FWidth + X) * FChannels], FChannels, 128);
   FLayerUsed[0] := True;
   FShelfX := 5; { 1 texel padding after the 4x4 block }
   FShelfY := 0;
@@ -731,16 +758,30 @@ end;
 
 procedure TQuakeLightmapAtlas.SetTexel(const Layer, X, Y: Integer; const Value: Byte);
 begin
+  SetTexelRgb(Layer, X, Y, Value, Value, Value);
+end;
+
+procedure TQuakeLightmapAtlas.SetTexelRgb(const Layer, X, Y: Integer; const R, G, B: Byte);
+var
+  I: Integer;
+begin
   if (Layer >= 0) and (Layer <= 3) and (X >= 0) and (X < FWidth) and (Y >= 0) and (Y < FHeight) then
   begin
-    FData[Layer][Y * FWidth + X] := Value;
+    I := (Y * FWidth + X) * FChannels;
+    if FRgb then
+    begin
+      FData[Layer][I] := R;
+      FData[Layer][I + 1] := G;
+      FData[Layer][I + 2] := B;
+    end else
+      FData[Layer][I] := R;
     FLayerUsed[Layer] := True;
   end;
 end;
 
 function TQuakeLightmapAtlas.CreateTextureNode(const Layer: Integer): TPixelTextureNode;
 var
-  Img: TGrayscaleImage;
+  Img: TCastleImage;
   Y, H: Integer;
   TexProps: TTexturePropertiesNode;
 begin
@@ -750,9 +791,12 @@ begin
 
   { The full atlas: the lightmap coordinates were computed against it }
   H := FHeight;
-  Img := TGrayscaleImage.Create(FWidth, H);
+  if FRgb then
+    Img := TRGBImage.Create(FWidth, H)
+  else
+    Img := TGrayscaleImage.Create(FWidth, H);
   for Y := 0 to H - 1 do
-    Move(FData[Layer][Y * FWidth], Img.PixelPtr(0, Y)^, FWidth);
+    Move(FData[Layer][Y * FWidth * FChannels], Img.PixelPtr(0, Y)^, FWidth * FChannels);
 
   TexProps := TTexturePropertiesNode.Create;
   TexProps.MagnificationFilter := magLinear;
@@ -1146,7 +1190,7 @@ begin
     begin
       { This page is full: the face starts the next one (it fits an empty
         page below the 4x4 gray block) }
-      Atlases.Add(TQuakeLightmapAtlas.Create(Atlas.Width, Atlas.Height));
+      Atlases.Add(TQuakeLightmapAtlas.Create(Atlas.Width, Atlas.Height, Atlas.Rgb));
       Atlas := Atlases.Last;
       Page := Atlases.Count - 1;
       AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
@@ -1156,12 +1200,21 @@ begin
     if AllocOk then
     begin
       for K := 0 to NumStyles - 1 do
-      begin
-        SrcPtr := FBsp.Lightmaps + Face.LightmapOffset + K * SurfSize;
-        for Row := 0 to SurfH - 1 do
-          for Col := 0 to SurfW - 1 do
-            Atlas.SetTexel(K, AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
-      end;
+        if Atlas.Rgb then
+        begin
+          { .lit: three bytes for each byte of the BSP lightmaps }
+          SrcPtr := FBsp.LitData + 3 * (Face.LightmapOffset + K * SurfSize);
+          for Row := 0 to SurfH - 1 do
+            for Col := 0 to SurfW - 1 do
+              Atlas.SetTexelRgb(K, AtlasX + Col, AtlasY + Row, (SrcPtr + 3 * (Row * SurfW + Col))^,
+                (SrcPtr + 3 * (Row * SurfW + Col) + 1)^, (SrcPtr + 3 * (Row * SurfW + Col) + 2)^);
+        end else
+        begin
+          SrcPtr := FBsp.Lightmaps + Face.LightmapOffset + K * SurfSize;
+          for Row := 0 to SurfH - 1 do
+            for Col := 0 to SurfW - 1 do
+              Atlas.SetTexel(K, AtlasX + Col, AtlasY + Row, (SrcPtr + Row * SurfW + Col)^);
+        end;
 
       for V := 0 to VertCount - 1 do
       begin
@@ -1460,7 +1513,7 @@ begin
 
   Atlases := TQuakeLightmapAtlasList.Create(True);
   try
-    Atlases.Add(TQuakeLightmapAtlas.Create(AtlasSize, AtlasSize));
+    Atlases.Add(TQuakeLightmapAtlas.Create(AtlasSize, AtlasSize, FBsp.LitData <> nil));
     Mdl := FBsp.Models[ModelIdx];
     if Clustered then
     begin
@@ -1956,6 +2009,7 @@ begin
       Result.Layers[K]));
   end;
   Result.Effect.AddCustomField(TSFInt32.Create(Result.Effect, False, 'quake_lm_layers', Result.LayerCount));
+  Result.Effect.AddCustomField(TSFInt32.Create(Result.Effect, False, 'quake_lm_rgb', Ord(Atlas.Rgb)));
   for I := 0 to 63 do
     Styles[I] := Lighting.GetStyleMultiplier(I);
   Result.StylesField := TMFFloat.Create(Result.Effect, True, 'quake_lightstyles', Styles);
@@ -2074,6 +2128,65 @@ begin
   for Sub in FSubmodels do
     if Sub.Transform.Exists then
       CullScene(Sub.Scene);
+end;
+
+function TQuakeGeometry.WorldFog(out Density: Single; out Color: TVector3): Boolean;
+var
+  World: TQuakeEntity;
+  Parts: TStringArray;
+  Fmt: TFormatSettings;
+begin
+  Result := False;
+  Density := 0;
+  Color := Vector3(0.3, 0.3, 0.3);
+  World := FBsp.FindEntity('worldspawn');
+  if (World = nil) or (Trim(World.GetField('fog', '')) = '') then
+    Exit;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Parts := Trim(World.GetField('fog', '')).Split([' '], TStringSplitOptions.ExcludeEmpty);
+  Density := StrToFloatDef(Parts[0], 0, Fmt);
+  if Length(Parts) >= 4 then
+    Color := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
+      StrToFloatDef(Parts[3], 0.3, Fmt));
+  Result := Density > 0;
+end;
+
+procedure SetViewportFog(const Viewport: TCastleViewport; const Density: Single; const Color: TVector3);
+var
+  Fog: TCastleFog;
+begin
+  if Density <= 0 then
+  begin
+    Viewport.Fog := nil;
+    Exit;
+  end;
+  Fog := Viewport.FindComponent('world_fog') as TCastleFog;
+  if Fog = nil then
+  begin
+    Fog := TCastleFog.Create(Viewport);
+    Fog.Name := 'world_fog';
+  end;
+  { FitzQuake draws GL_EXP2 fog with density / 64: exp(-(d * density / 64)^2).
+    The engine's exponential fog is exp(-d / (range - d)); this range makes
+    both reach one half at the same distance (and almost nothing at the range) }
+  Fog.FogType := ftExponential;
+  Fog.Color := Color;
+  Fog.VisibilityRange := 64 * Sqrt(Ln(2)) * (1 + 1 / Ln(2)) / Density;
+  Viewport.Fog := Fog;
+  WritelnLog('QuakeGeometry', 'Fog: density %.3f, color %s, visibility range %.0f',
+    [Density, Color.ToString, Fog.VisibilityRange]);
+end;
+
+procedure ApplyWorldFog(const Viewport: TCastleViewport; const Geometry: TQuakeGeometry);
+var
+  Density: Single;
+  Color: TVector3;
+begin
+  if (Geometry <> nil) and Geometry.WorldFog(Density, Color) then
+    SetViewportFog(Viewport, Density, Color)
+  else
+    Viewport.Fog := nil;
 end;
 
 function TQuakeGeometry.IsGeometryScene(const T: TCastleTransform): Boolean;

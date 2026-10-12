@@ -231,6 +231,7 @@ type
     FMiptexes: specialize TObjectList<TQuakeMiptex>;
     FLightmaps: PByte;
     FLightmapsSize: Cardinal;
+    FLitData: PByte;
     FEntitiesText: String;
     FEntities: TQuakeEntityList;
     function GetFaceCount: Integer; inline;
@@ -247,6 +248,9 @@ type
 
     { Load map from PAK, e.g. "maps/start.bsp" or "maps/e1m1.bsp" }
     function LoadFromPak(const AMapPath: String): Boolean;
+
+    { Read maps/<name>.lit next to the map (LoadFromPak does it) }
+    procedure LoadLit(const LitPath: String);
 
     { Load a map from a stream holding the whole .bsp file (BSP29, BSP2 or
       2PSB); AMapPath is for the name and the log }
@@ -328,6 +332,9 @@ type
     property Entities: TQuakeEntityList read FEntities;
     property Lightmaps: PByte read FLightmaps;
     property LightmapsSize: Cardinal read FLightmapsSize;
+    { Colored lightmaps from maps/<name>.lit (QLIT version 1: three bytes,
+      RGB, for each byte of Lightmaps); nil without a .lit file }
+    property LitData: PByte read FLitData;
     property TexInfos: TBSPTexInfoArray read FTexInfos;
     property Leaves: TBSPLeafArray read FLeaves;
     property Nodes: TBSPNodeArray read FNodes;
@@ -509,6 +516,8 @@ destructor TQuakeBsp.Destroy;
 begin
   if FLightmaps <> nil then
     FreeMem(FLightmaps);
+  if FLitData <> nil then
+    FreeMem(FLitData);
   FMiptexes.Free;
   FEntities.Free;
   inherited Destroy;
@@ -712,6 +721,48 @@ begin
   end;
   try
     Result := LoadFromStream(Stream, AMapPath);
+  finally
+    Stream.Free;
+  end;
+  if Result then
+    LoadLit(ChangeFileExt(AMapPath, '.lit'));
+end;
+
+procedure TQuakeBsp.LoadLit(const LitPath: String);
+var
+  Stream: TMemoryStream;
+  Magic: array[0..3] of AnsiChar;
+  Version: LongInt;
+begin
+  if FLitData <> nil then
+  begin
+    FreeMem(FLitData);
+    FLitData := nil;
+  end;
+  if (FLightmapsSize = 0) or not Pak.FileExists(LitPath) then
+    Exit;
+  Stream := Pak.GetStream(LitPath);
+  if Stream = nil then
+    Exit;
+  try
+    if Stream.Size < 8 then
+      Exit;
+    Stream.ReadBuffer(Magic, 4);
+    Stream.ReadBuffer(Version, 4);
+    if (Magic <> 'QLIT') or (Version <> 1) then
+    begin
+      WritelnWarning('QuakeBsp', '"%s" is not a QLIT version 1 file, ignored', [LitPath]);
+      Exit;
+    end;
+    if Stream.Size - 8 < Int64(FLightmapsSize) * 3 then
+    begin
+      WritelnWarning('QuakeBsp', '"%s" has %d bytes of light for %d lightmap bytes (needs three each), ignored',
+        [LitPath, Stream.Size - 8, FLightmapsSize]);
+      Exit;
+    end;
+    GetMem(FLitData, FLightmapsSize * 3);
+    Stream.ReadBuffer(FLitData^, FLightmapsSize * 3);
+    WritelnLog('QuakeBsp', 'Colored lightmaps from "%s"', [LitPath]);
   finally
     Stream.Free;
   end;
@@ -1116,7 +1167,12 @@ begin
   ReadClipNodes;
   MakeHulls(RawClipNodes);
 
-  { 8: Lightmaps }
+  { 8: Lightmaps (a .lit of an earlier map no longer applies) }
+  if FLitData <> nil then
+  begin
+    FreeMem(FLitData);
+    FLitData := nil;
+  end;
   if FLightmaps <> nil then
   begin
     FreeMem(FLightmaps);
