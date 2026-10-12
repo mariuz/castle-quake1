@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
-  GameInput,
+  GameInput, GameVideo,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
 
@@ -166,8 +166,7 @@ begin
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
     FViewport.Camera.Name := 'camera';
     FViewport.Camera.ProjectionNear := 1.0;
-    FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
-    FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
+    ApplyVideoSettings(FViewport);
     InsertFront(FViewport);
 
     FNavigation := TCastleWalkNavigation.Create(Self);
@@ -511,13 +510,16 @@ end;
 procedure TViewQc.SetViewAngles(const Yaw, Pitch: Single);
 var
   Dir: TVector3;
-  P: Single;
+  P, Bob: Single;
 begin
   { Quake angles: yaw 0 along +X, pitch > 0 looks down }
   P := EnsureRange(Pitch, -89, 89);
   Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(P)), Sin(DegToRad(Yaw)) * Cos(DegToRad(P)), -Sin(DegToRad(P)));
-  FViewport.Camera.SetWorldView(QuakeToCge(FGame.Phys.Origin + FGame.PlayerViewOfs), QuakeToCge(Dir),
-    Vector3(0, 1, 0));
+  { V_CalcBob: the eye and, forward, the weapon }
+  Bob := CalcViewBob(FGame.Time, FGame.Phys.Velocity);
+  FViewport.Camera.SetWorldView(QuakeToCge(FGame.Phys.Origin + FGame.PlayerViewOfs + Vector3(0, 0, Bob)),
+    QuakeToCge(Dir), Vector3(0, 1, 0));
+  FWeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
 end;
 
 { Events }
@@ -816,7 +818,7 @@ begin
     FWeapon.Model := Model;
     FWeapon.Frame := -1;
   end;
-  FWeapon.Transform.Exists := True;
+  FWeapon.Transform.Exists := ShowWeapon;
   Frame := FGame.PlayerWeaponFrame;
   if FWeapon.Frame <> Frame then
   begin
@@ -1038,6 +1040,7 @@ var
   Flags: Integer;
 begin
   inherited Update(SecondsPassed, HandleInput);
+  ApplyVideoSettings(FViewport);
   if FQuitRequested or not FLoaded then
     Exit;
   if FScript.Count > 0 then

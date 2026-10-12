@@ -198,6 +198,8 @@ type
     procedure RecordEffect(const Kind: String; const Pos, Normal: TVector3);
     procedure RecordMessage(const S: String);
   public
+    { View bob (V_CalcBob) the view sets: the weapon moves forward by 0.4 of it }
+    WeaponBob: Single;
     constructor Create(const ARoot: TCastleTransform);
     destructor Destroy; override;
 
@@ -241,6 +243,8 @@ type
 
     { Camera position for the player's eyes (CGE coordinates) }
     function PlayerEyePosition: TVector3;
+    { The player's velocity, Quake coordinates (units / s) }
+    function PlayerVelocity: TVector3;
 
     { The view should turn to this yaw (after a teleport); returns False if not }
     function TakePendingYaw(out Yaw: Single): Boolean;

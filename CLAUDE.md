@@ -53,6 +53,7 @@ Demo script actions:
 - `N:0` / `N:1` PVS culling off (draw the whole world, like `r_novis 1`) / on
 - `NC` render the current frame with PVS culling on and off and log how many pixels differ (`PVS compare:`; differing images are saved as `<prefix>_<n>_pvs.png` / `_full.png`)
 - `Z` log the frame count, average and longest frame time since the previous `Z` with the PVS counts (camera leaf, clusters, shapes and entities drawn); screenshots log a `PVS:` line too
+- `CMD:<command>` run a console command (e.g. `CMD:fov 110`, `CMD:gamma 0.7`, `CMD:fog 0.05`)
 - `I` log the viewport's transform tree with the component names (what the F8 inspector shows)
 - `D:modes` debug overlay: `all`, `off`, or a list of `triggers`, `monsters`, `movers`, `leaf` (e.g. `D:triggers;monsters`)
 - `E` (QuakeC mode) log the edicts in use (classname, origin, health)
@@ -74,6 +75,8 @@ Protocol 666: demos and network games use FitzQuake's protocol for a level with 
 
 Colored light and fog: a `maps/<name>.lit` next to a map (in a pak, a `-game` directory or a `.pk3`) colors its lightmaps (the log says `Colored lightmaps from ...`), and a worldspawn `fog` key (`density [r g b]`, FitzQuake style) fogs the level (`Fog: density ...`); the console `fog <density> [r g b]` changes it, `fog 0` turns it off. `tests/bsp2convert.py` has `make_lit` and `set_worldspawn_key` to make test maps.
 
+Video options (`GameVideo`): `fov` (horizontal at 4:3, Hor+ on wider windows), `gamma`, `cl_bob` and `r_drawviewmodel` in Options and the console, saved under `video/` in the user config; autotest runs always use the defaults (90, 1, 0.02, on) and never save, so the reference screenshots do not depend on the developer's settings.
+
 Lightmap atlas pages: the world's lightmaps fill 2048 x 2048 pages and a full page opens another; `-lmatlas <size>` makes the pages smaller to test that (the log says `Lightmaps of model 0: N atlas page(s) ...`).
 
 Map export: `--export-map e1m1 C:\TMP\e1m1.x3d` writes the level as X3D (or glTF by the extension) with the textures as PNG files next to it, to inspect in the CGE editor or view3dscene.
@@ -93,7 +96,7 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Unit Tests
 
-`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the PVS rows and the server's fat PVS, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
+`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the PVS rows and the server's fat PVS, the field of view and view bob, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
 
 ## Conventions & Rules
 

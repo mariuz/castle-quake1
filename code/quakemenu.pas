@@ -10,7 +10,7 @@ uses
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
   CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils, CastleComponentSerialize,
   CastleGameControllers,
-  QuakeSound, QuakePak, QuakeGeometry, GameInput;
+  QuakeSound, QuakePak, QuakeGeometry, GameInput, GameVideo;
 
 type
   TMenuAction = (
@@ -254,6 +254,16 @@ begin
           FItems.Add('World Lighting: [Dynamic PBR]');
         FItems.Add('Camera View: [' + FCameraModeName + ']');
         FItems.Add('Sound Effects: [' + IntToStr(FVolume) + '%]');
+        FItems.Add(Format('Field of View: [%d]', [Round(VideoFov)]));
+        FItems.Add(Format('Brightness (gamma): [%.2f]', [VideoGamma]));
+        if ViewBob > 0 then
+          FItems.Add('View Bob: [ON]')
+        else
+          FItems.Add('View Bob: [OFF]');
+        if ShowWeapon then
+          FItems.Add('Show Weapon: [ON]')
+        else
+          FItems.Add('Show Weapon: [OFF]');
         FItems.Add('Controls');
         FItems.Add('Back to Main Menu');
       end;
@@ -397,12 +407,26 @@ begin
             RebuildMenuItems;
             FSelectedIdx := 3;
           end;
-        4:
+        4, 5, 6, 7:
+          begin
+            { Video options, applied by the views each frame and saved }
+            case FSelectedIdx of
+              4: VideoFov := NextInCycle(VideoFov, [75, 90, 100, 110, 120]);
+              5: VideoGamma := NextInCycle(VideoGamma, [0.6, 0.7, 0.8, 0.9, 1.0, 1.2]);
+              6: if ViewBob > 0 then ViewBob := 0 else ViewBob := DefaultViewBob;
+              7: ShowWeapon := not ShowWeapon;
+            end;
+            SaveVideoSettings;
+            Selected := FSelectedIdx;
+            RebuildMenuItems;
+            FSelectedIdx := Selected;
+          end;
+        8:
           begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        5:
+        9:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;
@@ -441,7 +465,7 @@ begin
         begin
           FSubMenu := smOptions;
           RebuildMenuItems;
-          FSelectedIdx := 4;
+          FSelectedIdx := 8;
           Exit;
         end;
         if (FSelectedIdx > N) and (FSelectedIdx <= N + 4) then

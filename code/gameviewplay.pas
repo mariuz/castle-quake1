@@ -11,7 +11,7 @@ uses
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils, CastleTimeUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
-  GameInput,
+  GameInput, GameVideo,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
   QuakePhysics, QuakeSaveGame, QuakeDebug;
@@ -45,6 +45,7 @@ type
     FBenchStart: TTimerResult;
     FBenchLongest: Single;
     FBenchStarted: Boolean;
+    FBobTime: Single;
     FDemoTimer: Single;
     FUnderwaterEffect: TScreenEffectNode;
     FUnderwaterTime: TSFFloat;
@@ -267,8 +268,7 @@ begin
     FWorld.AttachWeaponToCamera(FViewport.Camera);
     FViewport.Camera.Name := 'camera';
     FViewport.Camera.ProjectionNear := 1.0;
-    FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
-    FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
+    ApplyVideoSettings(FViewport);
   end;
 
   { Setup particles parent }
@@ -638,6 +638,15 @@ begin
     WorldPvsCulling := Param <> '0';
     Inc(FDemoIndex);
   end else
+  if Action = 'CMD' then { Run a console command: CMD:fov 110 }
+  begin
+    P := Pos(' ', Param);
+    if P > 0 then
+      HandleConsoleCommand(LowerCase(Copy(Param, 1, P - 1)), Trim(Copy(Param, P + 1, MaxInt)))
+    else
+      HandleConsoleCommand(LowerCase(Param), '');
+    Inc(FDemoIndex);
+  end else
   if Action = 'NC' then { Render this frame with and without PVS culling, log the difference }
   begin
     ComparePvsRender;
@@ -762,6 +771,7 @@ var
   NewYaw: Single;
 begin
   inherited Update(SecondsPassed, HandleInput);
+  ApplyVideoSettings(FViewport);
   if FShowFps then
     FHud.FpsText := 'FPS: ' + Container.Fps.ToString
   else
@@ -821,7 +831,7 @@ begin
 
     { Toggle weapon visibility depending on camera mode }
     if FWorld.WeaponTransform <> nil then
-      FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson) and not FWorld.Intermission;
+      FWorld.WeaponTransform.Exists := (FCameraMode = cmFirstPerson) and not FWorld.Intermission and ShowWeapon;
 
     UpdateViewContents(SecondsPassed);
 
@@ -880,6 +890,18 @@ begin
       RayDir := FViewport.Camera.Direction;
       FWorld.FireWeapon(RayOrigin, RayDir, FHud);
     end;
+  end;
+
+  { V_CalcBob, last: the shots and the contents use the eye itself; the
+    physics puts the camera back on the eye next frame }
+  if FWorld <> nil then
+  begin
+    FBobTime := FBobTime + SecondsPassed;
+    if (FCameraMode = cmFirstPerson) and not FWorld.Intermission and not FWorld.PlayerDead then
+      FWorld.WeaponBob := CalcViewBob(FBobTime, FWorld.PlayerVelocity)
+    else
+      FWorld.WeaponBob := 0;
+    FViewport.Camera.Translation := FViewport.Camera.Translation + Vector3(0, FWorld.WeaponBob, 0);
   end;
 end;
 
@@ -1046,6 +1068,24 @@ begin
       WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
     FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
   end else
+  if (Cmd = 'fov') or (Cmd = 'gamma') or (Cmd = 'cl_bob') or (Cmd = 'r_drawviewmodel') then
+  begin
+    { Video options (saved like the Options menu ones); no argument shows them }
+    if Args <> '' then
+    begin
+      if Cmd = 'fov' then
+        VideoFov := EnsureRange(StrToFloatDef(Args, VideoFov), 50, 130)
+      else if Cmd = 'gamma' then
+        VideoGamma := EnsureRange(StrToFloatDef(Args, VideoGamma), 0.4, 1.5)
+      else if Cmd = 'cl_bob' then
+        ViewBob := EnsureRange(StrToFloatDef(Args, ViewBob), 0, 0.1)
+      else
+        ShowWeapon := (Args = '1') or (Args = 'on');
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format('fov %.0f (vertical %.1f), gamma %.2f, cl_bob %.3f, r_drawviewmodel %d',
+      [VideoFov, RadToDeg(VerticalFov), VideoGamma, ViewBob, Ord(ShowWeapon)]));
+  end else
   if Cmd = 'fog' then
   begin
     { FitzQuake's fog: fog <density> [r g b] for this level, 0 off; no
@@ -1140,6 +1180,9 @@ begin
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
     FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
     FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
+    FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
+    FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');
+    FConsole.Print('  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon');
     FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
     FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
     FConsole.Print('  fps            - Show the frame rate in the stats line');

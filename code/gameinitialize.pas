@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -464,6 +464,12 @@ begin
 
   { The player's bindings (saved in the user config) and the gamepad }
   InitializeBindings;
+  { Headless tests keep the default video options (the reference
+    screenshots) and never save the ones a test changes }
+  if AutoTestMap <> '' then
+    VideoSettingsVolatile := True
+  else
+    LoadVideoSettings;
 
   { Create views }
   ViewMenu := TViewMenu.Create(Application);

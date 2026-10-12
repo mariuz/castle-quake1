@@ -149,6 +149,11 @@ begin
   Result := QuakeToCge(FPhys.EyePosition);
 end;
 
+function TQuakeWorld.PlayerVelocity: TVector3;
+begin
+  Result := FPhys.Velocity;
+end;
+
 procedure TQuakeWorld.DamagePlayer(const Damage: Integer; const Hud: TQuakeHud);
 const
   ArmorAbsorb: array[0..3] of Single = (0, 0.3, 0.6, 0.8);
