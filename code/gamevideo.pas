@@ -70,13 +70,16 @@ begin
 end;
 
 procedure SaveVideoSettings;
+const
+  { As Single, like the setting, so the default compares equal }
+  ViewBobDefault: Single = DefaultViewBob;
 begin
   if VideoSettingsVolatile then
     Exit;
   try
     UserConfig.SetDeleteFloat('video/fov', VideoFov, DefaultFov);
     UserConfig.SetDeleteFloat('video/gamma', VideoGamma, DefaultGamma);
-    UserConfig.SetDeleteFloat('video/bob', ViewBob, DefaultViewBob);
+    UserConfig.SetDeleteFloat('video/bob', ViewBob, ViewBobDefault);
     UserConfig.SetDeleteValue('video/show_weapon', ShowWeapon, True);
     UserConfig.Save;
   except

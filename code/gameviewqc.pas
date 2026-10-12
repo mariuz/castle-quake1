@@ -926,7 +926,10 @@ begin
     Img := Container.SaveScreen;
     if Img <> nil then
     begin
+      { The browser has no files: the screenshot only logs }
+      {$ifndef WASI}
       SaveImage(Img, OutPath);
+      {$endif}
       Img.Free;
       WritelnLog('GameViewQc', 'Saved screenshot to "%s" (health %d, kills %d/%d, edicts %d)',
         [OutPath, FGame.PlayerHealth, FGame.KilledMonsters, FGame.TotalMonsters, FGame.Progs.NumEdicts]);

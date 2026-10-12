@@ -127,12 +127,15 @@ begin
 end;
 
 procedure SaveGamepadSettings;
+const
+  { As Single, like the setting, so the default compares equal }
+  DeadZoneDefault: Single = DefaultGamepadDeadZone;
 begin
   if not ConfigLoaded then
     Exit;
   try
     UserConfig.SetDeleteFloat('gamepad/sensitivity', GamepadSensitivity, 1.0);
-    UserConfig.SetDeleteFloat('gamepad/dead_zone', GamepadDeadZone, DefaultGamepadDeadZone);
+    UserConfig.SetDeleteFloat('gamepad/dead_zone', GamepadDeadZone, DeadZoneDefault);
     UserConfig.SetDeleteValue('gamepad/invert_look', GamepadInvertLook, False);
     UserConfig.Save;
   except

@@ -429,8 +429,10 @@ begin
     if (Differ > 0) and (FAutoTestPrefix <> '') then
     begin
       Inc(FAutoTestShots);
+      {$ifndef WASI}
       SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_pvs.png');
       SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_full.png');
+      {$endif}
     end;
   finally
     Culled.Free;
@@ -452,7 +454,10 @@ begin
     Img := Container.SaveScreen;
     if Img <> nil then
     begin
+      { The browser has no files: the screenshot only logs }
+      {$ifndef WASI}
       SaveImage(Img, OutPath);
+      {$endif}
       Img.Free;
       WritelnLog('GameViewPlay', 'Saved screenshot to "%s"', [OutPath]);
       if FWorld <> nil then
