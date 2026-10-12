@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, QuakeWebSocketRelay;
+  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay;
 
 var
   Checks, Failures: Integer;
@@ -530,6 +530,46 @@ begin
   Check((Bindings[qbJump].Key1 = keySpace) and (Bindings[qbUse].Key1 = keyE), 'reset to defaults');
 end;
 
+procedure TestVideo;
+var
+  T, B, MinB, MaxB: Single;
+  Crossings: Integer;
+  Prev: Single;
+begin
+  StartTest('Video options (fov, view bob)');
+  VideoFov := 90;
+  CheckNear(73.74, RadToDeg(VerticalFov), 0.01, 'fov 90 at 4:3 is 73.74 degrees vertically');
+  VideoFov := 120;
+  Check(RadToDeg(VerticalFov) > 100, 'a wider fov widens the vertical one too');
+  VideoFov := 90;
+
+  ViewBob := DefaultViewBob;
+  CheckNear(0, CalcViewBob(1.23, TVector3.Zero), 1e-6, 'no bob standing still');
+  CheckNear(0, CalcViewBob(1.23, Vector3(0, 0, -300)), 1e-6, 'no bob falling straight down');
+  { Running at 320: 6.4 units, 0.3 of it plus 0.7 of it on the sine, clamped to 4 }
+  MinB := 100;
+  MaxB := -100;
+  Crossings := 0;
+  Prev := CalcViewBob(0, Vector3(320, 0, 0));
+  T := 0;
+  while T < 1.2 do
+  begin
+    B := CalcViewBob(T, Vector3(320, 0, 0));
+    MinB := Min(MinB, B);
+    MaxB := Max(MaxB, B);
+    if (Prev < 0) <> (B < 0) then
+      Inc(Crossings);
+    Prev := B;
+    T := T + 0.001;
+  end;
+  CheckNear(4, MaxB, 1e-3, 'running bob tops out at the clamp of 4');
+  CheckNear(-2.56, MinB, 0.01, 'running bob bottoms at 6.4 * (0.3 - 0.7)');
+  CheckEquals(4, Crossings, 'two bob cycles in 1.2 s (cl_bobcycle 0.6)');
+  ViewBob := 0;
+  CheckNear(0, CalcViewBob(0.4, Vector3(320, 0, 0)), 1e-6, 'cl_bob 0 turns it off');
+  ViewBob := DefaultViewBob;
+end;
+
 procedure TestGamepad;
 var
   Camera: TCastleCamera;
@@ -665,6 +705,7 @@ begin
   TestBindings;
   TestWebSocket;
   TestGamepad;
+  TestVideo;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

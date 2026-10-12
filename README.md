@@ -61,7 +61,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
 - Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `fps`, `novis <0|1>`, `help`.
+- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `fps`, `novis <0|1>`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
 
 ---
@@ -115,7 +115,7 @@ The releases include app bundles for Intel and Apple Silicon Macs. They are not 
 ### Web
 The `test` job builds `tests/quaketests` (the BSP tracer, the QuakeC VM, savegames, the demo writer and reader against the shareware pak) and runs it before the packages are released; locally: `cd tests && castle-engine compile && ./quaketests ../data/paks`.
 
-The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js and deploys it to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/).
+The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js, smoke-tests it in headless Chromium (`tests/websmoke.js`: E1M1 starts, renders, saves, and the save loads after a reload) and deploys it from main to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/). In the browser, savegames, controls and video options are kept in the browser's local storage between visits; `?warp=e1m1` in the page URL starts a map.
 
 ### Command line
 ```

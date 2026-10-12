@@ -18,7 +18,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
-  GameInput,
+  GameInput, GameVideo,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
@@ -216,8 +216,7 @@ begin
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
     FViewport.Camera.Name := 'camera';
     FViewport.Camera.ProjectionNear := 1.0;
-    FViewport.Camera.Perspective.FieldOfViewAxis := faHorizontal;
-    FViewport.Camera.Perspective.FieldOfView := DegToRad(90.0);
+    ApplyVideoSettings(FViewport);
     InsertFront(FViewport);
 
     FNavigation := TCastleWalkNavigation.Create(Self);
@@ -1038,7 +1037,7 @@ begin
     FWeapon.ModelIndex := Idx;
     FWeapon.Frame := -1;
   end;
-  FWeapon.Transform.Exists := True;
+  FWeapon.Transform.Exists := ShowWeapon;
   if FWeapon.Frame <> FDemo.ClientData.WeaponFrame then
   begin
     FWeapon.Frame := FDemo.ClientData.WeaponFrame;
@@ -1114,7 +1113,10 @@ begin
     Img := Container.SaveScreen;
     if Img <> nil then
     begin
+      { The browser has no files: the screenshot only logs }
+      {$ifndef WASI}
       SaveImage(Img, OutPath);
+      {$endif}
       Img.Free;
       WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, ammo %d, frags %d, time %.1f)',
         [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.ClientData.Ammo,
@@ -1208,11 +1210,12 @@ procedure TViewDemo.Update(const SecondsPassed: Single; var HandleInput: Boolean
 var
   I, J: Integer;
   Eye, Dir, CamDir: TVector3;
-  Pitch, Yaw: Single;
+  Pitch, Yaw, Bob: Single;
   CD: TDemoClientData;
   Cmd: String;
 begin
   inherited Update(SecondsPassed, HandleInput);
+  ApplyVideoSettings(FViewport);
 
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
@@ -1304,7 +1307,14 @@ begin
   Yaw := FDemo.ViewAngles.Y;
   Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(Pitch)), Sin(DegToRad(Yaw)) * Cos(DegToRad(Pitch)),
     -Sin(DegToRad(Pitch)));
-  FViewport.Camera.SetWorldView(QuakeToCge(Eye), QuakeToCge(Dir), Vector3(0, 1, 0));
+  { V_CalcBob from the recorded velocity: the eye and, forward, the weapon }
+  if (FDemo.Intermission = 0) and (FDemo.ViewEntity > 0) then
+    Bob := CalcViewBob(FDemo.Time, CD.Velocity)
+  else
+    Bob := 0;
+  FViewport.Camera.SetWorldView(QuakeToCge(Eye + Vector3(0, 0, Bob)), QuakeToCge(Dir), Vector3(0, 1, 0));
+  if FWeaponTransform <> nil then
+    FWeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
   UpdateWeapon;
 
   for I := 0 to High(FBeams) do

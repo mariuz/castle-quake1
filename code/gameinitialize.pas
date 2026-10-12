@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, QuakeWebStorage, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -462,8 +462,34 @@ begin
     Exit;
   end;
 
+  {$ifdef WASI}
+  { The web page: ?warp=<map> starts a map, ?autotest=<map>&demo=<script>
+    runs a demo script like --autotest (the smoke test; screenshots only
+    log, the browser has no files) }
+  if PageParameter('warp') <> '' then
+    CmdWarp := PageParameter('warp');
+  if PageParameter('autotest') <> '' then
+  begin
+    AutoTestMap := PageParameter('autotest');
+    AutoTestPrefix := 'web';
+    AutoTestDemo := PageParameter('demo');
+    WritelnLog('GameInitialize', 'Web autotest "%s" with "%s"', [AutoTestMap, AutoTestDemo]);
+  end;
+  {$endif}
+
+  { The browser keeps the user config directory in localStorage: restored
+    before the config is read, written back as files change }
+  RestoreWebStorage;
+  StartWebStorageSync;
+
   { The player's bindings (saved in the user config) and the gamepad }
   InitializeBindings;
+  { Headless tests keep the default video options (the reference
+    screenshots) and never save the ones a test changes }
+  if AutoTestMap <> '' then
+    VideoSettingsVolatile := True
+  else
+    LoadVideoSettings;
 
   { Create views }
   ViewMenu := TViewMenu.Create(Application);

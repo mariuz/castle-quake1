@@ -554,7 +554,7 @@ begin
     if FWeaponTransform.Parent <> nil then
     begin
       { In camera space: apply firing recoil kickback along +Z and downward along -Y }
-      FWeaponTransform.Translation := Vector3(0, -FWeaponRecoil * 1.5, FWeaponRecoil * 2.5);
+      FWeaponTransform.Translation := Vector3(0, -FWeaponRecoil * 1.5, FWeaponRecoil * 2.5 - WeaponBob * 0.4);
       FWeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
     end else
     begin

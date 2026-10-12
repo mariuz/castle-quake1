@@ -7,12 +7,16 @@
 # afterwards). See https://castle-engine.io/web .
 #
 # Result: https://<owner>.github.io/<repo>/ (landing page) and .../play/ (the game).
+#
+# Every push also runs a smoke test of the build in headless Chromium
+# (tests/websmoke.js): E1M1 starts, renders, saves to the browser storage
+# and the save loads again after a reload. Only main deploys to Pages.
 
 name: Web
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/**']
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -119,7 +123,33 @@ jobs:
           castle-engine compile --target=web --mode=release --verbose
           ls -l castle-engine-output/web/dist/
 
+      - name: Smoke test in headless Chromium
+        timeout-minutes: 15
+        run: |
+          set -eux
+          sudo apt-get install -y python3-pil
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y > /dev/null
+          npm install playwright@1.48.2
+          npx playwright install --with-deps chromium
+          cd "$GITHUB_WORKSPACE"
+          (cd castle-engine-output/web/dist && python3 -m http.server 8765 > "$RUNNER_TEMP/http.log" 2>&1 &)
+          sleep 2
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tests/websmoke.js \
+            http://localhost:8765/index.html castle-engine-output/websmoke
+          python3 tests/websmoke_check.py castle-engine-output/websmoke
+
+      - name: Upload smoke test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: websmoke
+          path: castle-engine-output/websmoke
+          if-no-files-found: ignore
+
       - name: Assemble site
+        if: github.ref == 'refs/heads/main'
         run: |
           set -eux
           mkdir -p _site/play _site/docs/screenshots
@@ -129,6 +159,7 @@ jobs:
           du -sh _site
 
       - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
@@ -136,6 +167,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build-web
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
