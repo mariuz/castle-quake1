@@ -83,38 +83,91 @@ begin
 end;
 
 { -game <dir>: a mission pack (hipnotic, rogue) or a mod directory on top of
-  id1: its pak0..pak9.pak from the working directory, next to the
-  executable, the data directory or the config directory. Returns the
-  number of paks loaded. }
+  id1, from the working directory, next to the executable, the data
+  directory or the config directory. Like Quake, the directory's loose
+  files come first and its pak0..pak9.pak override them; then its .pk3
+  (zip) archives in name order. Returns the number of containers loaded. }
 function LoadGameDir(const Dir: String): Integer;
 var
   I: Integer;
-  Base, Name, Url: String;
+  Base, Name, Url, Path: String;
   Bases: array[0..3] of String;
+  Seen, Pk3s: TStringList;
+  Info: TSearchRec;
+
+  { The same directory reached from two bases is loaded once }
+  function FirstTime(const FileOrDir: String): Boolean;
+  var
+    Key: String;
+  begin
+    Key := ExcludeTrailingPathDelimiter(ExpandFileName(FileOrDir));
+    Result := Seen.IndexOf(Key) < 0;
+    if Result then
+      Seen.Add(Key);
+  end;
+
 begin
   Result := 0;
   Bases[0] := '';
   Bases[1] := ExtractFilePath(ParamStr(0));
   Bases[2] := 'castle-data:/';
   Bases[3] := 'castle-config:/';
-  for Base in Bases do
-    for I := 0 to 9 do
+  Seen := TStringList.Create;
+  Pk3s := TStringList.Create;
+  try
+    for Base in Bases do
     begin
-      Name := Dir + '/pak' + IntToStr(I) + '.pak';
+      { A directory on disk for the loose files and the .pk3 listing }
       if Pos(':/', Base) > 0 then
+        Path := UriToFilenameSafe(Base + Dir)
+      else
+        Path := Base + Dir;
+      if (Path <> '') and DirectoryExists(Path) and FirstTime(Path) then
       begin
-        Url := Base + Name;
-        if UriExists(Url) <> ueFile then
-          Continue;
+        if Pak.AddDirectory(Path) > 0 then
+          Inc(Result);
       end else
+        Path := '';
+
+      for I := 0 to 9 do
       begin
+        Name := Dir + '/pak' + IntToStr(I) + '.pak';
         Url := Base + Name;
+        if Pos(':/', Base) > 0 then
+        begin
+          if UriExists(Url) <> ueFile then
+            Continue;
+        end else
         if not FileExists(Url) then
           Continue;
+        if (Pos(':/', Base) = 0) and not FirstTime(Url) then
+          Continue;
+        if Pak.AddFile(Url) then
+          Inc(Result);
       end;
-      if Pak.AddFile(Url) then
-        Inc(Result);
+
+      if Path <> '' then
+      begin
+        Pk3s.Clear;
+        if FindFirst(IncludeTrailingPathDelimiter(Path) + '*', faAnyFile, Info) = 0 then
+        try
+          repeat
+            if ((Info.Attr and faDirectory) = 0) and (LowerCase(ExtractFileExt(Info.Name)) = '.pk3') then
+              Pk3s.Add(IncludeTrailingPathDelimiter(Path) + Info.Name);
+          until FindNext(Info) <> 0;
+        finally
+          FindClose(Info);
+        end;
+        Pk3s.Sort;
+        for I := 0 to Pk3s.Count - 1 do
+          if Pak.AddPk3(Pk3s[I]) then
+            Inc(Result);
+      end;
     end;
+  finally
+    Seen.Free;
+    Pk3s.Free;
+  end;
 end;
 
 { "host[:port]" into Host and Port (DefaultPort when none) }
@@ -382,8 +435,8 @@ begin
     if LoadGameDir(CmdGame) > 0 then
       GameDir := LowerCase(ExtractFileName(ExcludeTrailingPathDelimiter(CmdGame))) { a path is fine too }
     else
-      WritelnWarning('GameInitialize', 'No pak0.pak found for -game "%s" (looked in ./%0:s/, next to the executable, ' +
-        'the data and the config directory)', [CmdGame]);
+      WritelnWarning('GameInitialize', 'Nothing found for -game "%s": no loose files, pak or pk3 archives ' +
+        '(looked in ./%0:s/, next to the executable, the data and the config directory)', [CmdGame]);
   end;
 
   if not LoadedAny then

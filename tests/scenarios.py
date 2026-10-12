@@ -215,6 +215,35 @@ def check_bsp2(logs):
     return result
 
 
+def prepare_gamedir(out_dir):
+    # A mod directory the way mods ship: loose files, a pak0.pak overriding
+    # one of them, and a deflated .pk3 overriding another
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    import zipfile
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    mod = os.path.join(out_dir, 'mod')
+    os.makedirs(os.path.join(mod, 'maps'), exist_ok=True)
+    for name in ('e1m1_loose', 'e1m1_prio', 'e1m1_paktest'):
+        with open(os.path.join(mod, 'maps', name + '.bsp'), 'wb') as f:
+            f.write(data)
+    bsp2convert.write_pak(os.path.join(mod, 'pak0.pak'), [('maps/e1m1_paktest.bsp', bsp2convert.convert(data, '2PSB'))])
+    with zipfile.ZipFile(os.path.join(mod, 'maps.pk3'), 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('maps/e1m1_pk3.bsp', bsp2convert.convert(data, 'BSP2'))
+        z.writestr('maps/e1m1_prio.bsp', bsp2convert.convert(data, 'BSP2'))
+
+
+def check_gamedir(logs):
+    result = []
+    for prefix, name, kind, what in (('loose', 'e1m1_loose', 'BSP29', 'a loose map loads'),
+                                     ('pk3', 'e1m1_pk3', 'BSP2', 'a deflated map in a .pk3 loads'),
+                                     ('prio', 'e1m1_prio', 'BSP2', 'the .pk3 overrides a loose file'),
+                                     ('paktest', 'e1m1_paktest', '2PSB', 'pak0.pak overrides a loose file')):
+        result += common_checks(logs, prefix)
+        result.append(('Loaded map "maps/%s.bsp" (%s)' % (name, kind) in logs[prefix], what))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -244,6 +273,17 @@ SCENARIOS = [
                       ('psb', ['-game', '{out}', '--autotest', 'e1m1_2psb', '{out}/psb', '--demo',
                                'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
              check_bsp2, ['bsp2_1', 'psb_1'], prepare=prepare_bsp2),
+    # Loose files, pak0.pak and a .pk3 in a -game directory, and which one
+    # wins; the views are the finish_1 start view (copied references)
+    Scenario('gamedir', [('loose', ['-game', '{out}/mod', '--autotest', 'e1m1_loose', '{out}/loose', '--demo',
+                                    'W:0.5,Y,S,Q'], 0),
+                         ('pk3', ['-game', '{out}/mod', '--autotest', 'e1m1_pk3', '{out}/pk3', '--demo',
+                                  'W:0.5,Y,S,Q'], 0),
+                         ('prio', ['-game', '{out}/mod', '--autotest', 'e1m1_prio', '{out}/prio', '--demo',
+                                   'W:0.5,Q'], 0),
+                         ('paktest', ['-game', '{out}/mod', '--autotest', 'e1m1_paktest', '{out}/paktest', '--demo',
+                                      'W:0.5,Q'], 0)],
+             check_gamedir, ['loose_1', 'pk3_1'], prepare=prepare_gamedir),
 ]
 
 
