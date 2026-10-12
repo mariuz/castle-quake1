@@ -28,11 +28,21 @@ type
     FOut: TQuakeNetMessage;
     FLastFrags: array[1..MaxQcClients] of Integer;
     FModels, FSounds: TStringList;
+    { SV_CreateBaseline: each entity's state at the level start; updates
+      only carry what differs from it }
+    FBaselines: array of TNetEntityState;
+    FPvs: TBytes;
+    { Frame statistics, logged every StatsInterval seconds }
+    FStatTime: Single;
+    FStatFrames, FStatSent, FStatCulled, FStatDropped, FStatBytes, FStatMaxBytes: Int64;
+    function EntityState(const E: Integer): TNetEntityState;
+    procedure CreateBaselines;
+    procedure LogStats(const SecondsPassed: Single);
     function ClientOfEdict(const E: Integer): Integer;
     function NetModelIndex(const Model: String): Integer;
     function NetSoundIndex(const Sample: String): Integer;
     procedure ForClients(const E: Integer; const Reliable: Boolean; out First, Last: Integer);
-    procedure WriteEntities(const Msg: TQuakeNetMessage);
+    procedure WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer);
     procedure WriteClientData(const Msg: TQuakeNetMessage; const E: Integer);
     procedure SendFrames;
     procedure ChangeLevel(const Map: String);
@@ -79,6 +89,7 @@ const
   STAT_SECRETS = 13;
   STAT_MONSTERS = 14;
   MaxFrameBytes = 7000;
+  StatsInterval = 10;
 
 constructor TQuakeServer.Create(const Port: Word; const AMapName: String; const AMaxClients: Integer;
   const ACoop: Boolean; const ASkill: Integer);
@@ -170,6 +181,58 @@ begin
     NetGameProtocol := 15;
   WritelnLog('QuakeServer', 'Level "%s": %d models, %d sounds, protocol %d',
     [FMapName, FModels.Count, FSounds.Count, NetGameProtocol]);
+  CreateBaselines;
+end;
+
+function TQuakeServer.EntityState(const E: Integer): TNetEntityState;
+begin
+  Result := Default(TNetEntityState);
+  Result.ModelIndex := NetModelIndex(FGame.EntityModel(E));
+  if NetGameProtocol = 666 then
+    Result.Frame := FGame.EntityFrame(E) and $FFFF
+  else
+    Result.Frame := FGame.EntityFrame(E) and 255;
+  Result.Skin := FGame.EntitySkin(E) and 255;
+  Result.Effects := FGame.EntityEffects(E) and 255;
+  Result.Origin := FGame.EntityOrigin(E);
+  Result.Angles := FGame.EntityAngles(E);
+end;
+
+procedure TQuakeServer.CreateBaselines;
+var
+  E, Count: Integer;
+begin
+  SetLength(FBaselines, 0);
+  SetLength(FBaselines, FGame.Progs.NumEdicts);
+  Count := 0;
+  for E := 1 to FGame.Progs.NumEdicts - 1 do
+    if (E > FGame.MaxClients) and FGame.EntityVisible(E) then
+    begin
+      FBaselines[E] := EntityState(E);
+      if (FBaselines[E].ModelIndex > 255) and (NetGameProtocol <> 666) then
+        FBaselines[E] := Default(TNetEntityState)
+      else
+        Inc(Count);
+    end;
+  WritelnLog('QuakeServer', 'Baselines for %d entities', [Count]);
+end;
+
+procedure TQuakeServer.LogStats(const SecondsPassed: Single);
+begin
+  FStatTime := FStatTime + SecondsPassed;
+  if (FStatTime < StatsInterval) or (FStatFrames = 0) then
+    Exit;
+  WritelnLog('QuakeServer', 'Client frames: %d, entities per frame: %.1f sent, %.1f outside the PVS, ' +
+    '%.1f dropped, %.0f bytes on average (max %d)',
+    [FStatFrames, FStatSent / FStatFrames, FStatCulled / FStatFrames, FStatDropped / FStatFrames,
+     FStatBytes / FStatFrames, FStatMaxBytes]);
+  FStatTime := 0;
+  FStatFrames := 0;
+  FStatSent := 0;
+  FStatCulled := 0;
+  FStatDropped := 0;
+  FStatBytes := 0;
+  FStatMaxBytes := 0;
 end;
 
 function TQuakeServer.NetModelIndex(const Model: String): Integer;
@@ -272,6 +335,9 @@ begin
     St := FGame.Static(I);
     Msg.SpawnStatic(NetModelIndex(St.Model), St.Frame, St.Skin, St.Origin, St.Angles);
   end;
+  for I := 1 to High(FBaselines) do
+    if FBaselines[I].ModelIndex > 0 then
+      Msg.SpawnBaseline(I, FBaselines[I]);
   Msg.UpdateStat(STAT_TOTALSECRETS, FGame.TotalSecrets);
   Msg.UpdateStat(STAT_TOTALMONSTERS, FGame.TotalMonsters);
   Msg.UpdateStat(STAT_SECRETS, FGame.FoundSecrets);
@@ -391,28 +457,43 @@ begin
     FGame.PlayerAmmo(E, 3), FGame.PlayerAmmo(E, 4), Integer(FGame.PlayerWeapon(E)));
 end;
 
-procedure TQuakeServer.WriteEntities(const Msg: TQuakeNetMessage);
+procedure TQuakeServer.WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer);
 var
-  E, Idx, Frame: Integer;
+  E: Integer;
+  State, Baseline: TNetEntityState;
+  AllVisible: Boolean;
+  Mins, Maxs: TVector3;
 begin
-  { SV_WriteEntitiesToClient: everything with a model, the players too }
+  { SV_WriteEntitiesToClient: the entities with a model whose box touches
+    a leaf in the fat PVS around the client's eye (the client itself
+    always), each as the difference from its baseline }
+  AllVisible := not FGame.Bsp.FatPvs(FGame.EntityOrigin(ClientEdict) + FGame.PlayerViewOfs(ClientEdict), FPvs);
   for E := 1 to FGame.Progs.NumEdicts - 1 do
   begin
-    if Msg.Size > MaxFrameBytes then
-      Break;
     if (E <= FGame.MaxClients) and not FGame.ClientActive(E) then
       Continue;
     if not FGame.EntityVisible(E) then
       Continue;
-    Idx := NetModelIndex(FGame.EntityModel(E));
-    if (Idx <= 0) or ((Idx > 255) and (NetGameProtocol <> 666)) then
+    if (E <> ClientEdict) and not AllVisible and FGame.EntityBox(E, Mins, Maxs) and
+       not FGame.Bsp.BoxInPvs(Mins - Vector3(1, 1, 1), Maxs + Vector3(1, 1, 1), FPvs) then
+    begin
+      Inc(FStatCulled);
       Continue;
-    if NetGameProtocol = 666 then
-      Frame := FGame.EntityFrame(E) and $FFFF
+    end;
+    State := EntityState(E);
+    if (State.ModelIndex <= 0) or ((State.ModelIndex > 255) and (NetGameProtocol <> 666)) then
+      Continue;
+    if Msg.Size > MaxFrameBytes then
+    begin
+      Inc(FStatDropped);
+      Continue;
+    end;
+    if E <= High(FBaselines) then
+      Baseline := FBaselines[E]
     else
-      Frame := FGame.EntityFrame(E) and 255;
-    Msg.Entity(E, Idx, Frame, FGame.EntitySkin(E) and 255, FGame.EntityEffects(E) and 255,
-      FGame.EntityOrigin(E), FGame.EntityAngles(E));
+      Baseline := Default(TNetEntityState);
+    Msg.Entity(E, State, Baseline);
+    Inc(FStatSent);
   end;
 end;
 
@@ -445,7 +526,11 @@ begin
       FOut.Clear;
       FOut.Time(FGame.Time);
       WriteClientData(FOut, E);
-      WriteEntities(FOut);
+      WriteEntities(FOut, E);
+      Inc(FStatFrames);
+      Inc(FStatBytes, FOut.Size);
+      if FOut.Size > FStatMaxBytes then
+        FStatMaxBytes := FOut.Size;
       if FOut.Size + FEvents[C].Size < MaxPacketSize - 16 then
         FOut.Append(FEvents[C].Bytes);
       FNet.SendFrame(C, FOut.Bytes);
@@ -520,6 +605,7 @@ begin
   if FGame.LevelChange <> '' then
     ChangeLevel(FGame.LevelChange);
   SendFrames;
+  LogStats(SecondsPassed);
 end;
 
 end.

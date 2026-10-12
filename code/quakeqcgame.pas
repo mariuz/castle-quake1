@@ -121,7 +121,6 @@ type
     FFnSetNewParms, FFnSetChangeParms, FFnClientKill, FFnClientDisconnect: Integer;
     procedure CacheOffsets;
     procedure LinkEdict(const E: Integer);
-    function EntityBox(const E: Integer; out AMins, AMaxs: TVector3): Boolean;
     { SV_Move: a box from Start to Stop against the world, pushers, solid
       entities and the player (Kind = MOVE_xxx) }
     function TraceBox(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
@@ -265,6 +264,8 @@ type
     function PlayerOnGround(const E: Integer): Boolean;
     function PlayerWaterLevel(const E: Integer): Integer;
     { Entity fields for rendering }
+    { An entity's box in world coordinates (origin + mins / maxs); False for a free edict }
+    function EntityBox(const E: Integer; out AMins, AMaxs: TVector3): Boolean;
     function EntityModel(const E: Integer): String;
     function EntityOrigin(const E: Integer): TVector3;
     function EntityAngles(const E: Integer): TVector3;

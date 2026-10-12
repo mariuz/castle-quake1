@@ -3,6 +3,7 @@
 unit QuakeBsp;
 
 {$mode objfpc}{$H+}
+{$modeswitch nestedprocvars}
 
 interface
 
@@ -279,6 +280,15 @@ type
 
     { Number of leaves in the world PVS rows (the world model's visleafs) }
     function VisLeafCount: Integer;
+
+    { True when a box (Quake coordinates) touches a world leaf whose bit is
+      set in Bits (a PVS row): SV_FindTouchedLeafs against a PVS }
+    function BoxInPvs(const Mins, Maxs: TVector3; const Bits: TBytes): Boolean;
+
+    { SV_FatPVS: the PVS rows of every leaf within 8 units of Org, OR-ed
+      into Bits. False when one of them has no visibility data (or Org is
+      outside the map): then everything is visible. }
+    function FatPvs(const Org: TVector3; var Bits: TBytes): Boolean;
 
     { Contents of a point in a collision hull, starting at clipnode Num (SV_HullPointContents) }
     function HullPointContents(const HullIdx, Num: Integer; const P: TVector3): Integer;
@@ -1173,6 +1183,106 @@ begin
     Result := FModels[0].VisLeafs;
   if Result < 0 then
     Result := 0;
+end;
+
+{ Calls Visit for each world leaf a box touches, until it returns True;
+  the result is True when a visit did }
+type
+  TLeafVisitor = function(const Leaf: Integer): Boolean is nested;
+
+function WalkBoxLeaves(const Bsp: TQuakeBsp; const Mins, Maxs: TVector3; const Visit: TLeafVisitor): Boolean;
+
+  function Walk(Node: Integer): Boolean;
+  var
+    Plane: TBSPPlane;
+    Front, Back: Single;
+    I: Integer;
+  begin
+    while Node >= 0 do
+    begin
+      if (Node >= Length(Bsp.Nodes)) or (Bsp.Nodes[Node].PlaneId < 0) or
+         (Bsp.Nodes[Node].PlaneId >= Length(Bsp.Planes)) then
+        Exit(Visit(-1));
+      Plane := Bsp.Planes[Bsp.Nodes[Node].PlaneId];
+      { BoxOnPlaneSide: the box corners nearest and farthest along the normal }
+      Front := -Plane.Dist;
+      Back := -Plane.Dist;
+      for I := 0 to 2 do
+        if Plane.Normal[I] >= 0 then
+        begin
+          Front := Front + Plane.Normal[I] * Maxs[I];
+          Back := Back + Plane.Normal[I] * Mins[I];
+        end else
+        begin
+          Front := Front + Plane.Normal[I] * Mins[I];
+          Back := Back + Plane.Normal[I] * Maxs[I];
+        end;
+      if Back >= 0 then
+        Node := Bsp.Nodes[Node].Children[0]
+      else if Front < 0 then
+        Node := Bsp.Nodes[Node].Children[1]
+      else
+      begin
+        if Walk(Bsp.Nodes[Node].Children[0]) then
+          Exit(True);
+        Node := Bsp.Nodes[Node].Children[1];
+      end;
+    end;
+    Result := Visit(-(Node + 1));
+  end;
+
+begin
+  if (Bsp.ModelCount = 0) or (Length(Bsp.Nodes) = 0) then
+    Exit(Visit(-1));
+  Result := Walk(Bsp.Models[0].HeadNodes[0]);
+end;
+
+function TQuakeBsp.BoxInPvs(const Mins, Maxs: TVector3; const Bits: TBytes): Boolean;
+
+  function InRow(const Leaf: Integer): Boolean;
+  begin
+    { A broken tree (-1) counts as visible }
+    if Leaf < 0 then
+      Exit(True);
+    Result := (Leaf >= 1) and ((Leaf - 1) div 8 < Length(Bits)) and
+      ((Bits[(Leaf - 1) div 8] and (1 shl ((Leaf - 1) and 7))) <> 0);
+  end;
+
+begin
+  Result := WalkBoxLeaves(Self, Mins, Maxs, @InRow);
+end;
+
+function TQuakeBsp.FatPvs(const Org: TVector3; var Bits: TBytes): Boolean;
+var
+  Row: TBytes;
+  AllVisible: Boolean;
+  RowBytes: Integer;
+
+  function AddRow(const Leaf: Integer): Boolean;
+  var
+    I: Integer;
+  begin
+    Result := False;
+    if Leaf = 0 then
+      Exit; { solid }
+    if (Leaf < 0) or not LeafPVS(Leaf, Row) then
+    begin
+      AllVisible := True;
+      Exit(True);
+    end;
+    for I := 0 to Min(Length(Row), Length(Bits)) - 1 do
+      Bits[I] := Bits[I] or Row[I];
+    Bits[(Leaf - 1) div 8] := Bits[(Leaf - 1) div 8] or (1 shl ((Leaf - 1) and 7));
+  end;
+
+begin
+  RowBytes := (VisLeafCount + 7) div 8;
+  SetLength(Bits, RowBytes);
+  if RowBytes > 0 then
+    FillChar(Bits[0], RowBytes, 0);
+  AllVisible := False;
+  WalkBoxLeaves(Self, Org - Vector3(8, 8, 8), Org + Vector3(8, 8, 8), @AddRow);
+  Result := not AllVisible;
 end;
 
 function TQuakeBsp.LeafPVS(const Leaf: Integer; var Bits: TBytes): Boolean;

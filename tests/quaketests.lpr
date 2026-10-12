@@ -107,6 +107,7 @@ procedure TestPvs;
 var
   Bsp: TQuakeBsp;
   Bits: TBytes;
+  FatBits: TBytes;
   StartLeaf, FromLeaf, ToLeaf, Mismatches, Seen: Integer;
   InRow: Boolean;
 begin
@@ -141,6 +142,20 @@ begin
       Inc(FromLeaf, 37);
     end;
     CheckEquals(0, Mismatches, 'LeafPVS matches LeafVisible');
+
+    { The server's fat PVS around the start eye holds the start leaf's row;
+      a box at the start is in it, a box outside the map is not }
+    Check(Bsp.FatPvs(Bsp.FindEntity('info_player_start').Origin + Vector3(0, 0, 22), FatBits), 'fat PVS at the start');
+    Check(Bsp.LeafPVS(StartLeaf, Bits), 'start row again');
+    Mismatches := 0;
+    for ToLeaf := 1 to Bsp.VisLeafCount do
+      if ((Bits[(ToLeaf - 1) div 8] and (1 shl ((ToLeaf - 1) and 7))) <> 0) and
+         ((FatBits[(ToLeaf - 1) div 8] and (1 shl ((ToLeaf - 1) and 7))) = 0) then
+        Inc(Mismatches);
+    CheckEquals(0, Mismatches, 'the fat PVS covers the start leaf''s PVS');
+    Check(Bsp.BoxInPvs(Bsp.FindEntity('info_player_start').Origin - Vector3(16, 16, 24),
+      Bsp.FindEntity('info_player_start').Origin + Vector3(16, 16, 32), FatBits), 'a box at the start is in the PVS');
+    Check(not Bsp.BoxInPvs(Vector3(100000, 0, 0), Vector3(100010, 10, 10), FatBits), 'a box outside the map is not');
   finally
     Bsp.Free;
   end;
