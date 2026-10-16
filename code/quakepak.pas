@@ -15,6 +15,10 @@ type
     or deflated) or a loose file on disk }
   TQuakePakEntryKind = (pekPak, pekZip, pekFile);
 
+const
+  { In front of a path (VariantPath): the original copy of a replaced file }
+  OriginalPathMarker = '@original/';
+
 { A component Name for the engine's inspector: Base made a valid identifier
   (lowercase letters, digits, underscores) with a running number per base,
   like monster_ogre_3 or func_door_7. ResetComponentNames starts the
@@ -51,7 +55,7 @@ type
     FShadowed: TQuakePakEntryList;
     FOriginal: specialize TList<Boolean>;
     FProtocolRegistered: Boolean;
-    FPreferOriginalMaps: Boolean;
+    FPreferOriginal: Boolean;
     { Unpacked zip entries and loose files handed out by GetData }
     FDataCache: specialize TObjectDictionary<String, TMemoryStream>;
     function FindEntryIndex(const APath: String): Integer;
@@ -77,6 +81,15 @@ type
     { An original Quake pak (id1, shareware) provides this file }
     function OriginalFileExists(const APath: String): Boolean;
 
+    { PreferOriginal picks an original copy of this file that a later pak
+      replaces (the LibreQuake one is what FileExists alone would give) }
+    function UsesOriginalCopy(const APath: String): Boolean;
+
+    { APath, or APath with OriginalPathMarker in front when UsesOriginalCopy:
+      the key and URL of a cached model or sound, so the original and the
+      replacing version of a file never share a cache entry }
+    function VariantPath(const APath: String): String;
+
     { Check if a file exists in any loaded PAK. }
     function FileExists(const APath: String): Boolean;
 
@@ -96,9 +109,11 @@ type
 
     property Entries: TQuakePakEntryList read FEntries;
     property FileCount: Integer read GetFileCount;
-    { Load maps/ from the original Quake paks even when a later pak (the
-      bundled LibreQuake start map) replaces them: the id1 episode hub }
-    property PreferOriginalMaps: Boolean read FPreferOriginalMaps write FPreferOriginalMaps;
+    { Load every file (maps, models, sounds...) from the original Quake paks
+      even when a later pak (the bundled LibreQuake) replaces it: the id1
+      episode hub plays id1's content, LibreQuake only fills in what the
+      original paks lack }
+    property PreferOriginal: Boolean read FPreferOriginal write FPreferOriginal;
   end;
 
 var
@@ -197,6 +212,9 @@ begin
       Result[I] := '/';
   while (Length(Result) > 0) and (Result[1] = '/') do
     Delete(Result, 1, 1);
+  { The marker of VariantPath only names a cache entry }
+  if Pos(OriginalPathMarker, Result) = 1 then
+    Delete(Result, 1, Length(OriginalPathMarker));
 end;
 
 { TQuakePak }
@@ -323,7 +341,7 @@ var
   ExistingIndex: Integer;
 begin
   { A later container replaces the entry; the old one stays reachable for
-    PreferOriginalMaps }
+    PreferOriginal }
   ExistingIndex := FindEntryIndex(Entry.Path);
   if ExistingIndex >= 0 then
   begin
@@ -589,7 +607,7 @@ begin
   if not Result then
     Exit;
   Entry := FEntries[Idx];
-  if not FPreferOriginalMaps or FOriginal[Entry.PakIndex] or (Pos('maps/', Entry.Path) <> 1) then
+  if not FPreferOriginal or FOriginal[Entry.PakIndex] then
     Exit;
   Target := Entry.Path;
   for I := FShadowed.Count - 1 downto 0 do
@@ -620,6 +638,23 @@ begin
     if (FShadowed[I].Path = Target) and FOriginal[FShadowed[I].PakIndex] then
       Exit(True);
   Result := False;
+end;
+
+function TQuakePak.UsesOriginalCopy(const APath: String): Boolean;
+var
+  Idx: Integer;
+  Entry: TQuakePakEntry;
+begin
+  Idx := FindEntryIndex(APath);
+  Result := (Idx >= 0) and FindEntry(APath, Entry) and
+    ((Entry.PakIndex <> FEntries[Idx].PakIndex) or (Entry.Offset <> FEntries[Idx].Offset));
+end;
+
+function TQuakePak.VariantPath(const APath: String): String;
+begin
+  Result := NormalizePath(APath);
+  if UsesOriginalCopy(Result) then
+    Result := OriginalPathMarker + Result;
 end;
 
 function TQuakePak.GetStream(const APath: String): TMemoryStream;

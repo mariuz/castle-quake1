@@ -429,8 +429,8 @@ begin
   { -game quake: the id1 start map and its episode portals instead of the
     bundled LibreQuake hub; any other -game is a directory of paks loaded
     on top (a mission pack's progs.dat, maps, models and pictures win) }
-  Pak.PreferOriginalMaps := (CmdGame = 'quake') or (CmdGame = 'id1');
-  if (CmdGame <> '') and not Pak.PreferOriginalMaps then
+  Pak.PreferOriginal := (CmdGame = 'quake') or (CmdGame = 'id1');
+  if (CmdGame <> '') and not Pak.PreferOriginal then
   begin
     if LoadGameDir(CmdGame) > 0 then
       GameDir := LowerCase(ExtractFileName(ExcludeTrailingPathDelimiter(CmdGame))) { a path is fine too }

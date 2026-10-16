@@ -52,14 +52,14 @@ begin
   case Action of
     maNewGame:
       begin
-        Pak.PreferOriginalMaps := Param = 'quake';
+        Pak.PreferOriginal := Param = 'quake';
         ViewPlay.MapName := 'start';
         Container.View := ViewPlay;
       end;
     maWarpMap:
       begin
         { Original episode maps come with the id1 hub to return to }
-        Pak.PreferOriginalMaps := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
+        Pak.PreferOriginal := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
         ViewPlay.MapName := Param;
         Container.View := ViewPlay;
       end;

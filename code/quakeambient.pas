@@ -160,17 +160,21 @@ begin
 end;
 
 function TQuakeAmbientSounds.GetSound(const Path: String): TCastleSound;
+var
+  Key: String;
 begin
-  if not FSoundCache.TryGetValue(Path, Result) then
+  { Like TQuakeSounds.GetSound: the original sample has its own entry }
+  Key := Pak.VariantPath(Path);
+  if not FSoundCache.TryGetValue(Key, Result) then
   begin
     Result := TCastleSound.Create(nil);
-    Result.Url := 'quakepak:/' + Path;
+    Result.Url := 'quakepak:/' + Key;
     { Attenuation is computed here (Quake's linear falloff), so keep the
       engine's distance gain at 1: the distance is always clamped to 1000
       and both reference and max distance are 1000. Only panning remains. }
     Result.ReferenceDistance := 1000;
     Result.MaxDistance := 1000;
-    FSoundCache.Add(Path, Result);
+    FSoundCache.Add(Key, Result);
   end;
 end;
 
