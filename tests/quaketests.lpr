@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay;
+  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay, CastleInternalSoundFile;
 
 var
   Checks, Failures: Integer;
@@ -607,6 +607,47 @@ begin
   end;
 end;
 
+{ Every sample of the pak loads with the engine's WAV reader: many original
+  ones end with a broken chunk (a LIST declaring gigabytes), which made the
+  reader fail and, on WebAssembly, stopped the game (the pak cleans them) }
+procedure TestSoundFiles;
+var
+  Files: TStringList;
+  I, Failed: Integer;
+  F: TSoundFile;
+begin
+  StartTest('Every sample loads through quakepak:');
+  Files := Pak.FindFiles('sound/', '.wav');
+  try
+    Check(Files.Count > 100, Format('the pak has samples (%d)', [Files.Count]));
+    Failed := 0;
+    for I := 0 to Files.Count - 1 do
+    begin
+      try
+        F := TSoundFile.Create('quakepak:/' + Files[I]);
+        try
+          if F.DataSize = 0 then
+          begin
+            Inc(Failed);
+            WriteLn('  no sound data: ', Files[I]);
+          end;
+        finally
+          F.Free;
+        end;
+      except
+        on E: Exception do
+        begin
+          Inc(Failed);
+          WriteLn('  cannot load ', Files[I], ': ', E.Message);
+        end;
+      end;
+    end;
+    CheckEquals(0, Failed, Format('samples that do not load (of %d)', [Files.Count]));
+  finally
+    Files.Free;
+  end;
+end;
+
 procedure TestVideo;
 var
   T, B, MinB, MaxB: Single;
@@ -782,6 +823,7 @@ begin
   TestDemoFitzQuake;
   TestBindings;
   TestWebSocket;
+  TestSoundFiles;
   TestGamepad;
   TestVideo;
 

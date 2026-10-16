@@ -7,7 +7,7 @@ unit QuakePak;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections, ZStream,
+  SysUtils, Classes, Generics.Collections, ZStream, Math,
   CastleDownload, CastleUriUtils, CastleLog, CastleTransform;
 
 type
@@ -730,6 +730,83 @@ begin
   end;
 end;
 
+{ Many original Quake samples end with a broken chunk (a LIST of a few
+  bytes declaring a size of gigabytes) or a data chunk longer than the file:
+  Quake's loader stops after the data, the engine's WAV reader fails with a
+  read error, which on WebAssembly cannot be caught and stops the game. The
+  sample is rebuilt with only its fmt and data chunks, clamped to the bytes
+  present; anything not understood is returned as it was. }
+function CleanWav(const Source: TMemoryStream): TMemoryStream;
+var
+  Data: PByte;
+  Size, P, ChunkSize, FmtPos, FmtSize, DataPos, DataSize: Int64;
+  Id: array[0..3] of AnsiChar;
+  RiffSize: LongWord;
+
+  function ReadU32(const At: Int64): LongWord;
+  begin
+    Move(Data[At], Result, 4);
+    Result := LEtoN(Result);
+  end;
+
+  procedure WriteU32(const Value: LongWord);
+  var
+    V: LongWord;
+  begin
+    V := NtoLE(Value);
+    Result.WriteBuffer(V, 4);
+  end;
+
+begin
+  Result := Source;
+  Data := Source.Memory;
+  Size := Source.Size;
+  if (Size < 12) or (CompareByte(Data[0], 'RIFF', 4) <> 0) or (CompareByte(Data[8], 'WAVE', 4) <> 0) then
+    Exit;
+  FmtPos := -1;
+  FmtSize := 0;
+  DataPos := -1;
+  DataSize := 0;
+  P := 12;
+  while (P + 8 <= Size) and (DataPos < 0) do
+  begin
+    Move(Data[P], Id, 4);
+    ChunkSize := ReadU32(P + 4);
+    if Id = 'fmt ' then
+    begin
+      FmtPos := P + 8;
+      FmtSize := Min(ChunkSize, Size - FmtPos);
+    end else
+    if Id = 'data' then
+    begin
+      DataPos := P + 8;
+      DataSize := Min(ChunkSize, Size - DataPos);
+    end;
+    P := P + 8 + ChunkSize + (ChunkSize and 1);
+  end;
+  if (FmtPos < 0) or (FmtSize < 16) or (DataPos < 0) then
+    Exit;
+
+  Result := TMemoryStream.Create;
+  RiffSize := 4 + 8 + FmtSize + (FmtSize and 1) + 8 + DataSize + (DataSize and 1);
+  Result.WriteBuffer('RIFF', 4);
+  WriteU32(RiffSize);
+  Result.WriteBuffer('WAVE', 4);
+  Result.WriteBuffer('fmt ', 4);
+  WriteU32(FmtSize);
+  Result.WriteBuffer(Data[FmtPos], FmtSize);
+  if Odd(FmtSize) then
+    Result.WriteByte(0);
+  Result.WriteBuffer('data', 4);
+  WriteU32(DataSize);
+  if DataSize > 0 then
+    Result.WriteBuffer(Data[DataPos], DataSize);
+  if Odd(DataSize) then
+    Result.WriteByte(0);
+  Result.Position := 0;
+  Source.Free;
+end;
+
 function TQuakePak.ReadPak(const Url: String; out MimeType: String): TStream;
 var
   Path: String;
@@ -741,6 +818,8 @@ begin
   while (Path <> '') and (Path[1] = '/') do Delete(Path, 1, 1);
 
   Result := GetStream(Path);
+  if (Result <> nil) and (LowerCase(ExtractFileExt(Path)) = '.wav') then
+    Result := CleanWav(TMemoryStream(Result));
   { Loaders (e.g. sound files) pick the format from the MIME type,
     so derive it from the file extension }
   MimeType := UriMimeType(Path);

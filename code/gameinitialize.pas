@@ -426,6 +426,13 @@ begin
     LoadedAny := True;
   end;
 
+  {$ifdef WASI}
+  { The web page: ?game=quake plays the original content like -game quake
+    (the browser has no game directories) }
+  if (PageParameter('game') = 'quake') or (PageParameter('game') = 'id1') then
+    CmdGame := PageParameter('game');
+  {$endif}
+
   { -game quake: the id1 start map and its episode portals instead of the
     bundled LibreQuake hub; any other -game is a directory of paks loaded
     on top (a mission pack's progs.dat, maps, models and pictures win) }
