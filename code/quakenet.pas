@@ -51,6 +51,9 @@ const
   pkHello = 13;     { server -> client: opens the server's NAT mapping, ignored }
 
   MaxInputMsec = 250;
+  { The client sends an input when this much time has passed (at most
+    about 143 a second), at least QuakePhysics.MinPhysicsStep }
+  MinInputMsec = 7;
   MaxQueuedInputs = 16;     { inputs kept per client until the game runs them }
   RegisterInterval = 5.0;   { keeps the NAT mapping at the rendezvous alive }
   RendezvousTimeout = 30.0; { a registration not refreshed for this long is dropped }

@@ -38,6 +38,10 @@ type
     FTime: Single;
     FOldOrigin: TVector3;
     FWishSpeed: Single;
+    { Frame time not simulated yet (shorter than MinPhysicsStep) and a jump
+      pressed during it }
+    FPendingTime: Single;
+    FPendingJump: Boolean;
     function TestPosition: Boolean;
     procedure CheckWater;
     procedure CheckWaterJump(const Forward: TVector3);
@@ -90,7 +94,9 @@ type
     procedure Teleport(const AOrigin: TVector3);
 
     { Run the physics for SecondsPassed. Yaw and Pitch are the view angles in
-      degrees (Quake convention: yaw 0 = +X, pitch > 0 looks down). }
+      degrees (Quake convention: yaw 0 = +X, pitch > 0 looks down). Calls
+      shorter than MinPhysicsStep add up and run together once they reach
+      it, so a fast frame rate does not break the movement. }
     procedure Move(const Cmd: TQuakeUserCmd; const Yaw, Pitch, SecondsPassed: Single);
 
     { Trace the player box from Start to Stop against world, brush entities
@@ -123,6 +129,13 @@ const
   ClBackSpeed = 400.0;
   ClSideSpeed = 350.0;
   ClUpSpeed = 200.0;
+  { The shortest physics step. Quake's movement assumes server frames of
+    about 1/72 s: the traces stop DistEpsilon (1/32 unit) before what they
+    hit, so a step whose gravity fall (800 * dt^2) is shorter than that
+    never reaches the floor. Above about 160 steps a second the player left
+    the ground on most steps, lost the ground friction and, on slopes, got
+    stuck in the floor (from 800 fps). }
+  MinPhysicsStep = 1.0 / 144.0;
 
 implementation
 
@@ -178,6 +191,8 @@ procedure TQuakePlayerPhysics.Teleport(const AOrigin: TVector3);
 begin
   Origin := AOrigin;
   FOldOrigin := AOrigin;
+  FPendingTime := 0;
+  FPendingJump := False;
   Velocity := TVector3.Zero;
   OnGround := False;
   GroundEntity := -1;
@@ -813,19 +828,29 @@ end;
 procedure TQuakePlayerPhysics.Move(const Cmd: TQuakeUserCmd; const Yaw, Pitch, SecondsPassed: Single);
 var
   Remaining, Dt: Single;
+  Steps, I: Integer;
+  StepCmd: TQuakeUserCmd;
 begin
   Jumped := False;
   LandingSpeed := 0;
   SetLength(Touched, 0);
   if FBsp = nil then
     Exit;
-  Remaining := Min(SecondsPassed, 0.1); { like host_frametime, never more than 0.1 }
-  while Remaining > 0 do
-  begin
-    Dt := Min(Remaining, MaxStep);
-    Frame(Cmd, Yaw, Pitch, Dt);
-    Remaining := Remaining - Dt;
-  end;
+  { Short frames wait until they add up to a step (a brief jump press too) }
+  FPendingTime := FPendingTime + SecondsPassed;
+  FPendingJump := FPendingJump or Cmd.Jump;
+  if FPendingTime < MinPhysicsStep then
+    Exit;
+  StepCmd := Cmd;
+  StepCmd.Jump := FPendingJump;
+  Remaining := Min(FPendingTime, 0.1); { like host_frametime, never more than 0.1 }
+  FPendingTime := 0;
+  FPendingJump := False;
+  { Equal steps of at most MaxStep: none shorter than MinPhysicsStep }
+  Steps := Ceil(Remaining / MaxStep);
+  Dt := Remaining / Steps;
+  for I := 1 to Steps do
+    Frame(StepCmd, Yaw, Pitch, Dt);
 end;
 
 end.
