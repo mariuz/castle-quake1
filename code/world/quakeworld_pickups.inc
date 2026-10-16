@@ -14,14 +14,18 @@ begin
     if P.Collected then
       Continue;
 
-    { Items touch the player box with their Quake size ('-16 -16 0' '16 16 56') }
+    { Items touch the player box with their Quake size ('-16 -16 0' '16 16 56');
+      the boxes have '0 0 0' '32 32 56', the same box moved by 16 }
     ItemOrg := CgeToQuake(P.Origin);
+    if P.IsBox then
+      ItemOrg := ItemOrg + Vector3(16, 16, 0);
     if (BoxMins.X <= ItemOrg.X + 16) and (BoxMaxs.X >= ItemOrg.X - 16) and
        (BoxMins.Y <= ItemOrg.Y + 16) and (BoxMaxs.Y >= ItemOrg.Y - 16) and
        (BoxMins.Z <= ItemOrg.Z + 56) and (BoxMaxs.Z >= ItemOrg.Z) and
        not FPlayerDead then
     begin
       P.Collected := True;
+      WritelnLog('QuakeWorld', 'Picked up "%s" (%s)', [P.MessageText, P.ModelPath]);
       Sounds.Play(P.PickupSound);
       if Hud <> nil then
       begin

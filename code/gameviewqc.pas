@@ -715,6 +715,30 @@ begin
     end;
     Exit;
   end;
+  { The health and ammo boxes are brush model files (maps/b_*.bsp) }
+  if LowerCase(ExtractFileExt(Model)) = '.bsp' then
+  begin
+    if (V.Transform = nil) or (V.Model <> Model) then
+    begin
+      FreeVisual(V);
+      V.Transform := TCastleTransform.Create(nil);
+      V.Transform.Name := ComponentName('edict');
+      V.Scene := CreateBspModelScene(Model, V.Transform);
+      if V.Scene = nil then
+      begin
+        FreeVisual(V);
+        Exit;
+      end;
+      V.Scene.Name := V.Transform.Name + '_scene';
+      V.Scene.Collides := False;
+      V.Transform.Add(V.Scene);
+      FViewport.Items.Add(V.Transform);
+      V.Model := Model;
+    end;
+    V.Transform.Exists := True;
+    V.Transform.Translation := QuakeToCge(Origin);
+    Exit;
+  end;
   if LowerCase(ExtractFileExt(Model)) <> '.mdl' then
   begin
     HideVisual(V);

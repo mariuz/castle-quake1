@@ -37,9 +37,11 @@ PROCESS_TIMEOUT = 300
 
 
 class Scenario:
-    def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD, prepare=None):
+    def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD, prepare=None,
+                 frame_checks=None):
         self.name = name
         self.prepare = prepare        # function(out_dir) run before the processes, or None
+        self.frame_checks = frame_checks  # function(out_dir) -> [(ok, description)] on the screenshots, or None
         self.runs = runs              # [(prefix, args, delay before start)]
         self.checks = checks          # function(logs) -> [(ok, description)]
         self.references = references  # screenshot names compared with tests/reference
@@ -270,6 +272,28 @@ def check_litfog(logs):
     return result
 
 
+def check_liquid_items(logs):
+    result = common_checks(logs, 'hub') + common_checks(logs, 'boxes')
+    boxes = logs['boxes']
+    result.append(('Loaded map "maps/b_bh25.bsp"' in boxes, 'the health box is the brush model maps/b_bh25.bsp'))
+    result.append(('not found in PAK' not in boxes, 'no item model is missing'))
+    result.append(('Picked up "You got 25 health" (maps/b_bh25.bsp)' in boxes, 'walking into the box picks it up'))
+    return result
+
+
+def frames_liquid_items(out_dir):
+    """The liquid of the hub's NIGHTMARE wall (*blood1) is drawn and ripples:
+    two frames of a still camera 0.5 s apart differ. The world textures
+    carry the fullbright mask in their alpha, which made every blended
+    liquid fully transparent (0 pixels changed)."""
+    a = Image.open(os.path.join(out_dir, 'hub_1.png')).convert('RGB')
+    b = Image.open(os.path.join(out_dir, 'hub_2.png')).convert('RGB')
+    view = (0, 0, a.width, a.height * 3 // 4)
+    diff = ImageChops.difference(a.crop(view), b.crop(view)).convert('L').point(lambda v: 255 if v > 8 else 0)
+    changed = diff.histogram()[255]
+    return [(changed > 2000, 'the liquid ripples (%d pixels changed in 0.5 s)' % changed)]
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -319,6 +343,14 @@ SCENARIOS = [
                         ('fog', ['-game', '{out}/mod', '--autotest', 'e1m1_fog', '{out}/fog', '--demo',
                                  'W:0.5,Y,S,Q'], 0)],
              check_litfog, ['gray_1', 'red_1', 'fog_1'], prepare=prepare_litfog),
+    # The liquids and the item boxes: the LibreQuake hub's *blood1 wall from
+    # a still camera twice (it must ripple), and E1M1's health boxes after
+    # walking into one (boxes_1 has a reference: two boxes left, one rotten)
+    Scenario('liquid_items', [('hub', ['--autotest', 'start', '{out}/hub', '--demo',
+                                       'W:3,G:300;-200;-1700,A:180,P:-40,W:1,S,W:0.5,S,Q'], 0),
+                              ('boxes', ['--autotest', 'e1m1', '{out}/boxes', '--demo',
+                                         'W:0.5,G:1392;-386;-824,W:0.5,G:1300;-386;-690,A:75,P:-20,W:0.5,S,Q'], 0)],
+             check_liquid_items, ['boxes_1'], frame_checks=frames_liquid_items),
 ]
 
 
@@ -406,6 +438,8 @@ def main():
         started = time.time()
         logs = run_scenario(args.exe, out_dir, scenario)
         results = scenario.checks(logs) + image_checks(out_dir, scenario, args.update)
+        if scenario.frame_checks is not None:
+            results += scenario.frame_checks(out_dir)
         for ok, description in results:
             print('  %s %s' % ('ok  ' if ok else 'FAIL', description))
             if not ok:

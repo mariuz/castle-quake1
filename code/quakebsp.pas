@@ -697,8 +697,10 @@ begin
 
     if Palette.HasPalette and (Mip.Width > 0) and (Mip.Height > 0) then
     begin
-      { World textures carry the fullbright mask in their alpha channel }
-      Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, True);
+      { World textures carry the fullbright mask in their alpha channel for
+        the lightmap shader. Liquids (*name) have no lightmap and are blended
+        by their alpha (r_wateralpha): they stay opaque, or they vanished. }
+      Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, Copy(NameStr, 1, 1) <> '*');
       Palette.CacheImage(ImageId, Img);
       if Pos('sky', NameStr) = 1 then
         CacheSkyLayers(Mip);
