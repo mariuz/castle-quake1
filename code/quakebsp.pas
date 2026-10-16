@@ -343,7 +343,50 @@ type
     property MarkSurfaces: TBSPMarkSurfaceArray read FMarkSurfaces;
   end;
 
+{ The worldspawn fog key ("density" or "density r g b", FitzQuake style,
+  gray 0.3 by default); False without fog }
+function WorldspawnFog(const Bsp: TQuakeBsp; out Density: Single; out Color: TVector3): Boolean;
+
+{ The worldspawn sky key (a skybox name, gfx/env/<name>), lowercase, '' for none }
+function WorldspawnSky(const Bsp: TQuakeBsp): String;
+
 implementation
+
+function WorldspawnFog(const Bsp: TQuakeBsp; out Density: Single; out Color: TVector3): Boolean;
+var
+  World: TQuakeEntity;
+  Parts: TStringArray;
+  Fmt: TFormatSettings;
+begin
+  Result := False;
+  Density := 0;
+  Color := Vector3(0.3, 0.3, 0.3);
+  if Bsp = nil then
+    Exit;
+  World := Bsp.FindEntity('worldspawn');
+  if (World = nil) or (Trim(World.GetField('fog', '')) = '') then
+    Exit;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Parts := Trim(World.GetField('fog', '')).Split([' '], TStringSplitOptions.ExcludeEmpty);
+  Density := StrToFloatDef(Parts[0], 0, Fmt);
+  if Length(Parts) >= 4 then
+    Color := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
+      StrToFloatDef(Parts[3], 0.3, Fmt));
+  Result := Density > 0;
+end;
+
+function WorldspawnSky(const Bsp: TQuakeBsp): String;
+var
+  World: TQuakeEntity;
+begin
+  Result := '';
+  if Bsp = nil then
+    Exit;
+  World := Bsp.FindEntity('worldspawn');
+  if World <> nil then
+    Result := LowerCase(Trim(World.GetField('sky', '')));
+end;
 
 function EntityNotInSkill(const Ent: TQuakeEntity; const Skill: Integer): Boolean;
 var

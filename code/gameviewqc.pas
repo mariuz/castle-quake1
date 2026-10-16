@@ -432,6 +432,9 @@ var
   Title: String;
   World: TQuakeEntity;
   Yaw, Pitch: Single;
+  HasFog: Boolean;
+  FogDensity: Single;
+  FogColor: TVector3;
 begin
   if (FRecorder = nil) or (FGame.Bsp = nil) then
     Exit;
@@ -442,6 +445,8 @@ begin
   ViewYawPitch(Yaw, Pitch);
   FRecorder.BeginLevel('maps/' + MapName + '.bsp', Title, Vector3(Pitch, Yaw, 0), FGame.TotalMonsters,
     FGame.TotalSecrets);
+  HasFog := WorldspawnFog(FGame.Bsp, FogDensity, FogColor);
+  FRecorder.SetLevelEnvironment(WorldspawnSky(FGame.Bsp), HasFog, FogDensity, FogColor);
 end;
 
 procedure TViewQc.RecordFrame(const Yaw, Pitch: Single);

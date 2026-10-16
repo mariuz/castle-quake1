@@ -272,6 +272,10 @@ type
     { Demo recording (NetQuake protocol .dem) of everything from now on }
     function StartRecording(const Url: String): Boolean;
     procedure StopRecording;
+    { A fog or skybox change during the level (the console), recorded when
+      a demo is being recorded }
+    procedure RecordFog(const Density: Single; const Color: TVector3);
+    procedure RecordSkybox(const Name: String);
     function Recording: Boolean;
 
     { Contents (CONTENTS_xxx) at a point in CGE coordinates, CONTENTS_EMPTY without a map }
