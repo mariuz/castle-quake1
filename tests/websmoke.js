@@ -7,6 +7,7 @@
 //    a slot; the save reaches the browser's localStorage within a second.
 // 2. Reloads the page: the files come back from localStorage and the save
 //    loads.
+// 3. ?game=quake plays the original content (id1 models and samples).
 // Fails (exit code 1) on a page error, a WebAssembly crash or a missing log
 // line. The screenshots are written to <out dir> (tests/websmoke_check.py
 // checks they are not black).
@@ -81,6 +82,15 @@ async function run(page, url, expected, seconds, shot) {
     /Loaded game from "castle-config:\/save_websmoke\.sav"/,
   ], 150, 'websmoke_2.png');
   report('a reload restores the save and loads it', second);
+
+  // 3. The original content (?game=quake, like -game quake): id1's models
+  //    and samples, several of which end with a broken chunk that stopped
+  //    the WebAssembly program when it was read
+  const third = await run(page, withParams(base, { game: 'quake', autotest: 'e1m1', demo: 'W:3,S' }), [
+    /Loaded model "v_shot_original"/,
+    /View: map e1m1/,
+  ], 150, 'websmoke_3.png');
+  report('the original Quake content loads (?game=quake)', third);
 
   await browser.close();
   process.exit(failed ? 1 : 0);

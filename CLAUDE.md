@@ -88,7 +88,7 @@ Multiplayer: `-host <map> [-port N] [-coop] [-skill N]` hosts a deathmatch (or c
 
 ## Web Build
 
-The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compiler) and Pas2js. Locally, with that toolchain first in PATH and `PPC_CONFIG_PATH` set: `castle-engine compile --target=web --mode=release`, then serve `castle-engine-output/web/dist/` over HTTP. The trunk compiler can stop with "Compilation raised exception internally" on an incremental rebuild: delete `castle-engine-output/compilation/wasm32-wasip1` and build again. WebAssembly cannot catch exceptions, so code for the web must not raise (check before calling). The page URL takes `?warp=<map>` and `?autotest=<map>&demo=<actions>` (like the command line; screenshots only log), and `castle-config:/` (user config, saves) is kept in the browser's `localStorage` (`QuakeWebStorage`, keys `castle-quake:<path>`). Smoke test (the `Web` workflow runs it on every push): serve the dist directory, then `node tests/websmoke.js http://localhost:8765/index.html <out dir>` (Playwright with Chromium) and `python3 tests/websmoke_check.py <out dir>`.
+The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compiler) and Pas2js. Locally, with that toolchain first in PATH and `PPC_CONFIG_PATH` set: `castle-engine compile --target=web --mode=release`, then serve `castle-engine-output/web/dist/` over HTTP. The trunk compiler can stop with "Compilation raised exception internally" on an incremental rebuild: delete `castle-engine-output/compilation/wasm32-wasip1` and build again. WebAssembly cannot catch exceptions, so code for the web must not raise (check before calling). The page URL takes `?warp=<map>`, `?autotest=<map>&demo=<actions>` (like the command line; screenshots only log) and `?game=quake` (the original content, like `-game quake`), and `castle-config:/` (user config, saves) is kept in the browser's `localStorage` (`QuakeWebStorage`, keys `castle-quake:<path>`). Smoke test (the `Web` workflow runs it on every push): serve the dist directory, then `node tests/websmoke.js http://localhost:8765/index.html <out dir>` (Playwright with Chromium) and `python3 tests/websmoke_check.py <out dir>`.
 
 ## Gameplay Scenarios
 
@@ -96,7 +96,7 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Unit Tests
 
-`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the player physics at frame rates from 30 to 3000 fps, the PVS rows and the server's fat PVS, the field of view and view bob, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
+`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the player physics at frame rates from 30 to 3000 fps, the PVS rows and the server's fat PVS, the field of view and view bob, the QuakeC VM, every sample of the shareware pak loading, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
 
 ## Conventions & Rules
 
