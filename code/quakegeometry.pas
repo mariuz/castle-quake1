@@ -2241,7 +2241,7 @@ begin
   Result := nil;
   if BspModelRoots = nil then
     BspModelRoots := specialize TObjectDictionary<String, TX3DRootNode>.Create([doOwnsValues]);
-  if not BspModelRoots.TryGetValue(Path, Root) then
+  if not BspModelRoots.TryGetValue(Pak.VariantPath(Path), Root) then
   begin
     Root := nil;
     if Pak.FileExists(Path) then
@@ -2265,7 +2265,7 @@ begin
       end;
     end;
     { Remember a missing model too, so it is not looked for again }
-    BspModelRoots.Add(Path, Root);
+    BspModelRoots.Add(Pak.VariantPath(Path), Root);
   end;
   if Root = nil then
     Exit;

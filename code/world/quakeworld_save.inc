@@ -83,7 +83,7 @@ begin
   try
     D.SetInt('version', SaveVersion);
     D.SetStr('map', FBsp.MapName);
-    D.SetBool('originalmaps', Pak.PreferOriginalMaps);
+    D.SetBool('originalmaps', Pak.PreferOriginal);
     D.SetInt('skill', FSkill);
     D.SetInt('serverflags', FServerFlags);
     D.SetFloat('time', FTime);
@@ -205,7 +205,7 @@ begin
 
     { The map is spawned again with the saved skill, so its entities line
       up with the saved ones }
-    Pak.PreferOriginalMaps := D.GetBool('originalmaps');
+    Pak.PreferOriginal := D.GetBool('originalmaps');
     FSkill := D.GetInt('skill', 1);
     FServerFlags := D.GetInt('serverflags');
     FPlayerDead := False;

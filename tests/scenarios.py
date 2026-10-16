@@ -294,6 +294,16 @@ def frames_liquid_items(out_dir):
     return [(changed > 2000, 'the liquid ripples (%d pixels changed in 0.5 s)' % changed)]
 
 
+def check_quake_hub(logs):
+    log = logs['hub']
+    result = common_checks(logs, 'hub')
+    result.append(('Loaded map "maps/start.bsp"' in log and '5556 faces' in log, 'the id1 hub (shareware start.bsp)'))
+    result.append(('Loaded model "zombie_original"' in log, 'the crucified zombies are id1\'s model, not LibreQuake\'s'))
+    result.append(('"maps/start.lit" is not from the original paks of the map, ignored' in log,
+                   'LibreQuake\'s start.lit is not applied to the id1 map'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -351,6 +361,11 @@ SCENARIOS = [
                               ('boxes', ['--autotest', 'e1m1', '{out}/boxes', '--demo',
                                          'W:0.5,G:1392;-386;-824,W:0.5,G:1300;-386;-690,A:75,P:-20,W:0.5,S,Q'], 0)],
              check_liquid_items, ['boxes_1'], frame_checks=frames_liquid_items),
+    # The Quake episode hub plays id1's models and sounds (Pak.PreferOriginal),
+    # not LibreQuake's: the crucified zombies of the hard hall hang on its walls
+    Scenario('quake_hub', [('hub', ['--game', 'quake', '--autotest', 'start', '{out}/hub', '--demo',
+                                    'W:1,Y,G:856;-18;-700,A:90,W:0.5,P:15,W:0.3,S,Q'], 0)],
+             check_quake_hub, ['hub_1']),
 ]
 
 

@@ -1204,7 +1204,7 @@ begin
       begin
         FMenu.Exists := False;
         FNavigation.MouseLook := True;
-        Pak.PreferOriginalMaps := Param = 'quake';
+        Pak.PreferOriginal := Param = 'quake';
         FWorld.NewGame;
         LoadLevel('start');
       end;
@@ -1212,7 +1212,7 @@ begin
       begin
         FMenu.Exists := False;
         FNavigation.MouseLook := True;
-        Pak.PreferOriginalMaps := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
+        Pak.PreferOriginal := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
         FWorld.NewGame;
         LoadLevel(Param);
       end;

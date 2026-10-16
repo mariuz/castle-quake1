@@ -743,6 +743,13 @@ begin
   end;
   if (FLightmapsSize = 0) or not Pak.FileExists(LitPath) then
     Exit;
+  { The .lit of a replacing pak belongs to its own version of the map }
+  if Pak.PreferOriginal and Pak.OriginalFileExists(ChangeFileExt(LitPath, '.bsp')) and
+     not Pak.OriginalFileExists(LitPath) then
+  begin
+    WritelnLog('QuakeBsp', '"%s" is not from the original paks of the map, ignored', [LitPath]);
+    Exit;
+  end;
   Stream := Pak.GetStream(LitPath);
   if Stream = nil then
     Exit;

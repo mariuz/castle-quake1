@@ -83,7 +83,9 @@ function TQuakeSounds.GetSound(const APath: String): TCastleSound;
 var
   NormPath: String;
 begin
-  NormPath := LowerCase(APath);
+  { The original or the replacing sample (Pak.PreferOriginal) have their
+    own cache entry and URL, so switching hubs does not reuse the other }
+  NormPath := Pak.VariantPath(APath);
   if not FSoundCache.TryGetValue(NormPath, Result) then
   begin
     Result := TCastleSound.Create(nil);
