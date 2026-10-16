@@ -296,6 +296,11 @@ var
 { The six faces of a skybox are in the paks }
 function SkyboxAvailable(const Name: String): Boolean;
 
+{ A brush model file (maps/b_bh25.bsp, the health and ammo boxes) as a
+  scene owned by Owner, its model 0 with the origin at the model's origin;
+  nil when the file is missing. Built once per path, copied for each call. }
+function CreateBspModelScene(const Path: String; const Owner: TComponent): TCastleScene;
+
 implementation
 
 const
@@ -1552,7 +1557,7 @@ begin
       CreateLightmapSets;
       FinishBatches(OutBatches, LMSets, RootNode, nil);
     end;
-    if (ModelIdx = 0) or (Atlases.Count > 1) or (FFullbrightFaces > 0) then
+    if ((ModelIdx = 0) and Clustered) or (Atlases.Count > 1) or (FFullbrightFaces > 0) then
     begin
       P := 0;
       for C := 0 to Atlases.Count - 1 do
@@ -2223,4 +2228,51 @@ begin
   end;
 end;
 
+var
+  BspModelRoots: specialize TObjectDictionary<String, TX3DRootNode>;
+
+function CreateBspModelScene(const Path: String; const Owner: TComponent): TCastleScene;
+var
+  Root: TX3DRootNode;
+  Bsp: TQuakeBsp;
+  Geometry: TQuakeGeometry;
+  Batches: TQuakeGeomBatchDict;
+begin
+  Result := nil;
+  if BspModelRoots = nil then
+    BspModelRoots := specialize TObjectDictionary<String, TX3DRootNode>.Create([doOwnsValues]);
+  if not BspModelRoots.TryGetValue(Path, Root) then
+  begin
+    Root := nil;
+    if Pak.FileExists(Path) then
+    begin
+      Bsp := TQuakeBsp.Create;
+      try
+        if Bsp.LoadFromPak(Path) and (Bsp.ModelCount > 0) then
+        begin
+          Geometry := TQuakeGeometry.Create(Bsp);
+          Batches := TQuakeGeomBatchDict.Create([doOwnsValues]);
+          try
+            Root := TX3DRootNode.Create;
+            Geometry.BuildModelGeometry(0, Root, Batches, False);
+          finally
+            Batches.Free;
+            Geometry.Free;
+          end;
+        end;
+      finally
+        Bsp.Free;
+      end;
+    end;
+    { Remember a missing model too, so it is not looked for again }
+    BspModelRoots.Add(Path, Root);
+  end;
+  if Root = nil then
+    Exit;
+  Result := TCastleScene.Create(Owner);
+  Result.Load(Root.DeepCopy as TX3DRootNode, True);
+end;
+
+finalization
+  FreeAndNil(BspModelRoots);
 end.

@@ -39,6 +39,9 @@ type
     Target: String; { fired on pickup (SUB_UseTargets) }
     SpawnFlags: Integer; { item_sigil: episode rune bit }
     ModelPath: String;
+    { A brush model box (maps/b_*.bsp: health, ammo): it does not spin or
+      bob, and its origin is a corner (bounds 0..32 in Quake x and y) }
+    IsBox: Boolean;
     constructor Create(const Parent: TCastleTransform; const AKind: TQuakeItemKind;
       const Pos: TVector3; const MdlPath: String; const SkinIdx: Integer = 0);
     destructor Destroy; override;
@@ -123,6 +126,9 @@ type
 
 implementation
 
+uses
+  QuakeGeometry;
+
 { TQuakePickup }
 
 constructor TQuakePickup.Create(const Parent: TCastleTransform; const AKind: TQuakeItemKind;
@@ -143,12 +149,25 @@ begin
   Transform.Translation := Pos;
   Transform.Name := ComponentName('pickup_' + Copy(GetEnumName(TypeInfo(TQuakeItemKind), Ord(AKind)), 3, MaxInt));
 
-  Mdl := MdlManager.GetModel(MdlPath);
-  if Mdl <> nil then
+  if LowerCase(ExtractFileExt(MdlPath)) = '.bsp' then
   begin
-    Scene := Mdl.CreateScene(SkinIdx);
-    Scene.Name := Transform.Name + '_scene';
-    Transform.Add(Scene);
+    Scene := CreateBspModelScene(MdlPath, Transform);
+    if Scene <> nil then
+    begin
+      IsBox := True;
+      RotationAngle := 0;
+      Scene.Name := Transform.Name + '_scene';
+      Transform.Add(Scene);
+    end;
+  end else
+  begin
+    Mdl := MdlManager.GetModel(MdlPath);
+    if Mdl <> nil then
+    begin
+      Scene := Mdl.CreateScene(SkinIdx);
+      Scene.Name := Transform.Name + '_scene';
+      Transform.Add(Scene);
+    end;
   end;
 
   case Kind of
@@ -289,6 +308,8 @@ begin
   end;
 
   Transform.Visible := True;
+  if IsBox then
+    Exit;
   RotationAngle := RotationAngle + 90.0 * SecondsPassed;
   if RotationAngle >= 360.0 then
     RotationAngle := RotationAngle - 360.0;

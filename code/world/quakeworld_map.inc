@@ -18,6 +18,21 @@ var
   HasStart2: Boolean;
   Start2Origin: TVector3;
   Start2Angle: Single;
+  Kind: TQuakeItemKind;
+
+  { An ammo box: maps/b_<name>0.bsp, or b_<name>1.bsp with spawnflags 1
+    (the large box); the old pickup model when the paks have no boxes }
+  function AmmoBox(const AKind: TQuakeItemKind; const BoxName, FallbackMdl: String): TQuakePickup;
+  begin
+    Result := TQuakePickup.Create(FRootTransform, AKind, Pos,
+      'maps/b_' + BoxName + IntToStr(Ent.SpawnFlags and 1) + '.bsp');
+    if Result.Scene = nil then
+    begin
+      Result.Free;
+      Result := TQuakePickup.Create(FRootTransform, AKind, Pos, FallbackMdl);
+    end;
+  end;
+
 begin
   HasStart2 := False;
   Start2Origin := TVector3.Zero;
@@ -106,12 +121,28 @@ begin
     { Health }
     if CName = 'item_health' then
     begin
-      Pickup := TQuakePickup.Create(FRootTransform, ikHealthNormal, Pos, 'progs/b_bh25.bsp');
+      { item_health: spawnflags 1 rotten (15), 2 megahealth, else 25; the
+        boxes are brush models }
+      if (Ent.SpawnFlags and 1) <> 0 then
+      begin
+        Kind := ikHealthSmall;
+        MdlName := 'maps/b_bh10.bsp';
+      end else
+      if (Ent.SpawnFlags and 2) <> 0 then
+      begin
+        Kind := ikHealthMega;
+        MdlName := 'maps/b_bh100.bsp';
+      end else
+      begin
+        Kind := ikHealthNormal;
+        MdlName := 'maps/b_bh25.bsp';
+      end;
+      Pickup := TQuakePickup.Create(FRootTransform, Kind, Pos, MdlName);
       if Pickup.Scene = nil then
       begin
-        { Fallback to armor or key model if b_bh25.bsp not present }
+        { A pak without the boxes: the armor model, so the item is seen }
         Pickup.Free;
-        Pickup := TQuakePickup.Create(FRootTransform, ikHealthNormal, Pos, 'progs/armor.mdl', 0);
+        Pickup := TQuakePickup.Create(FRootTransform, Kind, Pos, 'progs/armor.mdl', 0);
       end;
       FPickups.Add(Pickup);
     end else
@@ -119,22 +150,22 @@ begin
     { Ammo }
     if CName = 'item_shells' then
     begin
-      Pickup := TQuakePickup.Create(FRootTransform, ikShells, Pos, 'progs/g_shot.mdl');
+      Pickup := AmmoBox(ikShells, 'shell', 'progs/g_shot.mdl');
       FPickups.Add(Pickup);
     end else
     if CName = 'item_spikes' then
     begin
-      Pickup := TQuakePickup.Create(FRootTransform, ikNails, Pos, 'progs/g_nail.mdl');
+      Pickup := AmmoBox(ikNails, 'nail', 'progs/g_nail.mdl');
       FPickups.Add(Pickup);
     end else
     if CName = 'item_rockets' then
     begin
-      Pickup := TQuakePickup.Create(FRootTransform, ikRockets, Pos, 'progs/g_rock.mdl');
+      Pickup := AmmoBox(ikRockets, 'rock', 'progs/g_rock.mdl');
       FPickups.Add(Pickup);
     end else
     if CName = 'item_cells' then
     begin
-      Pickup := TQuakePickup.Create(FRootTransform, ikCells, Pos, 'progs/g_light.mdl');
+      Pickup := AmmoBox(ikCells, 'batt', 'progs/g_light.mdl');
       FPickups.Add(Pickup);
     end else
 
