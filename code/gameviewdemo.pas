@@ -72,6 +72,8 @@ type
     FPredict: TQuakePlayerPhysics;
     FHistory: array of TPredictedInput;
     FInputSeq: Word;
+    { Frame time not sent yet: inputs last at least MinInputMsec }
+    FInputTime: Single;
     FPredictValid: Boolean;
     FReconciledFrames: Cardinal;
     FPredictError, FPredictErrorMax: Single; { server origin vs. the prediction for the same input }
@@ -410,10 +412,24 @@ var
   Input: TNetInput;
   PadForward, PadSide: Single;
 begin
+  { Weapon changes of the frames in between are kept for the next input }
+  if AutoTestPrefix = '' then
+  begin
+    if GamepadJustPressed(GamepadNextWeapon) then
+      FImpulse := 10;
+    if GamepadJustPressed(GamepadPrevWeapon) then
+      FImpulse := 12;
+  end;
+  { Fast frames add up: the server and the prediction run each input as one
+    physics step, which must not be shorter than MinPhysicsStep }
+  FInputTime := FInputTime + SecondsPassed;
+  if FInputTime * 1000 < MinInputMsec then
+    Exit;
   Input := Default(TNetInput);
   Inc(FInputSeq);
   Input.Sequence := FInputSeq;
-  Input.Msec := Max(1, Min(Round(SecondsPassed * 1000), MaxInputMsec));
+  Input.Msec := Min(Round(FInputTime * 1000), MaxInputMsec);
+  FInputTime := Max(0, FInputTime - Input.Msec / 1000);
   Input.Angles := FDemo.ViewAngles;
   if AutoTestPrefix = '' then
   begin
@@ -434,10 +450,6 @@ begin
       Input.Buttons := Input.Buttons or nbJump;
     if BindingHeld(qbFire, Container) then
       Input.Buttons := Input.Buttons or nbFire;
-    if GamepadJustPressed(GamepadNextWeapon) then
-      FImpulse := 10;
-    if GamepadJustPressed(GamepadPrevWeapon) then
-      FImpulse := 12;
   end;
   Input.Move := Input.Move + Vector3(FScriptMove.X * ClForwardSpeed, FScriptMove.Y * ClSideSpeed,
     FScriptMove.Z * ClUpSpeed);

@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay;
+  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay;
 
 var
   Checks, Failures: Integer;
@@ -530,6 +530,83 @@ begin
   Check((Bindings[qbJump].Key1 = keySpace) and (Bindings[qbUse].Key1 = keyE), 'reset to defaults');
 end;
 
+{ The player walks the same at any frame rate: Quake's movement needs steps
+  of at least MinPhysicsStep, shorter frames add up }
+procedure TestPhysicsFrameRate;
+const
+  Rates: array[0..4] of Integer = (30, 72, 144, 1000, 3000);
+var
+  Bsp: TQuakeBsp;
+  Start: TQuakeEntity;
+  Phys: TQuakePlayerPhysics;
+  Cmd: TQuakeUserCmd;
+  Rate, Frame: Integer;
+  Reference: TVector3;
+  AlwaysOnGround: Boolean;
+  T: TQuakeTrace;
+
+  { 1 s standing, then 1.5 s forward down the start ramp, then 1 s to stop }
+  procedure Walk(const Fps: Integer);
+  var
+    I: Integer;
+    Time: Single;
+  begin
+    Phys.Teleport(Start.Origin);
+    Cmd := Default(TQuakeUserCmd);
+    AlwaysOnGround := True;
+    Time := 0;
+    for I := 1 to Round(3.5 * Fps) do
+    begin
+      if (Time >= 1) and (Time < 2.5) then
+        Cmd.ForwardMove := ClForwardSpeed
+      else
+        Cmd.ForwardMove := 0;
+      Phys.Move(Cmd, 90, 0, 1 / Fps);
+      Time := Time + 1 / Fps;
+      if (Time > 0.5) and (Time < 1) and not Phys.OnGround then
+        AlwaysOnGround := False;
+    end;
+  end;
+
+begin
+  StartTest('Player physics at any frame rate (e1m1)');
+  Bsp := TQuakeBsp.Create;
+  Phys := TQuakePlayerPhysics.Create;
+  try
+    Check(Bsp.LoadFromPak('maps/e1m1.bsp'), 'e1m1.bsp loads');
+    Start := Bsp.FindEntity('info_player_start');
+    if Start = nil then
+      Exit;
+    Phys.Bsp := Bsp;
+    Walk(72);
+    Reference := Phys.Origin;
+    Check(Reference.Y > Start.Origin.Y + 300, Format('the 72 fps walk goes down the ramp (%s)', [Reference.ToString]));
+    for Rate in Rates do
+    begin
+      Walk(Rate);
+      CheckVector(Reference, Phys.Origin, 8, Format('%d fps ends where 72 fps does', [Rate]));
+      Check(AlwaysOnGround, Format('%d fps: standing still stays on the ground', [Rate]));
+      Check(Phys.OnGround, Format('%d fps: on the ground at the end', [Rate]));
+      T := Bsp.TraceHull(1, 0, TVector3.Zero, Phys.Origin, Phys.Origin);
+      Check(not T.StartSolid, Format('%d fps: not stuck in the floor', [Rate]));
+    end;
+    { Shorter calls than a step wait for it: nothing moves yet }
+    Phys.Teleport(Start.Origin + Vector3(0, 0, 32));
+    Frame := 0;
+    while Frame < 5 do
+    begin
+      Phys.Move(Cmd, 90, 0, 0.001);
+      Inc(Frame);
+    end;
+    CheckNear(Start.Origin.Z + 32, Phys.Origin.Z, 1e-4, '5 ms of 1 ms calls wait for a step');
+    Phys.Move(Cmd, 90, 0, 0.002);
+    Check(Phys.Origin.Z < Start.Origin.Z + 32, 'the 7th ms runs the step (falling)');
+  finally
+    Phys.Free;
+    Bsp.Free;
+  end;
+end;
+
 procedure TestVideo;
 var
   T, B, MinB, MaxB: Single;
@@ -696,6 +773,7 @@ begin
   Palette.LoadFromPak;
 
   TestBspTracer;
+  TestPhysicsFrameRate;
   TestPvs;
   TestProgsVm;
   TestProgsStateRoundTrip;

@@ -96,7 +96,7 @@ The `Web` workflow builds it with FPC's main branch (wasm32-wasip1 cross compile
 
 ## Unit Tests
 
-`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the PVS rows and the server's fat PVS, the field of view and view bob, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
+`tests/quaketests.lpr` (own manifest, no window) checks the BSP tracer, the player physics at frame rates from 30 to 3000 fps, the PVS rows and the server's fat PVS, the field of view and view bob, the QuakeC VM, savegame round trips and the demo writer / reader (protocol 15 and 666) against the shareware pak: `cd tests; castle-engine compile; .\quaketests ..\data\paks` (exit code = failures). The Build workflow runs it on Linux.
 
 ## Conventions & Rules
 
