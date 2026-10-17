@@ -1,0 +1,319 @@
+{
+  "$$ClassName": "TCastleUserInterface",
+  "FullSize": true,
+  "Name": "TouchDesign",
+  "$Children": [
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "MoveBase",
+      "ShapeType": "stCircle",
+      "Width": 230,
+      "Height": 230,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 1,
+        "Green": 1,
+        "Blue": 1,
+        "Alpha": 0.1
+      },
+      "HorizontalAnchorParent": "hpLeft",
+      "HorizontalAnchorSelf": "hpLeft",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": 60,
+        "Y": 60
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleShape",
+          "Name": "MoveKnob",
+          "ShapeType": "stCircle",
+          "Width": 90,
+          "Height": 90,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 1,
+            "Blue": 1,
+            "Alpha": 0.3
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle",
+          "TranslationPersistent": {
+            "$$ClassName": "TCastleVector2Persistent",
+            "X": 0,
+            "Y": 0
+          }
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "FireButton",
+      "ShapeType": "stCircle",
+      "Width": 160,
+      "Height": 160,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -60,
+        "Y": 60
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "FireLabel",
+          "Text": [
+            "FIRE"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "JumpButton",
+      "ShapeType": "stCircle",
+      "Width": 110,
+      "Height": 110,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -80,
+        "Y": 260
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "JumpLabel",
+          "Text": [
+            "JUMP"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "UseButton",
+      "ShapeType": "stCircle",
+      "Width": 100,
+      "Height": 100,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -250,
+        "Y": 220
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "UseLabel",
+          "Text": [
+            "USE"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "MenuButton",
+      "ShapeType": "stRectangle",
+      "Width": 90,
+      "Height": 60,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpTop",
+      "VerticalAnchorSelf": "vpTop",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -20,
+        "Y": -20
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "MenuLabel",
+          "Text": [
+            "MENU"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "NextWeaponButton",
+      "ShapeType": "stRectangle",
+      "Width": 90,
+      "Height": 60,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpTop",
+      "VerticalAnchorSelf": "vpTop",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -20,
+        "Y": -100
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "NextWeaponLabel",
+          "Text": [
+            ">"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleShape",
+      "Name": "PrevWeaponButton",
+      "ShapeType": "stRectangle",
+      "Width": 90,
+      "Height": 60,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.8,
+        "Green": 0.4,
+        "Blue": 0.1,
+        "Alpha": 0.22
+      },
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpTop",
+      "VerticalAnchorSelf": "vpTop",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -130,
+        "Y": -100
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "PrevWeaponLabel",
+          "Text": [
+            "<"
+          ],
+          "FontSize": 22,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1,
+            "Green": 0.9,
+            "Blue": 0.75,
+            "Alpha": 0.85
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    }
+  ]
+}

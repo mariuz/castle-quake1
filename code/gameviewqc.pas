@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
-  GameInput, GameVideo,
+  GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
 
@@ -34,6 +34,7 @@ type
     FGeometry: TQuakeGeometry;
     FAmbient: TQuakeAmbientSounds;
     FHud: TQuakeHud;
+    FTouch: TQuakeTouchControls;
     FVisuals: array of TQcVisual;
     FStaticVisuals: array of TQcVisual;
     FSubmodels: array of TQuakeSubmodel;
@@ -192,6 +193,11 @@ begin
   begin
     FHud := TQuakeHud.Create(Self);
     InsertFront(FHud);
+  end;
+  if FTouch = nil then
+  begin
+    FTouch := TQuakeTouchControls.Create(Self);
+    InsertFront(FTouch);
   end;
   FHud.StopIntermission;
   Particles.SetParent(FViewport.Items);
@@ -1077,6 +1083,16 @@ begin
     Exit;
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
+
+  { The touch controls; their menu button goes back to the menu like Escape }
+  FTouch.UpdateShown(True);
+  if TouchControlsWanted and FNavigation.MouseLook then
+    FNavigation.MouseLook := False;
+  if FTouch.MenuRequested then
+  begin
+    Container.View := ViewMenu;
+    Exit;
+  end;
 
   { Input }
   BuildUserCmd(Cmd);

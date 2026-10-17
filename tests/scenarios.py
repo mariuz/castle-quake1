@@ -476,6 +476,24 @@ def check_budgets(logs):
     return result
 
 
+def check_touch(logs):
+    log = logs['touch']
+    result = common_checks(logs, 'touch')
+    v = views(log)
+    yaws = [float(m) for m in re.findall(r'View: map \S+, eye \S+ \S+ \S+, yaw ([^,]+),', log)]
+    result.append(('Touch controls shown' in log, 'the touch controls are shown'))
+    result.append((len(v) == 4, 'four screenshots (got %d)' % len(v)))
+    if len(v) == 4:
+        result.append((v[1]['eye'][1] - v[0]['eye'][1] > 200,
+                       'the move stick walks forward (%.0f units)' % (v[1]['eye'][1] - v[0]['eye'][1])))
+        result.append((abs(yaws[2] - yaws[1]) > 15, 'a drag on the right turns the view (yaw %.0f -> %.0f)'
+                       % (yaws[1], yaws[2])))
+        result.append((v[3]['ammo'] < v[2]['ammo'], 'the fire button fires (ammo %d -> %d)'
+                       % (v[2]['ammo'], v[3]['ammo'])))
+    result.append(('Touch TD 4' in log and 'buttons fire on' in log, 'the button touches are logged'))
+    return result
+
+
 def check_quake_hub(logs):
     log = logs['hub']
     result = common_checks(logs, 'hub')
@@ -572,6 +590,14 @@ SCENARIOS = [
                              ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26303', '{out}/client',
                                          '--demo', 'W:6,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
              check_largecoords, ['rec_1'], prepare=prepare_largecoords),
+    # Touch controls: the move stick, a look drag and the fire button on
+    # E1M1 (touch_1 has a reference: the overlay over the start view), then
+    # the menu button opens the menu
+    Scenario('touch', [('touch', ['--autotest', 'e1m1', '{out}/touch', '--demo',
+                                  'W:0.5,Y,TD:1;0.15;0.2,TM:1;0.15;0.35,W:0.2,S,W:1.3,TU:1,W:0.3,S,'
+                                  'TD:2;0.7;0.5,TM:2;0.8;0.5,TU:2,W:0.2,S,TD:3;0.9125;0.1556,W:0.4,TU:3,W:0.5,S,'
+                                  'TD:4;0.97;0.95,W:0.3,TU:4,W:0.3,Q'], 0)],
+             check_touch, ['touch_1']),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

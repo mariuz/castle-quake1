@@ -18,7 +18,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
-  GameInput, GameVideo,
+  GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
@@ -47,6 +47,8 @@ type
     FGeometry: TQuakeGeometry;
     FAmbient: TQuakeAmbientSounds;
     FHud: TQuakeHud;
+    { Touch controls of a network game }
+    FTouch: TQuakeTouchControls;
     FVisuals: array of TDemoVisual;
     FStaticVisuals: array of TDemoVisual;
     FSubmodels: array of TQuakeSubmodel;  { by BSP model index }
@@ -247,6 +249,11 @@ begin
     FHud := TQuakeHud.Create(Self);
     FHud.CrosshairVisible := False;
     InsertFront(FHud);
+  end;
+  if FTouch = nil then
+  begin
+    FTouch := TQuakeTouchControls.Create(Self);
+    InsertFront(FTouch);
   end;
   FHud.StopIntermission;
   FHud.CrosshairVisible := NetMode;
@@ -1299,6 +1306,16 @@ begin
   ApplyEnvironment;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
     FLevelStart := FDemo.Time;
+
+  { Touch controls only in a network game; their menu button leaves it }
+  FTouch.UpdateShown(NetMode);
+  if NetMode and TouchControlsWanted and FNavigation.MouseLook then
+    FNavigation.MouseLook := False;
+  if FTouch.MenuRequested then
+  begin
+    Leave;
+    Exit;
+  end;
 
   if NetMode then
   begin

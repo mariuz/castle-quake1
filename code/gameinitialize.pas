@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, QuakeWebStorage, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, QuakeWebStorage, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -324,6 +324,12 @@ begin
     if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
       CmdNoPredict := True
     else
+    if (Parameters[I] = '-touch') or (Parameters[I] = '--touch') then
+      TouchControlsMode := tcOn { the on-screen controls, the mouse as one finger }
+    else
+    if (Parameters[I] = '-notouch') or (Parameters[I] = '--notouch') then
+      TouchControlsMode := tcOff
+    else
     if ((Parameters[I] = '-protocol') or (Parameters[I] = '--protocol')) and (I + 1 <= Parameters.High) then
     begin
       { 666: recorded demos and the network game always use FitzQuake,
@@ -482,6 +488,13 @@ begin
     log, the browser has no files) }
   if PageParameter('warp') <> '' then
     CmdWarp := PageParameter('warp');
+  { ?touch=1 always shows the touch controls, ?touch=0 never; without it
+    they appear at the first touch }
+  if PageParameter('touch') = '1' then
+    TouchControlsMode := tcOn
+  else
+  if PageParameter('touch') = '0' then
+    TouchControlsMode := tcOff;
   if PageParameter('autotest') <> '' then
   begin
     AutoTestMap := PageParameter('autotest');

@@ -11,7 +11,7 @@ uses
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils, CastleTimeUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
-  GameInput, GameVideo,
+  GameInput, GameVideo, GameTouch,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
   QuakePhysics, QuakeSaveGame, QuakeDebug;
@@ -26,6 +26,8 @@ type
     FNavigation: TCastleWalkNavigation;
     FWorld: TQuakeWorld;
     FHud: TQuakeHud;
+    { The on-screen sticks and buttons of touch screens }
+    FTouch: TQuakeTouchControls;
     FConsole: TQuakeConsole;
     FMenu: TQuakeMenu;
     FCameraMode: TCameraMode;
@@ -211,7 +213,7 @@ begin
     FNavigation.MoveSpeed := 0;
     FNavigation.Gravity := False;
     FNavigation.HeadBobbing := 0;
-    FNavigation.MouseLook := True;
+    FNavigation.MouseLook := not TouchControlsWanted;
     FViewport.InsertFront(FNavigation);
   end;
 end;
@@ -222,21 +224,21 @@ begin
   case Mode of
     cmFirstPerson:
       begin
-        FNavigation.MouseLook := True;
+        FNavigation.MouseLook := not TouchControlsWanted;
         FNavigation.MoveSpeed := 0;
         FMenu.CameraModeName := 'First-Person';
         FHud.CrosshairVisible := True;
       end;
     cmThirdPerson:
       begin
-        FNavigation.MouseLook := True;
+        FNavigation.MouseLook := not TouchControlsWanted;
         FNavigation.MoveSpeed := 0;
         FMenu.CameraModeName := 'Third-Person';
         FHud.CrosshairVisible := True;
       end;
     cmFreeFly:
       begin
-        FNavigation.MouseLook := True;
+        FNavigation.MouseLook := not TouchControlsWanted;
         FNavigation.MoveSpeed := 320.0;
         FMenu.CameraModeName := 'Free-Fly';
         FHud.CrosshairVisible := False;
@@ -279,6 +281,13 @@ begin
   begin
     FHud := TQuakeHud.Create(Self);
     InsertFront(FHud);
+  end;
+
+  { Touch controls above the HUD, below the console and the menu }
+  if FTouch = nil then
+  begin
+    FTouch := TQuakeTouchControls.Create(Self);
+    InsertFront(FTouch);
   end;
 
   { Create developer console }
@@ -501,6 +510,7 @@ var
   Rad: Single;
   HorizDir: TVector3;
   Parts: TStringArray;
+  TouchPos: TVector2;
 begin
   if FDemoIndex >= FDemoCommands.Count then
   begin
@@ -603,6 +613,28 @@ begin
     FDemoMove := TVector3.Zero;
     for P := 0 to Min(High(Parts), 2) do
       FDemoMove.Data[P] := StrToFloatDef(Parts[P], 0);
+    Inc(FDemoIndex);
+  end else
+  if (Action = 'TD') or (Action = 'TM') then { Touch: TD:id;x;y down, TM:id;x;y moved (fractions of the window) }
+  begin
+    Parts := Param.Split([';']);
+    if Length(Parts) >= 3 then
+    begin
+      TouchPos := Vector2(StrToFloatDef(Parts[1], 0) * Container.Width, StrToFloatDef(Parts[2], 0) * Container.Height);
+      if Action = 'TD' then
+        FTouch.TouchDown(StrToIntDef(Parts[0], 0), TouchPos)
+      else
+        FTouch.TouchMoved(StrToIntDef(Parts[0], 0), TouchPos);
+      WritelnLog('GameViewPlay', 'Touch %s %s at %.0f %.0f: %d down, move %.2f %.2f, buttons fire %s jump %s use %s',
+        [Action, Parts[0], TouchPos.X, TouchPos.Y, FTouch.ActiveTouches, TouchMove.X, TouchMove.Y,
+         BoolToStr(TouchButtons[GamepadFire], 'on', 'off'), BoolToStr(TouchButtons[GamepadJump], 'on', 'off'),
+         BoolToStr(TouchButtons[GamepadUse], 'on', 'off')]);
+    end;
+    Inc(FDemoIndex);
+  end else
+  if Action = 'TU' then { Touch: TU:id up }
+  begin
+    FTouch.TouchUp(StrToIntDef(Param, 0));
     Inc(FDemoIndex);
   end else
   if (Action = 'GL') or (Action = 'GR') then { Virtual gamepad stick: x;y in -1..1 }
@@ -786,6 +818,17 @@ begin
   if FDemoCommands.Count > 0 then
     RunDemoStep(SecondsPassed);
 
+  { The touch controls while playing; their menu button opens the menu }
+  FTouch.UpdateShown(not FConsole.IsOpen and not FMenu.Exists and (FWorld <> nil));
+  { No mouse look on a touch screen (a web page turns touch on at the first touch) }
+  if TouchControlsWanted and FNavigation.MouseLook then
+    FNavigation.MouseLook := False;
+  if FTouch.MenuRequested and not FMenu.Exists then
+  begin
+    FMenu.Exists := True;
+    FNavigation.MouseLook := False;
+  end;
+
   { The gamepad: the right stick turns, its buttons are bindings }
   UpdateGamepad;
   if not FConsole.IsOpen and not FMenu.Exists and (FWorld <> nil) then
@@ -927,10 +970,18 @@ begin
     if Event.IsKey(keyEscape) then
     begin
       FMenu.Exists := False;
-      FNavigation.MouseLook := True;
+      FNavigation.MouseLook := not TouchControlsWanted;
       Exit(True);
     end;
-    Exit(FMenu.Press(Event));
+    Result := FMenu.Press(Event);
+    { A tap outside the main menu's items goes back to the game }
+    if not Result and (Event.EventType = itMouseButton) then
+    begin
+      FMenu.Exists := False;
+      FNavigation.MouseLook := not TouchControlsWanted;
+      Result := True;
+    end;
+    Exit;
   end;
 
   { Open console with backquote / tilde }
@@ -1223,7 +1274,7 @@ begin
     maNewGame:
       begin
         FMenu.Exists := False;
-        FNavigation.MouseLook := True;
+        FNavigation.MouseLook := not TouchControlsWanted;
         Pak.PreferOriginal := Param = 'quake';
         FWorld.NewGame;
         LoadLevel('start');
@@ -1231,7 +1282,7 @@ begin
     maWarpMap:
       begin
         FMenu.Exists := False;
-        FNavigation.MouseLook := True;
+        FNavigation.MouseLook := not TouchControlsWanted;
         Pak.PreferOriginal := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
         FWorld.NewGame;
         LoadLevel(Param);

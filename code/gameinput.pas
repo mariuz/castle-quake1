@@ -46,6 +46,17 @@ var
   GamepadSensitivity: Single = 1.0;
   GamepadDeadZone: Single = DefaultGamepadDeadZone;
   GamepadInvertLook: Boolean = False;
+  { The touch controls (GameTouch) add to the game controller: the move
+    stick's deflection (-1..1, y forward), the look drag since the last
+    turn (fractions of the screen height) and the on-screen buttons, held
+    like the controller's buttons they stand for }
+  TouchMove: TVector2;
+  TouchLookDelta: TVector2;
+  TouchButtons: array[TGameControllerButton] of Boolean;
+
+const
+  { Degrees turned by a look drag over the whole screen height }
+  TouchLookDegrees = 160.0;
 
 { Create the bindings with their defaults and load the user's changes
   from UserConfig; detect the controllers }
@@ -328,6 +339,9 @@ end;
 
 function GamepadButtonFor(const B: TQuakeBinding; out Button: TGameControllerButton): Boolean;
 begin
+  { Always set: callers may read Button with the result (the compiler can
+    evaluate both sides of "and") }
+  Button := gbSouth;
   Result := True;
   case B of
     qbJump: Button := GamepadJump;
@@ -347,6 +361,9 @@ begin
   Result := (Bindings[B] <> nil) and (Container <> nil) and Bindings[B].IsPressed(Container);
   if Result then
     Exit;
+  if GamepadButtonFor(B, Button) then
+    if TouchButtons[Button] then
+      Exit(True);
   C := FirstController;
   if C = nil then
     Exit;
@@ -366,19 +383,21 @@ procedure UpdateGamepad;
 var
   C: TGameController;
   Button: TGameControllerButton;
+  Down: Boolean;
 begin
   C := FirstController;
 
   for Button := Low(TGameControllerButton) to High(TGameControllerButton) do
   begin
-    JustPressed[Button] := (C <> nil) and C.Pressed[Button] and not WasPressed[Button];
-    WasPressed[Button] := (C <> nil) and C.Pressed[Button];
+    Down := ((C <> nil) and C.Pressed[Button]) or TouchButtons[Button];
+    JustPressed[Button] := Down and not WasPressed[Button];
+    WasPressed[Button] := Down;
   end;
 end;
 
 function GamepadButtonDown(const Button: TGameControllerButton): Boolean;
 begin
-  Result := (FirstController <> nil) and FirstController.Pressed[Button];
+  Result := ((FirstController <> nil) and FirstController.Pressed[Button]) or TouchButtons[Button];
 end;
 
 function GamepadJustPressed(const Button: TGameControllerButton): Boolean;
@@ -399,14 +418,18 @@ var
   C: TGameController;
   Stick: TVector2;
 begin
-  Forward := 0;
-  Side := 0;
+  { The touch stick has no dead zone of its own (GameTouch keeps a small one) }
+  Forward := TouchMove.Y;
+  Side := TouchMove.X;
   C := FirstController;
-  if C = nil then
-    Exit;
-  Stick := C.AxisLeft;
-  Forward := EnsureRange(ApplyDeadZone(Stick.Y), -1, 1);
-  Side := EnsureRange(ApplyDeadZone(Stick.X), -1, 1);
+  if C <> nil then
+  begin
+    Stick := C.AxisLeft;
+    Forward := Forward + ApplyDeadZone(Stick.Y);
+    Side := Side + ApplyDeadZone(Stick.X);
+  end;
+  Forward := EnsureRange(Forward, -1, 1);
+  Side := EnsureRange(Side, -1, 1);
 end;
 
 procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single);
@@ -416,14 +439,23 @@ var
   Dir, Up, Side: TVector3;
   Yaw, Pitch, CurrentPitch: Single;
 begin
-  C := FirstController;
-  if (C = nil) or (Camera = nil) then
+  if Camera = nil then
     Exit;
-  Stick := C.AxisRight;
-  Yaw := -ApplyDeadZone(Stick.X) * GamepadYawSpeed * GamepadSensitivity * SecondsPassed;
-  Pitch := ApplyDeadZone(Stick.Y) * GamepadPitchSpeed * GamepadSensitivity * SecondsPassed;
-  if GamepadInvertLook then
-    Pitch := -Pitch;
+  Yaw := 0;
+  Pitch := 0;
+  C := FirstController;
+  if C <> nil then
+  begin
+    Stick := C.AxisRight;
+    Yaw := -ApplyDeadZone(Stick.X) * GamepadYawSpeed * GamepadSensitivity * SecondsPassed;
+    Pitch := ApplyDeadZone(Stick.Y) * GamepadPitchSpeed * GamepadSensitivity * SecondsPassed;
+    if GamepadInvertLook then
+      Pitch := -Pitch;
+  end;
+  { The touch look drag: turned once, like a mouse move }
+  Yaw := Yaw - TouchLookDelta.X * TouchLookDegrees;
+  Pitch := Pitch + TouchLookDelta.Y * TouchLookDegrees;
+  TouchLookDelta := TVector2.Zero;
   if (Yaw = 0) and (Pitch = 0) then
     Exit;
   Dir := Camera.Direction;
