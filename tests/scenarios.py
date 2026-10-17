@@ -19,6 +19,7 @@ output directory (`<shot>_compare.png`).
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -34,6 +35,8 @@ COMPARE_SIZE = (160, 90)
 DEFAULT_THRESHOLD = 5.0    # mean absolute difference, 0..255; runs differ by < 0.5, a wrong view by > 9
 BLACK_LIMIT = 4.0          # mean brightness of the 3D view (above the HUD) below this: black frame
 PROCESS_TIMEOUT = 300
+BUDGETS_PATH = os.path.join(ROOT, 'tests', 'budgets.json')
+UPDATE = False             # --update: also rewrite tests/budgets.json
 
 
 class Scenario:
@@ -82,6 +85,7 @@ def run_scenario(exe, out_dir, scenario):
         with open(log_path, errors='replace') as f:
             logs[prefix] = f.read()
         logs[prefix + ':exit'] = process.returncode
+    logs['_out'] = out_dir
     return logs
 
 
@@ -377,6 +381,101 @@ def check_largecoords(logs):
     return result
 
 
+# Performance budgets: fixed camera spots per map (CGE coordinates of the
+# player start and items spread over the level); at each the play view's Z
+# logs one second of frame times with the PVS counts. The counts are
+# deterministic (they depend on the camera's leaf), the frame times under
+# llvmpipe are not, so only the counts are budgets and the times are logged.
+BUDGET_SPOTS = {
+    'e1m1': ['480;128;352', '-360;-40;-2912', '1256;-392;-1704', '128;-168;-1216', '544;-48;-2480',
+             '1376;-392;-808'],
+    'e1m3': ['-736;128;1592', '1600;576;-968', '24;-168;-152', '1608;-112;584', '-1736;-296;552',
+             '544;-112;1424'],
+    'start': ['0;464;160', '-560;88;-592', '1168;40;-1360', '-1456;56;-1744', '-336;40;-1296', '1168;40;-2448'],
+    'lq_e0m2': ['-2304;284;3520', '248;-120;-3336', '960;40;568', '-2288;-24;-768', '-304;104;2336',
+                '-656;-184;-1392'],
+}
+FRAMES_RE = re.compile(r'Frames: (\d+) in (\S+) s, (\S+) ms average, (\S+) ms longest, culling (\w+), leaf (-?\d+), '
+                       r'clusters (\d+)/(\d+), shapes (\d+)/(\d+), entities (\d+)/(\d+)')
+
+
+def budget_demo(spots):
+    # The first Z of a spot starts counting, the second logs that spot's
+    # second (the first Z of the next spot logs the move: skipped); the
+    # screenshot is of the player start
+    return 'W:1,Y,S,' + ''.join('G:%s,W:0.5,Z,W:1,Z,' % spot for spot in spots) + 'Q'
+
+
+def budget_margin(budget, kind):
+    # The growth a count may have before it fails: monsters walking in and
+    # out of view move the entity count by a few
+    if kind == 'entities':
+        return budget * 1.2 + 3
+    return budget * 1.1 + 2
+
+
+def check_budgets(logs):
+    result = []
+    measured = {}
+    for name, spots in BUDGET_SPOTS.items():
+        result += common_checks(logs, name)
+        lines = FRAMES_RE.findall(logs.get(name, ''))[::2]
+        result.append((len(lines) == len(spots), '%s: a Z line at each of the %d spots (got %d)'
+                       % (name, len(spots), len(lines))))
+        result.append((logs.get(name, '').count('Loading level') == 1,
+                       '%s: no level change during the run (a spot on a trigger)' % name))
+        result.append((all(int(m[5]) > 0 for m in lines), '%s: every spot is inside the map (leaf %s)'
+                       % (name, ', '.join(m[5] for m in lines))))
+        measured[name] = [{'spot': spot, 'leaf': int(m[5]), 'clusters': int(m[6]), 'shapes': int(m[8]),
+                           'entities': int(m[10]), 'frames': int(m[0]), 'ms_average': float(m[2]),
+                           'ms_longest': float(m[3])}
+                          for spot, m in zip(spots, lines)]
+    report = os.path.join(logs['_out'], 'budgets.json')
+    with open(report, 'w') as f:
+        json.dump(measured, f, indent=1)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        # The frame times on the workflow run's page (llvmpipe: informative only)
+        with open(summary, 'a') as f:
+            f.write('### Performance budgets\n\n| map | spot | ms average | ms longest | clusters | shapes | entities |\n'
+                    '|---|---|---|---|---|---|---|\n')
+            for name, rows in measured.items():
+                for r in rows:
+                    f.write('| %s | %s | %.1f | %.1f | %d | %d | %d |\n' % (
+                        name, r['spot'], r['ms_average'], r['ms_longest'], r['clusters'], r['shapes'], r['entities']))
+            f.write('\n')
+    for name, rows in measured.items():
+        print('  %s: %s' % (name, '; '.join('%.1f ms, %d clusters, %d shapes, %d entities'
+                                            % (r['ms_average'], r['clusters'], r['shapes'], r['entities'])
+                                            for r in rows)))
+    if UPDATE:
+        budgets = {name: [{k: r[k] for k in ('spot', 'leaf', 'clusters', 'shapes', 'entities')} for r in rows]
+                   for name, rows in measured.items()}
+        with open(BUDGETS_PATH, 'w') as f:
+            # One line per spot, so a diff shows which spot changed
+            f.write('{\n' + ',\n'.join('  %s: [\n%s\n  ]' % (json.dumps(name), ',\n'.join(
+                '    ' + json.dumps(row) for row in rows)) for name, rows in budgets.items()) + '\n}\n')
+        result.append((True, 'budgets written to %s' % os.path.relpath(BUDGETS_PATH, ROOT)))
+        return result
+    if not os.path.exists(BUDGETS_PATH):
+        result.append((False, 'budgets exist (%s; run with --update)' % os.path.relpath(BUDGETS_PATH, ROOT)))
+        return result
+    with open(BUDGETS_PATH) as f:
+        budgets = json.load(f)
+    for name, rows in measured.items():
+        for i, (row, budget) in enumerate(zip(rows, budgets.get(name, []))):
+            where = '%s spot %d (%s)' % (name, i + 1, row['spot'])
+            if row['spot'] != budget['spot'] or row['leaf'] != budget['leaf']:
+                result.append((False, '%s: the camera is in leaf %d, budgeted in leaf %d (moved spot or changed '
+                               'map loading: --update if intended)' % (where, row['leaf'], budget['leaf'])))
+                continue
+            for kind in ('clusters', 'shapes', 'entities'):
+                limit = budget_margin(budget[kind], kind)
+                result.append((row[kind] <= limit, '%s: %d %s drawn (budget %d, limit %.0f)'
+                               % (where, row[kind], kind, budget[kind], limit)))
+    return result
+
+
 def check_quake_hub(logs):
     log = logs['hub']
     result = common_checks(logs, 'hub')
@@ -473,6 +572,13 @@ SCENARIOS = [
                              ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26303', '{out}/client',
                                          '--demo', 'W:6,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
              check_largecoords, ['rec_1'], prepare=prepare_largecoords),
+    # Performance budgets: the PVS counts at fixed spots on four maps against
+    # tests/budgets.json (--update rewrites it), frame times in budgets.json
+    # of the output directory; one map after the other, so the frame times
+    # are not shared with another process
+    Scenario('budgets', [(name, ['--autotest', name, '{out}/' + name, '--demo', budget_demo(spots)], 20 * i)
+                         for i, (name, spots) in enumerate(BUDGET_SPOTS.items())],
+             check_budgets, []),
 ]
 
 
@@ -545,6 +651,8 @@ def main():
     parser.add_argument('--only', action='append', help='run only this scenario (repeatable)')
     parser.add_argument('--update', action='store_true', help='write the screenshots as the new references')
     args = parser.parse_args()
+    global UPDATE
+    UPDATE = args.update
 
     if not os.path.exists(args.exe):
         print('No game executable at %s: build it first (castle-engine compile --mode=release)' % args.exe)
