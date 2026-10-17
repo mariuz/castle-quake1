@@ -457,7 +457,7 @@ SCENARIOS = [
                         ('play', ['-game', '{out}/mod', '--autotest', 'castle-config:/envmsg.dem', '{out}/play',
                                   '--demo', 'W:6,S,Q'], 15),
                         ('host', ['-game', '{out}/mod', '--autotest', 'host:e1m1_sky', '{out}/host', '--demo',
-                                  'W:10,S,Q', '-port', '26302'], 0),
+                                  'W:10,S,Q', '-port', '26302', '-coop'], 0),
                         ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26302', '{out}/client',
                                     '--demo', 'W:4,S,Q'], 4)],
              check_envmsg, [], prepare=prepare_envmsg),
