@@ -504,6 +504,35 @@ begin
     Exit(True);
   end;
 
+  { A tap or click on an item selects and runs it (touch screens); outside
+    the items it goes back like Escape, and from the main menu it is left
+    to the owner (the play view closes the menu) }
+  if (Event.EventType = itMouseButton) and (Event.MouseButton = buttonLeft) then
+  begin
+    if FItemsGroup.Exists then
+      for Selected := 0 to High(FItemLabels) do
+        if (Selected < FItems.Count) and FItemLabels[Selected].RenderRect.Grow(6).Contains(Event.Position) then
+        begin
+          FSelectedIdx := Selected;
+          ExecuteSelection;
+          Exit(True);
+        end;
+    if FSubMenu = smMain then
+      Exit(False);
+    if FSubMenu = smControls then
+    begin
+      FSubMenu := smOptions;
+      FSelectedIdx := 4;
+    end else
+    begin
+      FSubMenu := smMain;
+      FSelectedIdx := 0;
+    end;
+    RebuildMenuItems;
+    Sounds.Play('sound/misc/menu3.wav');
+    Exit(True);
+  end;
+
   if Event.IsKey(keyArrowUp) then
   begin
     FSelectedIdx := (FSelectedIdx - 1 + FItems.Count) mod FItems.Count;
