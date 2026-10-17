@@ -469,9 +469,9 @@ SCENARIOS = [
                              ('play', ['-game', '{out}/mod', '--autotest', 'castle-config:/far.dem', '{out}/play',
                                        '--demo', 'W:5,S,Q'], 15),
                              ('host', ['-game', '{out}/mod', '--autotest', 'host:e1m1_far', '{out}/host', '--demo',
-                                       'W:14,S,Q', '-port', '26303', '-coop'], 0),
+                                       'W:20,S,Q', '-port', '26303', '-coop'], 0),
                              ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26303', '{out}/client',
-                                         '--demo', 'W:3,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
+                                         '--demo', 'W:6,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
              check_largecoords, ['rec_1'], prepare=prepare_largecoords),
 ]
 
