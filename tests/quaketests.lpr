@@ -648,6 +648,80 @@ begin
   end;
 end;
 
+{ FitzQuake's svc_skybox and svc_fog: the level's sky and fog in the
+  signon and a change during the level, and a stuffed fog command }
+procedure TestDemoFogSkybox;
+var
+  W: TQuakeDemoWriter;
+  R: TQuakeDemoReader;
+  CD: TDemoClientData;
+  State: TDemoEntityState;
+  Url: String;
+  I: Integer;
+begin
+  StartTest('Demo fog and skybox (svc_fog, svc_skybox)');
+  W := TQuakeDemoWriter.Create;
+  R := TQuakeDemoReader.Create;
+  try
+    W.BeginLevel('maps/fog.bsp', 'Fog level', Vector3(0, 0, 0), 0, 0);
+    W.SetLevelEnvironment('test', True, 0.1, Vector3(0.5, 0.35, 0.25));
+    CD := Default(TDemoClientData);
+    CD.ViewHeight := 22;
+    CD.Health := 100;
+    { 4 s of frames, the change 3 s in; the first entity update completes
+      the signon (CL_ParseUpdate), from there playback follows the time }
+    State := Default(TDemoEntityState);
+    State.ModelIndex := W.ModelIndex('progs/player.mdl');
+    for I := 0 to 39 do
+    begin
+      W.BeginFrame(1.0 + I * 0.1);
+      W.WriteClientData(CD);
+      W.WriteEntity(1, State);
+      if I = 30 then
+      begin
+        W.WriteFog(0.2, Vector3(0.1, 0.2, 0.6));
+        W.WriteSkybox('other');
+      end;
+      W.EndFrame(TVector3.Zero);
+    end;
+    Url := TempUrl('quaketests_fog.dem');
+    Check(W.SaveToUrl(Url), 'demo saved');
+
+    Check(R.Load(Url), 'demo loads');
+    for I := 1 to 5 do
+      R.Advance(0.05);
+    CheckEquals(ProtocolFitzQuake, R.Protocol, 'a level with sky and fog is protocol 666');
+    CheckEqualsStr('test', R.SkyboxName, 'the level''s skybox in the signon');
+    Check(R.SkyboxChanged and R.FogChanged, 'the signon sets the changed flags');
+    CheckNear(0.1, R.FogDensity, 0.005, 'the level''s fog density');
+    CheckVector(Vector3(0.5, 0.35, 0.25), R.FogColor, 0.01, 'the level''s fog color');
+    R.SkyboxChanged := False;
+    R.FogChanged := False;
+    for I := 1 to 60 do
+      R.Advance(0.05);
+    Check(R.SkyboxChanged and R.FogChanged, 'the change during the level sets the flags again');
+    CheckEqualsStr('other', R.SkyboxName, 'the new skybox');
+    CheckNear(0.2, R.FogDensity, 0.005, 'the new fog density');
+    CheckVector(Vector3(0.1, 0.2, 0.6), R.FogColor, 0.01, 'the new fog color');
+
+    { Mods change the fog by stuffcmd }
+    R.FogChanged := False;
+    R.ParseStuffText('echo hello' + #10 + 'fog 0.05 1 0 0.5;bf');
+    Check(R.FogChanged, 'a stuffed fog command');
+    CheckNear(0.05, R.FogDensity, 1e-5, 'stuffed fog density');
+    CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'stuffed fog color');
+    R.ParseStuffText('fog 0.3');
+    CheckNear(0.3, R.FogDensity, 1e-5, 'fog <density> keeps the color');
+    CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'the color kept');
+    R.FogChanged := False;
+    R.ParseStuffText('fog 0.1 0.2');
+    Check(not R.FogChanged, 'a fog command of three words is ignored');
+  finally
+    R.Free;
+    W.Free;
+  end;
+end;
+
 procedure TestVideo;
 var
   T, B, MinB, MaxB: Single;
@@ -821,6 +895,7 @@ begin
   TestSaveData;
   TestDemoRoundTrip;
   TestDemoFitzQuake;
+  TestDemoFogSkybox;
   TestBindings;
   TestWebSocket;
   TestSoundFiles;

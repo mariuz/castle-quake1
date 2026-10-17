@@ -159,6 +159,13 @@ type
   TSFFloatList = specialize TList<TSFFloat>;
   TSFVec3fList = specialize TList<TSFVec3f>;
 
+  { A sky surface, kept so SetSkybox can give it another effect }
+  TQuakeSkySurface = record
+    Appearance: TAppearanceNode;
+    TextureName: String;
+  end;
+  TQuakeSkySurfaceList = specialize TList<TQuakeSkySurface>;
+
   { World geometry builder and manager }
   TQuakeGeometry = class
   private
@@ -168,6 +175,8 @@ type
     FSubmodels: TQuakeSubmodelList;
     FAnimTextures: TQuakeAnimTexList;
     FSkyTimeFields: TSFFloatList;
+    FSkySurfaces: TQuakeSkySurfaceList;
+    FSkybox: String;
     FSkyEyeFields: TSFVec3fList;
     FLiquidTimeFields: TSFFloatList;
     FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
@@ -239,6 +248,13 @@ type
     { The worldspawn "fog" key of FitzQuake and QuakeSpasm maps: "density"
       (gray 0.3) or "density r g b". False when the map has none. }
     function WorldFog(out Density: Single; out Color: TVector3): Boolean;
+
+    { Show the skybox gfx/env/<Name> on the sky surfaces, or the scrolling
+      sky with Name '' (svc_skybox after the map is built). False, and no
+      change, when the six faces are not in the paks. }
+    function SetSkybox(const Name: String): Boolean;
+    { The skybox on the sky surfaces, '' for the scrolling sky }
+    property Skybox: String read FSkybox;
 
     { True if T is the world scene or the scene of a brush entity (door, plat...) }
     function IsGeometryScene(const T: TCastleTransform): Boolean;
@@ -479,6 +495,52 @@ begin
   Result.RepeatT := False;
 end;
 
+{ The effect of a sky surface: the six faces of the skybox gfx/env/<Skybox>,
+  or with Skybox '' the two scrolling layers of the map's sky texture.
+  TimeField and EyeField are its uniforms, sent every frame }
+function CreateSkyEffect(const MapName, TextureName, Skybox: String;
+  out TimeField: TSFFloat; out EyeField: TSFVec3f): TEffectNode;
+var
+  I: Integer;
+  TexProps: TTexturePropertiesNode;
+  VertexPart, FragmentPart: TEffectPartNode;
+begin
+  Result := TEffectNode.Create;
+  Result.Language := slGLSL;
+  Result.UniformMissing := umIgnore;
+  if Skybox <> '' then
+  begin
+    for I := 0 to 5 do
+      Result.AddCustomField(TSFNode.Create(Result, False, 'skybox_' + SkyboxSuffixes[I], [],
+        CreateSkyboxTexture(Skybox, SkyboxSuffixes[I])));
+  end else
+  begin
+    TexProps := TTexturePropertiesNode.Create;
+    TexProps.MagnificationFilter := magNearest;
+    TexProps.MinificationFilter := minNearestMipmapLinear;
+    TexProps.AnisotropicDegree := 4;
+    Result.AddCustomField(TSFNode.Create(Result, False, 'sky_back', [],
+      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
+    Result.AddCustomField(TSFNode.Create(Result, False, 'sky_front', [],
+      CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_FRONT_SUFFIX, TexProps)));
+  end;
+  TimeField := TSFFloat.Create(Result, True, 'sky_time', 0);
+  Result.AddCustomField(TimeField);
+  EyeField := TSFVec3f.Create(Result, True, 'sky_eye', TVector3.Zero);
+  Result.AddCustomField(EyeField);
+
+  VertexPart := TEffectPartNode.Create;
+  VertexPart.ShaderType := stVertex;
+  VertexPart.Contents := SkyVertexShader;
+  FragmentPart := TEffectPartNode.Create;
+  FragmentPart.ShaderType := stFragment;
+  if Skybox <> '' then
+    FragmentPart.Contents := SkyboxFragmentShader
+  else
+    FragmentPart.Contents := SkyFragmentShader;
+  Result.SetParts([VertexPart, FragmentPart]);
+end;
+
 { TQuakeGeomBatch }
 
 constructor TQuakeGeomBatch.Create(const ATexName: String);
@@ -544,8 +606,7 @@ var
   LMCoordAttrib, StylesAttrib: TFloatVertexAttributeNode;
   UseLightmap, UseSkyShader, UseSkybox: Boolean;
   SkyEffect, LiquidEffect: TEffectNode;
-  VertexPart, FragmentPart: TEffectPartNode;
-  I: Integer;
+  FragmentPart: TEffectPartNode;
 begin
   if Coords.Count = 0 then
     Exit;
@@ -620,36 +681,10 @@ begin
   begin
     { No regular texture: the sky effect computes the color from both layers
       of the scrolling sky, or from the six faces of the skybox }
-    SkyEffect := TEffectNode.Create;
-    SkyEffect.Language := slGLSL;
-    SkyEffect.UniformMissing := umIgnore;
     if UseSkybox then
-    begin
-      for I := 0 to 5 do
-        SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'skybox_' + SkyboxSuffixes[I], [],
-          CreateSkyboxTexture(SkyboxName, SkyboxSuffixes[I])));
-    end else
-    begin
-      SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_back', [],
-        CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
-      SkyEffect.AddCustomField(TSFNode.Create(SkyEffect, False, 'sky_front', [],
-        CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_FRONT_SUFFIX, TexProps)));
-    end;
-    SkyTimeField := TSFFloat.Create(SkyEffect, True, 'sky_time', 0);
-    SkyEffect.AddCustomField(SkyTimeField);
-    SkyEyeField := TSFVec3f.Create(SkyEffect, True, 'sky_eye', TVector3.Zero);
-    SkyEffect.AddCustomField(SkyEyeField);
-
-    VertexPart := TEffectPartNode.Create;
-    VertexPart.ShaderType := stVertex;
-    VertexPart.Contents := SkyVertexShader;
-    FragmentPart := TEffectPartNode.Create;
-    FragmentPart.ShaderType := stFragment;
-    if UseSkybox then
-      FragmentPart.Contents := SkyboxFragmentShader
+      SkyEffect := CreateSkyEffect(MapName, TextureName, SkyboxName, SkyTimeField, SkyEyeField)
     else
-      FragmentPart.Contents := SkyFragmentShader;
-    SkyEffect.SetParts([VertexPart, FragmentPart]);
+      SkyEffect := CreateSkyEffect(MapName, TextureName, '', SkyTimeField, SkyEyeField);
     Appearance.SetEffects([SkyEffect]);
     Geometry.TexCoord := TexCoordNode;
   end else
@@ -992,6 +1027,7 @@ begin
   FLiquidMaterials := specialize TList<TUnlitMaterialNode>.Create;
   FLiquidAlpha := DefaultLiquidAlpha;
   FSkyEyeFields := TSFVec3fList.Create;
+  FSkySurfaces := TQuakeSkySurfaceList.Create;
   FClusters := TQuakeVisClusterList.Create(True);
   FCameraLeaf := -2;
 end;
@@ -1033,6 +1069,7 @@ begin
   FLiquidTimeFields.Free;
   FLiquidMaterials.Free;
   FSkyEyeFields.Free;
+  FSkySurfaces.Free;
   FClusters.Free;
   inherited Destroy;
 end;
@@ -1261,6 +1298,7 @@ procedure TQuakeGeometry.FinishBatches(const Batches: TQuakeGeomBatchDict;
 var
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
   Batch: TQuakeGeomBatch;
+  SkySurface: TQuakeSkySurface;
 begin
   for BatchPair in Batches do
   begin
@@ -1277,6 +1315,12 @@ begin
       begin
         FSkyTimeFields.Add(Batch.SkyTimeField);
         FSkyEyeFields.Add(Batch.SkyEyeField);
+      end;
+      if Batch.IsSky then
+      begin
+        SkySurface.Appearance := Batch.Appearance;
+        SkySurface.TextureName := Batch.TextureName;
+        FSkySurfaces.Add(SkySurface);
       end;
       if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
         FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
@@ -1815,9 +1859,7 @@ begin
     Exit;
 
   { The map's skybox, when its six faces are in the paks }
-  SkyboxName := '';
-  if FBsp.FindEntity('worldspawn') <> nil then
-    SkyboxName := LowerCase(Trim(FBsp.FindEntity('worldspawn').GetField('sky', '')));
+  SkyboxName := WorldspawnSky(FBsp);
   if (SkyboxName <> '') and not SkyboxAvailable(SkyboxName) then
   begin
     WritelnLog('QuakeGeometry', 'Skybox "%s" not found (gfx/env/%0:s{rt,bk,lf,ft,up,dn}.tga), using the sky texture',
@@ -1826,6 +1868,7 @@ begin
   end else
   if SkyboxName <> '' then
     WritelnLog('QuakeGeometry', 'Skybox "%s"', [SkyboxName]);
+  FSkybox := SkyboxName;
 
   { Build static world model (Model 0) }
   RootWorld := TX3DRootNode.Create;
@@ -2136,27 +2179,45 @@ begin
 end;
 
 function TQuakeGeometry.WorldFog(out Density: Single; out Color: TVector3): Boolean;
-var
-  World: TQuakeEntity;
-  Parts: TStringArray;
-  Fmt: TFormatSettings;
 begin
-  Result := False;
-  Density := 0;
-  Color := Vector3(0.3, 0.3, 0.3);
-  World := FBsp.FindEntity('worldspawn');
-  if (World = nil) or (Trim(World.GetField('fog', '')) = '') then
-    Exit;
-  Fmt := DefaultFormatSettings;
-  Fmt.DecimalSeparator := '.';
-  Parts := Trim(World.GetField('fog', '')).Split([' '], TStringSplitOptions.ExcludeEmpty);
-  Density := StrToFloatDef(Parts[0], 0, Fmt);
-  if Length(Parts) >= 4 then
-    Color := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
-      StrToFloatDef(Parts[3], 0.3, Fmt));
-  Result := Density > 0;
+  Result := WorldspawnFog(FBsp, Density, Color);
 end;
 
+function TQuakeGeometry.SetSkybox(const Name: String): Boolean;
+var
+  I: Integer;
+  Surface: TQuakeSkySurface;
+  Effect: TEffectNode;
+  TimeField: TSFFloat;
+  EyeField: TSFVec3f;
+begin
+  Result := (Name = '') or SkyboxAvailable(Name);
+  if not Result then
+  begin
+    WritelnWarning('QuakeGeometry', 'Skybox "%s" not found (gfx/env/%0:s{rt,bk,lf,ft,up,dn}.tga), the sky stays', [Name]);
+    Exit;
+  end;
+  if (FBsp = nil) or (Name = FSkybox) then
+    Exit;
+  FSkyTimeFields.Clear;
+  FSkyEyeFields.Clear;
+  for I := 0 to FSkySurfaces.Count - 1 do
+  begin
+    Surface := FSkySurfaces[I];
+    { The scrolling sky needs the two layers of a standard sky texture }
+    if (Name = '') and not Palette.HasCachedImage('map/' + FBsp.MapName + '/' + Surface.TextureName + SKY_BACK_SUFFIX) then
+      Continue;
+    Effect := CreateSkyEffect(FBsp.MapName, Surface.TextureName, Name, TimeField, EyeField);
+    Surface.Appearance.SetEffects([Effect]);
+    FSkyTimeFields.Add(TimeField);
+    FSkyEyeFields.Add(EyeField);
+  end;
+  FSkybox := Name;
+  if Name <> '' then
+    WritelnLog('QuakeGeometry', 'Skybox "%s"', [Name])
+  else
+    WritelnLog('QuakeGeometry', 'Scrolling sky');
+end;
 procedure SetViewportFog(const Viewport: TCastleViewport; const Density: Single; const Color: TVector3);
 var
   Fog: TCastleFog;

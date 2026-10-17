@@ -48,6 +48,9 @@ procedure TQuakeWorld.RecordLevelStart;
 var
   World: TQuakeEntity;
   Title: String;
+  HasFog: Boolean;
+  FogDensity: Single;
+  FogColor: TVector3;
 begin
   if (FRecorder = nil) or (FBsp = nil) then
     Exit;
@@ -57,6 +60,24 @@ begin
     Title := World.MessageText;
   FRecorder.BeginLevel('maps/' + FBsp.MapName + '.bsp', Title, ViewAnglesQuake,
     FPlayerStats.TotalKills, FPlayerStats.TotalSecrets);
+  { The sky shown now (the map's or the console's) and the map's fog }
+  HasFog := WorldspawnFog(FBsp, FogDensity, FogColor);
+  if FGeometry <> nil then
+    FRecorder.SetLevelEnvironment(FGeometry.Skybox, HasFog, FogDensity, FogColor)
+  else
+    FRecorder.SetLevelEnvironment(WorldspawnSky(FBsp), HasFog, FogDensity, FogColor);
+end;
+
+procedure TQuakeWorld.RecordFog(const Density: Single; const Color: TVector3);
+begin
+  if FRecorder <> nil then
+    FRecorder.WriteFog(Density, Color);
+end;
+
+procedure TQuakeWorld.RecordSkybox(const Name: String);
+begin
+  if FRecorder <> nil then
+    FRecorder.WriteSkybox(Name);
 end;
 
 procedure TQuakeWorld.RecordSound(const APath: String; const Spatial: Boolean;

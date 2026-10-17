@@ -151,6 +151,9 @@ type
     procedure SetView(const E: Integer);
     procedure SignonNum(const N: Integer);
     procedure LightStyle(const Index: Integer; const Pattern: String);
+    { FitzQuake's svc_fog (density and color 0..1) and svc_skybox: protocol 666 }
+    procedure Fog(const Density: Single; const Color: TVector3);
+    procedure Skybox(const Name: String);
     procedure SpawnStatic(const ModelIndex, Frame, Skin: Integer; const Origin, Angles: TVector3);
     procedure UpdateStat(const Stat: Integer; const Value: LongInt);
     procedure SetAngle(const Angles: TVector3);
@@ -654,6 +657,24 @@ begin
   WriteByte(12);
   WriteByte(Index);
   WriteString(Pattern);
+end;
+
+procedure TQuakeNetMessage.Fog(const Density: Single; const Color: TVector3);
+begin
+  BeginMessage;
+  WriteByte(41); { svc_fog }
+  WriteByte(EnsureRange(Round(Density * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.X * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.Y * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.Z * 255), 0, 255));
+  WriteShort(0); { fade time }
+end;
+
+procedure TQuakeNetMessage.Skybox(const Name: String);
+begin
+  BeginMessage;
+  WriteByte(37); { svc_skybox }
+  WriteString(Name);
 end;
 
 procedure TQuakeNetMessage.SpawnStatic(const ModelIndex, Frame, Skin: Integer; const Origin, Angles: TVector3);

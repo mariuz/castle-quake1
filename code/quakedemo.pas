@@ -264,10 +264,13 @@ type
     ViewEntity: Integer;
     Signon: Integer;
     Protocol: Integer;
-    { The worldspawn sky and fog sent by a FitzQuake server (svc_skybox, svc_fog) }
+    { The sky and fog sent by a FitzQuake server (svc_skybox, svc_fog, or a
+      "fog ..." command in svc_stufftext); the Changed flags are set when one
+      arrives, the viewer applies and clears them }
     SkyboxName: String;
     FogDensity: Single;
     FogColor: TVector3;
+    SkyboxChanged, FogChanged: Boolean;
     LevelName: String;
     MaxClients: Integer;
     Models, Sounds: TStringList;        { 1-based like the protocol: index 0 unused }
@@ -317,6 +320,9 @@ type
     { Entity shown this frame (has a model and was in the latest server frame) }
     function EntityVisible(const Num: Integer): Boolean;
     function ModelName(const Index: Integer): String;
+    { The console commands of a svc_stufftext that change what is drawn:
+      FitzQuake's fog <density> | <r g b> | <density r g b> [time] }
+    procedure ParseStuffText(const Text: String);
     function SoundName(const Index: Integer): String;
   end;
 
@@ -337,6 +343,11 @@ type
         TotalMonsters, TotalSecrets: Integer;
         { A message needed PROTOCOL_FITZQUAKE (an index above 255) }
         Fitz: Boolean;
+        { The level's skybox and fog, sent in the signon (svc_skybox, svc_fog) }
+        Skybox: String;
+        HasFog: Boolean;
+        FogDensity: Single;
+        FogColor: TVector3;
         constructor Create;
         destructor Destroy; override;
       end;
@@ -388,6 +399,13 @@ type
     procedure WriteFoundSecret;
     procedure WriteIntermission;
     procedure WriteSetAngle(const Angles: TVector3);
+    { FitzQuake's svc_fog and svc_skybox: the level becomes PROTOCOL_FITZQUAKE }
+    procedure WriteFog(const Density: Single; const Color: TVector3);
+    procedure WriteSkybox(const Name: String);
+    { The worldspawn sky and fog of the level begun last, sent in its signon
+      (and making it PROTOCOL_FITZQUAKE when set) }
+    procedure SetLevelEnvironment(const Skybox: String; const HasFog: Boolean; const FogDensity: Single;
+      const FogColor: TVector3);
 
     function SaveToUrl(const Url: String): Boolean;
   end;
@@ -460,6 +478,8 @@ begin
   SkyboxName := '';
   FogDensity := 0;
   FogColor := TVector3.Zero;
+  SkyboxChanged := False;
+  FogChanged := False;
   SetLength(Statics, 0);
   for I := 0 to High(LightStyles) do
     LightStyles[I] := '';
@@ -645,6 +665,38 @@ begin
   FMsgPos := 0;
   FData.Position := FData.Position + Len;
   Result := True;
+end;
+
+procedure TQuakeDemoReader.ParseStuffText(const Text: String);
+var
+  Command: String;
+  Parts: TStringArray;
+  Fmt: TFormatSettings;
+begin
+  { Only the commands that change what is drawn: FitzQuake's fog <density>,
+    fog <r g b>, fog <density r g b> [time] (mods send them by stuffcmd) }
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  for Command in Text.Split([#10, ';'], TStringSplitOptions.ExcludeEmpty) do
+  begin
+    Parts := Trim(Command).Split([' '], TStringSplitOptions.ExcludeEmpty);
+    if (Length(Parts) < 2) or not SameText(Parts[0], 'fog') then
+      Continue;
+    case Length(Parts) of
+      2: FogDensity := StrToFloatDef(Parts[1], FogDensity, Fmt);
+      3: Continue; { not a fog form }
+      4: FogColor := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
+           StrToFloatDef(Parts[3], 0.3, Fmt));
+      else
+      begin
+        { density r g b, and a fade time that is not used }
+        FogDensity := StrToFloatDef(Parts[1], FogDensity, Fmt);
+        FogColor := Vector3(StrToFloatDef(Parts[2], 0.3, Fmt), StrToFloatDef(Parts[3], 0.3, Fmt),
+          StrToFloatDef(Parts[4], 0.3, Fmt));
+      end;
+    end;
+    FogChanged := True;
+  end;
 end;
 
 procedure TQuakeDemoReader.ParseServerInfo;
@@ -1000,7 +1052,7 @@ begin
             OnPrint(S);
         end;
       svc_stufftext:
-        ReadString;
+        ParseStuffText(ReadString);
       svc_setangle:
         begin
           ViewAngles.X := ReadAngle;
@@ -1163,7 +1215,10 @@ begin
           ReadByte;
         end;
       svc_skybox:
-        SkyboxName := ReadString;
+        begin
+          SkyboxName := LowerCase(ReadString);
+          SkyboxChanged := True;
+        end;
       svc_bf: ;
       svc_fog:
         begin
@@ -1172,6 +1227,7 @@ begin
           FogColor.Y := ReadByte / 255;
           FogColor.Z := ReadByte / 255;
           ReadShort; { fade time }
+          FogChanged := True;
         end;
       svc_achievement:
         ReadString;
@@ -1857,6 +1913,41 @@ begin
   WriteAngle(Angles.Z);
 end;
 
+procedure TQuakeDemoWriter.WriteFog(const Density: Single; const Color: TVector3);
+begin
+  if FCur = nil then
+    Exit;
+  FCur.Fitz := True;
+  WriteByte(svc_fog);
+  WriteByte(EnsureRange(Round(Density * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.X * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.Y * 255), 0, 255));
+  WriteByte(EnsureRange(Round(Color.Z * 255), 0, 255));
+  WriteShort(0); { fade time }
+end;
+
+procedure TQuakeDemoWriter.WriteSkybox(const Name: String);
+begin
+  if FCur = nil then
+    Exit;
+  FCur.Fitz := True;
+  WriteByte(svc_skybox);
+  WriteString(Name);
+end;
+
+procedure TQuakeDemoWriter.SetLevelEnvironment(const Skybox: String; const HasFog: Boolean;
+  const FogDensity: Single; const FogColor: TVector3);
+begin
+  if FCur = nil then
+    Exit;
+  FCur.Skybox := Skybox;
+  FCur.HasFog := HasFog;
+  FCur.FogDensity := FogDensity;
+  FCur.FogColor := FogColor;
+  if (Skybox <> '') or HasFog then
+    FCur.Fitz := True;
+end;
+
 function TQuakeDemoWriter.SaveToUrl(const Url: String): Boolean;
 var
   Dest: TStream;
@@ -1923,6 +2014,21 @@ begin
         WriteByte(svc_lightstyle);
         WriteByte(I);
         WriteString(StandardLightStyle(I));
+      end;
+      { FitzQuake's sky and fog of the level }
+      if Sec.Skybox <> '' then
+      begin
+        WriteByte(svc_skybox);
+        WriteString(Sec.Skybox);
+      end;
+      if Sec.HasFog then
+      begin
+        WriteByte(svc_fog);
+        WriteByte(EnsureRange(Round(Sec.FogDensity * 255), 0, 255));
+        WriteByte(EnsureRange(Round(Sec.FogColor.X * 255), 0, 255));
+        WriteByte(EnsureRange(Round(Sec.FogColor.Y * 255), 0, 255));
+        WriteByte(EnsureRange(Round(Sec.FogColor.Z * 255), 0, 255));
+        WriteShort(0);
       end;
       for I := 1 to MaxDemoEntities - 1 do
         if Sec.HasBaseline[I] then

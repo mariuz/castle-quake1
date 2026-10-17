@@ -294,6 +294,46 @@ def frames_liquid_items(out_dir):
     return [(changed > 2000, 'the liquid ripples (%d pixels changed in 0.5 s)' % changed)]
 
 
+def prepare_envmsg(out_dir):
+    # A mod with E1M1 fogged (worldspawn fog), E1M1 with a worldspawn sky
+    # key and the six faces of that skybox (gfx/env/test*.tga)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    import struct
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    maps = os.path.join(out_dir, 'mod', 'maps')
+    env = os.path.join(out_dir, 'mod', 'gfx', 'env')
+    os.makedirs(maps, exist_ok=True)
+    os.makedirs(env, exist_ok=True)
+    with open(os.path.join(maps, 'e1m1_fog.bsp'), 'wb') as f:
+        f.write(bsp2convert.set_worldspawn_key(data, 'fog', '0.1 0.5 0.35 0.25'))
+    with open(os.path.join(maps, 'e1m1_sky.bsp'), 'wb') as f:
+        f.write(bsp2convert.set_worldspawn_key(data, 'sky', 'test'))
+    colors = {'rt': (200, 60, 60), 'bk': (60, 200, 60), 'lf': (60, 60, 200),
+              'ft': (200, 200, 60), 'up': (60, 200, 200), 'dn': (200, 60, 200)}
+    for suffix, (r, g, b) in colors.items():
+        # An uncompressed 24-bit TGA, top-left origin
+        header = struct.pack('<BBBHHBHHHHBB', 0, 0, 2, 0, 0, 0, 0, 0, 32, 32, 24, 0x20)
+        with open(os.path.join(env, 'test' + suffix + '.tga'), 'wb') as f:
+            f.write(header + bytes((b, g, r)) * (32 * 32))
+
+
+def check_envmsg(logs):
+    result = []
+    for prefix in ('rec', 'play', 'host', 'client'):
+        result += common_checks(logs, prefix)
+    rec, play = logs['rec'], logs['play']
+    result.append(('Recorded demo "castle-config:/envmsg.dem"' in rec, 'the demo is recorded'))
+    result.append(('Skybox "test"' in rec, 'the console sky command shows the skybox'))
+    result.append(('Fog: density 0.100' in play, 'playback: the map\'s fog'))
+    result.append(('Fog: density 0.200, color 0.1' in play, 'playback: the fog changed by the console (svc_fog)'))
+    result.append(('Skybox "test"' in play, 'playback: the skybox set by the console (svc_skybox)'))
+    result.append(('Illegible server message' not in play + logs['client'], 'no message the reader cannot parse'))
+    result.append(('protocol 666' in logs['host'], 'a level with a sky key is protocol 666 on the server'))
+    result.append(('Skybox "test"' in logs['client'], 'the network client shows the level\'s skybox'))
+    return result
+
+
 def check_quake_hub(logs):
     log = logs['hub']
     result = common_checks(logs, 'hub')
@@ -366,6 +406,18 @@ SCENARIOS = [
     Scenario('quake_hub', [('hub', ['--game', 'quake', '--autotest', 'start', '{out}/hub', '--demo',
                                     'W:1,Y,G:856;-18;-700,A:90,W:0.5,P:15,W:0.3,S,Q'], 0)],
              check_quake_hub, ['hub_1']),
+    # FitzQuake's svc_fog and svc_skybox: a demo recorded on a fogged map
+    # whose fog and sky the console changes, played back by a second
+    # process; a host on a map with a sky key and a client joining it
+    Scenario('envmsg', [('rec', ['-game', '{out}/mod', '--autotest', 'e1m1_fog', '{out}/rec', '--demo',
+                                 'W:0.5,Y,R:envmsg,W:1,CMD:fog 0.2 0.1 0.2 0.6,W:1,CMD:sky test,W:1,S,R,Q'], 0),
+                        ('play', ['-game', '{out}/mod', '--autotest', 'castle-config:/envmsg.dem', '{out}/play',
+                                  '--demo', 'W:6,S,Q'], 15),
+                        ('host', ['-game', '{out}/mod', '--autotest', 'host:e1m1_sky', '{out}/host', '--demo',
+                                  'W:10,S,Q', '-port', '26302'], 0),
+                        ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26302', '{out}/client',
+                                    '--demo', 'W:4,S,Q'], 4)],
+             check_envmsg, [], prepare=prepare_envmsg),
 ]
 
 

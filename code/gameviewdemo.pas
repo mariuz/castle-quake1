@@ -90,6 +90,7 @@ type
     FShots: Integer;
     procedure ClearLevel;
     procedure LoadLevel;
+    procedure ApplyEnvironment;
     procedure HandleServerInfo;
     procedure HandleSound(const Entity, Channel, SoundIndex: Integer; const Volume, Attenuation: Single;
       const Origin: TVector3);
@@ -715,6 +716,25 @@ begin
   FHud.ShowMessage(FDemo.LevelName, 3);
 end;
 
+procedure TViewDemo.ApplyEnvironment;
+begin
+  { FitzQuake's svc_fog / svc_skybox (and a stuffed fog command) replace the
+    map's own worldspawn fog and sky applied when the level was loaded }
+  if FDemo.FogChanged then
+  begin
+    FDemo.FogChanged := False;
+    SetViewportFog(FViewport, FDemo.FogDensity, FDemo.FogColor);
+    if FDemo.FogDensity <= 0 then
+      WritelnLog('GameViewDemo', 'Fog: off');
+  end;
+  if FDemo.SkyboxChanged then
+  begin
+    FDemo.SkyboxChanged := False;
+    if FGeometry <> nil then
+      FGeometry.SetSkybox(FDemo.SkyboxName);
+  end;
+end;
+
 procedure TViewDemo.HandleServerInfo;
 begin
   LoadLevel;
@@ -1270,6 +1290,7 @@ begin
   FDemo.Advance(SecondsPassed);
   if not FLoaded then
     Exit;
+  ApplyEnvironment;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
     FLevelStart := FDemo.Time;
 

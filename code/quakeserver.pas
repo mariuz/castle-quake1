@@ -28,6 +28,11 @@ type
     FOut: TQuakeNetMessage;
     FLastFrags: array[1..MaxQcClients] of Integer;
     FModels, FSounds: TStringList;
+    { The level's worldspawn sky and fog, sent in the signon (protocol 666) }
+    FSkybox: String;
+    FHasFog: Boolean;
+    FFogDensity: Single;
+    FFogColor: TVector3;
     { SV_CreateBaseline: each entity's state at the level start; updates
       only carry what differs from it }
     FBaselines: array of TNetEntityState;
@@ -174,8 +179,11 @@ begin
   FSounds.Clear;
   for I := 0 to FGame.Progs.PrecachedSounds.Count - 1 do
     FSounds.Add(FGame.Progs.PrecachedSounds[I]);
-  { More than 255 models or sounds need FitzQuake's 16-bit indexes }
-  if NetForceFitzQuake or (FModels.Count > 255) or (FSounds.Count > 255) then
+  { More than 255 models or sounds need FitzQuake's 16-bit indexes; its
+    svc_skybox and svc_fog carry the level's sky and fog }
+  FSkybox := WorldspawnSky(FGame.Bsp);
+  FHasFog := WorldspawnFog(FGame.Bsp, FFogDensity, FFogColor);
+  if NetForceFitzQuake or (FModels.Count > 255) or (FSounds.Count > 255) or (FSkybox <> '') or FHasFog then
     NetGameProtocol := 666
   else
     NetGameProtocol := 15;
@@ -330,6 +338,13 @@ begin
   for I := 0 to 63 do
     if FGame.LightStyleValue(I) <> '' then
       Msg.LightStyle(I, FGame.LightStyleValue(I));
+  if NetGameProtocol = 666 then
+  begin
+    if FSkybox <> '' then
+      Msg.Skybox(FSkybox);
+    if FHasFog then
+      Msg.Fog(FFogDensity, FFogColor);
+  end;
   for I := 0 to FGame.StaticCount - 1 do
   begin
     St := FGame.Static(I);

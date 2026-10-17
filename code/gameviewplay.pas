@@ -1033,6 +1033,7 @@ procedure TViewPlay.HandleConsoleCommand(const Cmd, Args: String);
 var
   Parts: TStringArray;
   FogColor: TVector3;
+  SkyName: String;
 begin
   if (Cmd = 'map') or (Cmd = 'warp') then
   begin
@@ -1102,12 +1103,30 @@ begin
       if Length(Parts) >= 4 then
         FogColor := Vector3(StrToFloatDef(Parts[1], 0.3), StrToFloatDef(Parts[2], 0.3), StrToFloatDef(Parts[3], 0.3));
       SetViewportFog(FViewport, StrToFloatDef(Parts[0], 0), FogColor);
+      FWorld.RecordFog(StrToFloatDef(Parts[0], 0), FogColor);
     end;
     if FViewport.Fog <> nil then
       FConsole.Print(Format('Fog: visibility range %.0f, color %s',
         [FViewport.Fog.VisibilityRange, FViewport.Fog.Color.ToString]))
     else
       FConsole.Print('Fog: off');
+  end else
+  if Cmd = 'sky' then
+  begin
+    { FitzQuake's sky: sky <name> shows the skybox gfx/env/<name>, sky ""
+      or sky - the map's scrolling sky; no argument shows it }
+    if (Args <> '') and (FWorld.Geometry <> nil) then
+    begin
+      SkyName := LowerCase(Args);
+      if (SkyName = '-') or (SkyName = '""') then
+        SkyName := '';
+      if FWorld.Geometry.SetSkybox(SkyName) then
+        FWorld.RecordSkybox(FWorld.Geometry.Skybox);
+    end;
+    if (FWorld.Geometry <> nil) and (FWorld.Geometry.Skybox <> '') then
+      FConsole.Print('Sky: ' + FWorld.Geometry.Skybox)
+    else
+      FConsole.Print('Sky: the scrolling sky');
   end else
   if Cmd = 'lightmaps' then
   begin
@@ -1185,6 +1204,7 @@ begin
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
     FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
     FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
+    FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
     FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
     FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');
     FConsole.Print('  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon');
