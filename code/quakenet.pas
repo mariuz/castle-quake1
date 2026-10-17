@@ -325,13 +325,20 @@ function BytesName(const B: TNetBytes; const Offset: Integer): String;
 
 
 var
-  { The game protocol the server's messages use: 15 (NetQuake), or 666
+  { The game protocol the server's messages use: 15 (NetQuake), 666
     (FitzQuake: 16-bit model, frame and sound numbers through extension
-    bits) when a level precaches more than 255 models or sounds, or always
-    with -protocol 666. Set by TQuakeServer for each level. }
+    bits) when a level precaches more than 255 models or sounds or has a
+    sky or fog, or 999 (RMQ: FitzQuake with float coordinates and 16-bit
+    angles) when the map reaches beyond 16-bit coordinates.
+    Set by TQuakeServer for each level. }
   NetGameProtocol: Integer = 15;
-  { -protocol 666: the server always uses FitzQuake }
-  NetForceFitzQuake: Boolean = False;
+  { -protocol 666 / 999: the server uses at least that protocol }
+  NetForceProtocol: Integer = 0;
+
+const
+  { The protocol flags sent with 999 (QuakeSpasm's default):
+    PRFL_SHORTANGLE or PRFL_FLOATCOORD }
+  NetRMQProtocolFlags = (1 shl 1) or (1 shl 4);
 
 implementation
 
@@ -596,12 +603,20 @@ end;
 
 procedure TQuakeNetMessage.WriteCoord(const V: Single);
 begin
-  WriteShort(Round(V * 8));
+  { Protocol 999: float coordinates (PRFL_FLOATCOORD) }
+  if NetGameProtocol = 999 then
+    WriteFloat(V)
+  else
+    WriteShort(Round(V * 8));
 end;
 
 procedure TQuakeNetMessage.WriteAngle(const V: Single);
 begin
-  WriteByte(Round(V * 256 / 360) and 255);
+  { Protocol 999: 16-bit angles (PRFL_SHORTANGLE) }
+  if NetGameProtocol = 999 then
+    WriteShort(SmallInt(Round(V * 65536 / 360) and $FFFF))
+  else
+    WriteByte(Round(V * 256 / 360) and 255);
 end;
 
 procedure TQuakeNetMessage.WriteVector(const V: TVector3);
@@ -626,6 +641,8 @@ begin
   BeginMessage;
   WriteByte(11);
   WriteLong(NetGameProtocol);
+  if NetGameProtocol = 999 then
+    WriteLong(NetRMQProtocolFlags);
   WriteByte(MaxClients);
   WriteByte(1); { gametype: deathmatch }
   WriteString(LevelName);
@@ -680,7 +697,7 @@ end;
 procedure TQuakeNetMessage.SpawnStatic(const ModelIndex, Frame, Skin: Integer; const Origin, Angles: TVector3);
 begin
   BeginMessage;
-  if (NetGameProtocol = 666) and ((ModelIndex > 255) or (Frame > 255)) then
+  if (NetGameProtocol <> 15) and ((ModelIndex > 255) or (Frame > 255)) then
   begin
     { svc_spawnstatic2: B_LARGEMODEL, B_LARGEFRAME }
     WriteByte(43);
@@ -744,9 +761,21 @@ const
 var
   Bits: Integer;
 
+  { The value an angle is sent as }
   function AngleByte(const A: Single): Integer;
   begin
-    Result := Round(A * 256 / 360) and 255;
+    if NetGameProtocol = 999 then
+      Result := Round(A * 65536 / 360) and $FFFF
+    else
+      Result := Round(A * 256 / 360) and 255;
+  end;
+
+  function SameCoord(const A, B: Single): Boolean;
+  begin
+    if NetGameProtocol = 999 then
+      Result := A = B
+    else
+      Result := Round(A * 8) = Round(B * 8);
   end;
 
 begin
@@ -760,11 +789,11 @@ begin
     Bits := Bits or U_SKIN;
   if State.Effects <> Baseline.Effects then
     Bits := Bits or U_EFFECTS;
-  if Round(State.Origin.X * 8) <> Round(Baseline.Origin.X * 8) then
+  if not SameCoord(State.Origin.X, Baseline.Origin.X) then
     Bits := Bits or U_ORIGIN1;
-  if Round(State.Origin.Y * 8) <> Round(Baseline.Origin.Y * 8) then
+  if not SameCoord(State.Origin.Y, Baseline.Origin.Y) then
     Bits := Bits or U_ORIGIN2;
-  if Round(State.Origin.Z * 8) <> Round(Baseline.Origin.Z * 8) then
+  if not SameCoord(State.Origin.Z, Baseline.Origin.Z) then
     Bits := Bits or U_ORIGIN3;
   if AngleByte(State.Angles.X) <> AngleByte(Baseline.Angles.X) then
     Bits := Bits or U_ANGLE1;
@@ -775,7 +804,7 @@ begin
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
   { FitzQuake: the high bytes of a model or frame above 255 }
-  if NetGameProtocol = 666 then
+  if NetGameProtocol <> 15 then
   begin
     if ((Bits and U_MODEL) <> 0) and (State.ModelIndex > 255) then
       Bits := Bits or U_MODEL2 or U_EXTEND1;
@@ -822,7 +851,7 @@ end;
 procedure TQuakeNetMessage.SpawnBaseline(const Num: Integer; const Baseline: TNetEntityState);
 begin
   BeginMessage;
-  if (NetGameProtocol = 666) and ((Baseline.ModelIndex > 255) or (Baseline.Frame > 255)) then
+  if (NetGameProtocol <> 15) and ((Baseline.ModelIndex > 255) or (Baseline.Frame > 255)) then
   begin
     WriteByte(42); { svc_spawnbaseline2: B_LARGEMODEL, B_LARGEFRAME }
     WriteShort(Num);
@@ -858,7 +887,7 @@ begin
   Bits := SU_VIEWHEIGHT or SU_VELOCITY1 or (SU_VELOCITY1 shl 1) or (SU_VELOCITY1 shl 2) or SU_WEAPONFRAME or
     SU_ARMOR or SU_WEAPON;
   { FitzQuake: the weapon model and frame above 255 }
-  if NetGameProtocol = 666 then
+  if NetGameProtocol <> 15 then
   begin
     if WeaponModel > 255 then
       Bits := Bits or SU_WEAPON2 or SU_EXTEND1;
@@ -902,7 +931,7 @@ begin
   { SND_VOLUME, SND_ATTENUATION, and in FitzQuake SND_LARGEENTITY /
     SND_LARGESOUND for entities from 8192 and sounds above 255 }
   Mask := 3;
-  if NetGameProtocol = 666 then
+  if NetGameProtocol <> 15 then
   begin
     if (E >= 8192) or (Channel > 7) then
       Mask := Mask or 8;

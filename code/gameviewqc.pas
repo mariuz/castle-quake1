@@ -444,7 +444,7 @@ begin
     Title := World.MessageText;
   ViewYawPitch(Yaw, Pitch);
   FRecorder.BeginLevel('maps/' + MapName + '.bsp', Title, Vector3(Pitch, Yaw, 0), FGame.TotalMonsters,
-    FGame.TotalSecrets);
+    FGame.TotalSecrets, MapNeedsLargeCoords(FGame.Bsp));
   HasFog := WorldspawnFog(FGame.Bsp, FogDensity, FogColor);
   FRecorder.SetLevelEnvironment(WorldspawnSky(FGame.Bsp), HasFog, FogDensity, FogColor);
 end;

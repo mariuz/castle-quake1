@@ -47,7 +47,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
 - Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
 - Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
-- Demos: `.dem` playback with server frame interpolation (protocol 15 and FitzQuake 666), and recording of your own games.
+- Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games.
 
 **QuakeC mode**
 - `progs.dat` runs the level: a QuakeC VM (`pr_exec.c` semantics, all builtins) with a world host for traces, movetypes and the player physics. Mods loaded with `-pak` run unchanged. Savegames and demo recording work here too.

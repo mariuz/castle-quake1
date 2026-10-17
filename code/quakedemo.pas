@@ -20,6 +20,21 @@ const
   { FitzQuake / QuakeSpasm: 16-bit model, frame and sound indexes and more
     entities, through extension bits; coordinates stay 16-bit }
   ProtocolFitzQuake = 666;
+  { RMQ: FitzQuake's messages plus protocol flags after the protocol number
+    in svc_serverinfo choosing wider coordinates and angles }
+  ProtocolRMQ = 999;
+
+  { Protocol flags of PROTOCOL_RMQ }
+  PRFL_SHORTANGLE = 1 shl 1;
+  PRFL_FLOATANGLE = 1 shl 2;
+  PRFL_24BITCOORD = 1 shl 3;
+  PRFL_FLOATCOORD = 1 shl 4;
+  PRFL_EDICTSCALE = 1 shl 5;
+  PRFL_ALPHASANITY = 1 shl 6;
+  PRFL_INT32COORD = 1 shl 7;
+  { What the writers send with protocol 999 (QuakeSpasm's default):
+    float coordinates and 16-bit angles }
+  RMQProtocolFlags = PRFL_SHORTANGLE or PRFL_FLOATCOORD;
 
   { Server to client messages }
   svc_bad = 0;
@@ -264,6 +279,8 @@ type
     ViewEntity: Integer;
     Signon: Integer;
     Protocol: Integer;
+    { PROTOCOL_RMQ's flags (PRFL_*): the coordinate and angle encodings }
+    ProtocolFlags: Integer;
     { The sky and fog sent by a FitzQuake server (svc_skybox, svc_fog, or a
       "fog ..." command in svc_stufftext); the Changed flags are set when one
       arrives, the viewer applies and clears them }
@@ -343,6 +360,9 @@ type
         TotalMonsters, TotalSecrets: Integer;
         { A message needed PROTOCOL_FITZQUAKE (an index above 255) }
         Fitz: Boolean;
+        { The level is beyond 16-bit coordinates: PROTOCOL_RMQ with float
+          coordinates and 16-bit angles (RMQProtocolFlags) }
+        LargeCoords: Boolean;
         { The level's skybox and fog, sent in the signon (svc_skybox, svc_fog) }
         Skybox: String;
         HasFog: Boolean;
@@ -357,6 +377,10 @@ type
       FMsg: TMemoryStream;
       FInFrame: Boolean;
       FLastViewAngles: TVector3;
+      { The coordinates and angles written now are PROTOCOL_RMQ's }
+      FLarge: Boolean;
+    function SameCoord(const A, B: Single): Boolean;
+    function SameAngle(const A, B: Single): Boolean;
     procedure WriteByte(const V: Integer);
     procedure WriteChar(const V: Integer);
     procedure WriteShort(const V: Integer);
@@ -373,9 +397,11 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    { A new level: everything that follows belongs to it }
+    { A new level: everything that follows belongs to it. LargeCoords: the
+      map reaches beyond 16-bit coordinates (MapNeedsLargeCoords), the level
+      is written as PROTOCOL_RMQ }
     procedure BeginLevel(const AMapPath, ALevelName: String; const ViewAngles: TVector3;
-      const ATotalMonsters, ATotalSecrets: Integer);
+      const ATotalMonsters, ATotalSecrets: Integer; const ALargeCoords: Boolean = False);
     function Recording: Boolean;
 
     function ModelIndex(const Path: String): Integer;
@@ -417,7 +443,9 @@ function StandardLightStyle(const Index: Integer): String;
 var
   { The protocol demos are recorded with: ProtocolNetQuake writes protocol
     15 unless a level needs model, sound or frame numbers above 255, then
-    that level is PROTOCOL_FITZQUAKE; ProtocolFitzQuake always (-protocol 666) }
+    that level is PROTOCOL_FITZQUAKE, or coordinates beyond 16 bits, then it
+    is PROTOCOL_RMQ; ProtocolFitzQuake at least 666 (-protocol 666),
+    ProtocolRMQ always 999 (-protocol 999) }
   PreferredProtocol: Integer = ProtocolNetQuake;
 
 const
@@ -618,13 +646,34 @@ begin
 end;
 
 function TQuakeDemoReader.ReadCoord: Single;
+var
+  Whole, Fraction: Integer;
 begin
-  Result := ReadShort / 8;
+  { MSG_ReadCoord with PROTOCOL_RMQ's flags }
+  if (ProtocolFlags and PRFL_FLOATCOORD) <> 0 then
+    Result := ReadFloat
+  else
+  if (ProtocolFlags and PRFL_INT32COORD) <> 0 then
+    Result := ReadLong / 16
+  else
+  if (ProtocolFlags and PRFL_24BITCOORD) <> 0 then
+  begin
+    Whole := ReadShort;
+    Fraction := ReadByte;
+    Result := Whole + Fraction / 255;
+  end else
+    Result := ReadShort / 8;
 end;
 
 function TQuakeDemoReader.ReadAngle: Single;
 begin
-  Result := ReadChar * (360 / 256);
+  if (ProtocolFlags and PRFL_FLOATANGLE) <> 0 then
+    Result := ReadFloat
+  else
+  if (ProtocolFlags and PRFL_SHORTANGLE) <> 0 then
+    Result := ReadShort * (360 / 65536)
+  else
+    Result := ReadChar * (360 / 256);
 end;
 
 function TQuakeDemoReader.ReadVector: TVector3;
@@ -702,16 +751,21 @@ end;
 procedure TQuakeDemoReader.ParseServerInfo;
 var
   S: String;
+  Flags: Integer;
 begin
   Protocol := ReadLong;
-  if (Protocol <> ProtocolNetQuake) and (Protocol <> ProtocolFitzQuake) then
+  if (Protocol <> ProtocolNetQuake) and (Protocol <> ProtocolFitzQuake) and (Protocol <> ProtocolRMQ) then
   begin
-    WritelnWarning('QuakeDemo', 'Demo protocol %d is not supported (only %d and %d)',
-      [Protocol, ProtocolNetQuake, ProtocolFitzQuake]);
+    WritelnWarning('QuakeDemo', 'Demo protocol %d is not supported (only %d, %d and %d)',
+      [Protocol, ProtocolNetQuake, ProtocolFitzQuake, ProtocolRMQ]);
     FDisconnected := True;
     Exit;
   end;
+  Flags := 0;
+  if Protocol = ProtocolRMQ then
+    Flags := ReadLong;
   ClearState;
+  ProtocolFlags := Flags;
   MaxClients := ReadByte;
   ReadByte; { gametype }
   LevelName := ReadString;
@@ -727,8 +781,12 @@ begin
       Break;
     Sounds.Add(S);
   until FBadMessage;
-  WritelnLog('QuakeDemo', 'Level "%s": %d models, %d sounds, protocol %d',
-    [LevelName, Models.Count - 1, Sounds.Count - 1, Protocol]);
+  if Protocol = ProtocolRMQ then
+    WritelnLog('QuakeDemo', 'Level "%s": %d models, %d sounds, protocol %d (flags %d)',
+      [LevelName, Models.Count - 1, Sounds.Count - 1, Protocol, ProtocolFlags])
+  else
+    WritelnLog('QuakeDemo', 'Level "%s": %d models, %d sounds, protocol %d',
+      [LevelName, Models.Count - 1, Sounds.Count - 1, Protocol]);
   if Assigned(OnServerInfo) then
     OnServerInfo();
 end;
@@ -776,7 +834,7 @@ begin
     Signon := Signons;
   if (Bits and U_MOREBITS) <> 0 then
     Bits := Bits or (ReadByte shl 8);
-  if Protocol = ProtocolFitzQuake then
+  if Protocol <> ProtocolNetQuake then
   begin
     if (Bits and U_EXTEND1) <> 0 then
       Bits := Bits or (ReadByte shl 16);
@@ -846,7 +904,7 @@ begin
 
   { PROTOCOL_FITZQUAKE: the high bytes of the model and frame, alpha,
     scale (RMQ) and the lerp finish time }
-  if Protocol = ProtocolFitzQuake then
+  if Protocol <> ProtocolNetQuake then
   begin
     if (Bits and U_ALPHA) <> 0 then
       ReadByte;
@@ -877,7 +935,7 @@ var
   Bits, I: Integer;
 begin
   Bits := ReadShort and $FFFF;
-  if Protocol = ProtocolFitzQuake then
+  if Protocol <> ProtocolNetQuake then
   begin
     if (Bits and SU_EXTEND1) <> 0 then
       Bits := Bits or (ReadByte shl 16);
@@ -926,7 +984,7 @@ begin
   ClientData.Cells := ReadByte;
   ClientData.ActiveWeapon := ReadByte;
   { PROTOCOL_FITZQUAKE: the high bytes }
-  if Protocol = ProtocolFitzQuake then
+  if Protocol <> ProtocolNetQuake then
   begin
     if (Bits and SU_WEAPON2) <> 0 then
       ClientData.Weapon := ClientData.Weapon or (ReadByte shl 8);
@@ -1458,7 +1516,7 @@ begin
 end;
 
 procedure TQuakeDemoWriter.BeginLevel(const AMapPath, ALevelName: String; const ViewAngles: TVector3;
-  const ATotalMonsters, ATotalSecrets: Integer);
+  const ATotalMonsters, ATotalSecrets: Integer; const ALargeCoords: Boolean);
 begin
   if FCur <> nil then
     EndFrame(FLastViewAngles);
@@ -1469,6 +1527,8 @@ begin
   FCur.StartAngles := ViewAngles;
   FCur.TotalMonsters := ATotalMonsters;
   FCur.TotalSecrets := ATotalSecrets;
+  FCur.LargeCoords := ALargeCoords or (PreferredProtocol = ProtocolRMQ);
+  FLarge := FCur.LargeCoords;
   FCur.Models.Add(AMapPath);
   FSections.Add(FCur);
   FLastViewAngles := ViewAngles;
@@ -1558,12 +1618,34 @@ end;
 
 procedure TQuakeDemoWriter.WriteCoord(const V: Single);
 begin
-  WriteShort(Round(V * 8));
+  if FLarge then
+    WriteFloat(V)
+  else
+    WriteShort(Round(V * 8));
 end;
 
 procedure TQuakeDemoWriter.WriteAngle(const V: Single);
 begin
-  WriteByte(Round(V * 256 / 360) and 255);
+  if FLarge then
+    WriteWord(Round(V * 65536 / 360))
+  else
+    WriteByte(Round(V * 256 / 360) and 255);
+end;
+
+function TQuakeDemoWriter.SameCoord(const A, B: Single): Boolean;
+begin
+  if FLarge then
+    Result := A = B
+  else
+    Result := Round(A * 8) = Round(B * 8);
+end;
+
+function TQuakeDemoWriter.SameAngle(const A, B: Single): Boolean;
+begin
+  if FLarge then
+    Result := (Round(A * 65536 / 360) and $FFFF) = (Round(B * 65536 / 360) and $FFFF)
+  else
+    Result := (Round(A * 256 / 360) and 255) = (Round(B * 256 / 360) and 255);
 end;
 
 procedure TQuakeDemoWriter.WriteVector(const V: TVector3);
@@ -1699,12 +1781,6 @@ procedure TQuakeDemoWriter.WriteEntity(const Num: Integer; const State: TDemoEnt
 var
   Bits: Integer;
   B: TDemoEntityState;
-
-  function AngleByte(const A: Single): Integer;
-  begin
-    Result := Round(A * 256 / 360) and 255;
-  end;
-
 begin
   if (FCur = nil) or (Num <= 0) or (Num >= MaxDemoEntities) then
     Exit;
@@ -1726,17 +1802,17 @@ begin
     Bits := Bits or U_SKIN;
   if State.Effects <> B.Effects then
     Bits := Bits or U_EFFECTS;
-  if Round(State.Origin.X * 8) <> Round(B.Origin.X * 8) then
+  if not SameCoord(State.Origin.X, B.Origin.X) then
     Bits := Bits or U_ORIGIN1;
-  if Round(State.Origin.Y * 8) <> Round(B.Origin.Y * 8) then
+  if not SameCoord(State.Origin.Y, B.Origin.Y) then
     Bits := Bits or U_ORIGIN2;
-  if Round(State.Origin.Z * 8) <> Round(B.Origin.Z * 8) then
+  if not SameCoord(State.Origin.Z, B.Origin.Z) then
     Bits := Bits or U_ORIGIN3;
-  if AngleByte(State.Angles.X) <> AngleByte(B.Angles.X) then
+  if not SameAngle(State.Angles.X, B.Angles.X) then
     Bits := Bits or U_ANGLE1;
-  if AngleByte(State.Angles.Y) <> AngleByte(B.Angles.Y) then
+  if not SameAngle(State.Angles.Y, B.Angles.Y) then
     Bits := Bits or U_ANGLE2;
-  if AngleByte(State.Angles.Z) <> AngleByte(B.Angles.Z) then
+  if not SameAngle(State.Angles.Z, B.Angles.Z) then
     Bits := Bits or U_ANGLE3;
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
@@ -1990,7 +2066,14 @@ begin
       for I := 1 to MaxDemoEntities - 1 do
         if Sec.HasBaseline[I] and ((Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255)) then
           Sec.Fitz := True;
+      { The section's coordinates and angles are written in its encoding }
+      FLarge := Sec.LargeCoords;
       WriteByte(svc_serverinfo);
+      if Sec.LargeCoords then
+      begin
+        WriteLong(ProtocolRMQ);
+        WriteLong(RMQProtocolFlags);
+      end else
       if Sec.Fitz or (PreferredProtocol = ProtocolFitzQuake) then
         WriteLong(ProtocolFitzQuake)
       else
@@ -2085,6 +2168,7 @@ begin
     Result := True;
   finally
     Dest.Free;
+    FLarge := (FCur <> nil) and FCur.LargeCoords;
   end;
   WritelnLog('QuakeDemo', 'Recorded demo "%s" (%d levels)', [Url, FSections.Count]);
 end;

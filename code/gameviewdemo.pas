@@ -1178,6 +1178,12 @@ begin
       WritelnLog('GameViewDemo', 'Saved screenshot to "%s" (signon %d, health %d, ammo %d, frags %d, time %.1f)',
         [OutPath, FDemo.Signon, FDemo.ClientData.Health, FDemo.ClientData.Ammo,
          FDemo.Frags[Max(0, FDemo.ViewEntity - 1) mod 16], FDemo.Time]);
+      { The view entity's latest position from the server (Quake units) }
+      if (FDemo.ViewEntity > 0) and (FDemo.ViewEntity < Length(FDemo.Entities)) then
+        WritelnLog('GameViewDemo', 'View entity %d at %.1f %.1f %.1f (protocol %d)',
+          [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
+           FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
+           FDemo.Protocol]);
       if FWsRelay <> nil then
         WritelnLog('GameViewDemo', 'WebSocket relay: %d clients, %d messages in, %d out',
           [FWsRelay.ClientCount, FWsRelay.MessagesIn, FWsRelay.MessagesOut]);

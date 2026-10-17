@@ -183,10 +183,15 @@ begin
     svc_skybox and svc_fog carry the level's sky and fog }
   FSkybox := WorldspawnSky(FGame.Bsp);
   FHasFog := WorldspawnFog(FGame.Bsp, FFogDensity, FFogColor);
-  if NetForceFitzQuake or (FModels.Count > 255) or (FSounds.Count > 255) or (FSkybox <> '') or FHasFog then
+  { A map beyond 16-bit coordinates needs RMQ's float coordinates }
+  if (NetForceProtocol = 999) or MapNeedsLargeCoords(FGame.Bsp) then
+    NetGameProtocol := 999
+  else
+  if (NetForceProtocol = 666) or (FModels.Count > 255) or (FSounds.Count > 255) or (FSkybox <> '') or FHasFog then
     NetGameProtocol := 666
   else
     NetGameProtocol := 15;
+  FGame.LargeCoordMessages := NetGameProtocol = 999;
   WritelnLog('QuakeServer', 'Level "%s": %d models, %d sounds, protocol %d',
     [FMapName, FModels.Count, FSounds.Count, NetGameProtocol]);
   CreateBaselines;
@@ -196,7 +201,7 @@ function TQuakeServer.EntityState(const E: Integer): TNetEntityState;
 begin
   Result := Default(TNetEntityState);
   Result.ModelIndex := NetModelIndex(FGame.EntityModel(E));
-  if NetGameProtocol = 666 then
+  if NetGameProtocol <> 15 then
     Result.Frame := FGame.EntityFrame(E) and $FFFF
   else
     Result.Frame := FGame.EntityFrame(E) and 255;
@@ -217,7 +222,7 @@ begin
     if (E > FGame.MaxClients) and FGame.EntityVisible(E) then
     begin
       FBaselines[E] := EntityState(E);
-      if (FBaselines[E].ModelIndex > 255) and (NetGameProtocol <> 666) then
+      if (FBaselines[E].ModelIndex > 255) and (NetGameProtocol = 15) then
         FBaselines[E] := Default(TNetEntityState)
       else
         Inc(Count);
@@ -338,7 +343,7 @@ begin
   for I := 0 to 63 do
     if FGame.LightStyleValue(I) <> '' then
       Msg.LightStyle(I, FGame.LightStyleValue(I));
-  if NetGameProtocol = 666 then
+  if NetGameProtocol <> 15 then
   begin
     if FSkybox <> '' then
       Msg.Skybox(FSkybox);
@@ -496,7 +501,7 @@ begin
       Continue;
     end;
     State := EntityState(E);
-    if (State.ModelIndex <= 0) or ((State.ModelIndex > 255) and (NetGameProtocol <> 666)) then
+    if (State.ModelIndex <= 0) or ((State.ModelIndex > 255) and (NetGameProtocol = 15)) then
       Continue;
     if Msg.Size > MaxFrameBytes then
     begin

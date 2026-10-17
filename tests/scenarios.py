@@ -334,6 +334,49 @@ def check_envmsg(logs):
     return result
 
 
+DEMO_VIEW_RE = re.compile(r'View entity \d+ at (\S+) (\S+) (\S+) \(protocol (\d+)\)')
+
+
+def prepare_largecoords(out_dir):
+    # E1M1 moved by 8192 units along x and y: beyond the 16-bit coordinates
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    maps = os.path.join(out_dir, 'mod', 'maps')
+    os.makedirs(maps, exist_ok=True)
+    with open(os.path.join(maps, 'e1m1_far.bsp'), 'wb') as f:
+        f.write(bsp2convert.translate(data, (8192, 8192, 0)))
+
+
+def check_largecoords(logs):
+    result = []
+    for prefix in ('rec', 'play', 'host', 'client'):
+        result += common_checks(logs, prefix)
+    rec = views(logs['rec'])
+    result.append((len(rec) == 2, 'two recorded screenshots (got %d)' % len(rec)))
+    played = [tuple(float(v) for v in m[:3]) + (m[3],) for m in DEMO_VIEW_RE.findall(logs['play'])]
+    result.append(('protocol 999' in logs['play'], 'the demo is protocol 999'))
+    if len(rec) == 2 and played:
+        eye = rec[1]['eye']
+        x, y, z, protocol = played[-1]
+        result.append((eye[1] > 8000, 'walked beyond 4096 units (eye y %.1f)' % eye[1]))
+        result.append((abs(x - eye[0]) < 1 and abs(y - eye[1]) < 16 and abs(z + 22 - eye[2]) < 16,
+                       'playback ends where the recording did (%.1f %.1f %.1f, recorded eye %.1f %.1f %.1f)'
+                       % (x, y, z, eye[0], eye[1], eye[2])))
+    result.append(('protocol 999' in logs['host'], 'the server picks protocol 999 for the far map'))
+    shots = NET_SHOT_RE.findall(logs['client'])
+    result.append((len(shots) == 2 and int(shots[1][2]) < int(shots[0][2]),
+                   'the client\'s shot reached the server (%s)' % ' -> '.join(s[2] for s in shots)))
+    client = DEMO_VIEW_RE.findall(logs['client'])
+    result.append((bool(client) and all(float(c[0]) > 4096 and float(c[1]) > 4096 for c in client),
+                   'the client is beyond 4096 units (%s)' % ', '.join('%s %s' % c[:2] for c in client)))
+    errors = [float(e) for e in PREDICTION_RE.findall(logs['client'])]
+    result.append((bool(errors) and max(errors) < 32,
+                   'prediction stays close to the server (max error %s)' % (max(errors) if errors else 'none')))
+    result.append(('Illegible server message' not in logs['play'] + logs['client'], 'no message the reader cannot parse'))
+    return result
+
+
 def check_quake_hub(logs):
     log = logs['hub']
     result = common_checks(logs, 'hub')
@@ -418,6 +461,18 @@ SCENARIOS = [
                         ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26302', '{out}/client',
                                     '--demo', 'W:4,S,Q'], 4)],
              check_envmsg, [], prepare=prepare_envmsg),
+    # Protocol 999: E1M1 moved beyond the 16-bit coordinates (rec_1 is the
+    # finish_1 view, copied reference); a demo recorded there plays back at
+    # the same positions, and a host and a client play on it
+    Scenario('largecoords', [('rec', ['-game', '{out}/mod', '--autotest', 'e1m1_far', '{out}/rec', '--demo',
+                                      'W:0.5,Y,S,R:far,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,R,Q'], 0),
+                             ('play', ['-game', '{out}/mod', '--autotest', 'castle-config:/far.dem', '{out}/play',
+                                       '--demo', 'W:5,S,Q'], 15),
+                             ('host', ['-game', '{out}/mod', '--autotest', 'host:e1m1_far', '{out}/host', '--demo',
+                                       'W:20,S,Q', '-port', '26303', '-coop'], 0),
+                             ('client', ['-game', '{out}/mod', '--autotest', 'connect:127.0.0.1:26303', '{out}/client',
+                                         '--demo', 'W:6,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
+             check_largecoords, ['rec_1'], prepare=prepare_largecoords),
 ]
 
 
