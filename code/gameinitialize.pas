@@ -326,12 +326,19 @@ begin
     else
     if ((Parameters[I] = '-protocol') or (Parameters[I] = '--protocol')) and (I + 1 <= Parameters.High) then
     begin
-      { 666: recorded demos and the network game always use FitzQuake;
-        else 15 unless a level needs more than 255 models or sounds }
+      { 666: recorded demos and the network game always use FitzQuake,
+        999: RMQ (float coordinates); else 15 unless a level needs more
+        than 255 models or sounds, a sky or fog (666) or coordinates beyond
+        16 bits (999) }
       if Parameters[I + 1] = '666' then
       begin
         PreferredProtocol := ProtocolFitzQuake;
-        NetForceFitzQuake := True;
+        NetForceProtocol := 666;
+      end else
+      if Parameters[I + 1] = '999' then
+      begin
+        PreferredProtocol := ProtocolRMQ;
+        NetForceProtocol := 999;
       end;
       Inc(I);
     end else

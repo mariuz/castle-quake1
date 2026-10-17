@@ -59,7 +59,7 @@ begin
   if (World <> nil) and (World.MessageText <> '') then
     Title := World.MessageText;
   FRecorder.BeginLevel('maps/' + FBsp.MapName + '.bsp', Title, ViewAnglesQuake,
-    FPlayerStats.TotalKills, FPlayerStats.TotalSecrets);
+    FPlayerStats.TotalKills, FPlayerStats.TotalSecrets, MapNeedsLargeCoords(FBsp));
   { The sky shown now (the map's or the console's) and the map's fog }
   HasFog := WorldspawnFog(FBsp, FogDensity, FogColor);
   if FGeometry <> nil then

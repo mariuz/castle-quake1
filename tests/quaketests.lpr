@@ -325,6 +325,7 @@ type
       const Volume, Attenuation: Single; const Origin: TVector3);
   public
     LastSoundEntity, LastSoundChannel, LastSoundIndex: Integer;
+    LastSoundOrigin: TVector3;
   end;
 
 constructor TDemoListener.Create;
@@ -355,6 +356,7 @@ begin
   LastSoundEntity := Entity;
   LastSoundChannel := Channel;
   LastSoundIndex := SoundIndex;
+  LastSoundOrigin := Origin;
 end;
 
 procedure TestDemoRoundTrip;
@@ -650,6 +652,86 @@ end;
 
 { FitzQuake's svc_skybox and svc_fog: the level's sky and fog in the
   signon and a change during the level, and a stuffed fog command }
+procedure TestDemoLargeCoords;
+var
+  W: TQuakeDemoWriter;
+  R: TQuakeDemoReader;
+  Listener: TDemoListener;
+  CD: TDemoClientData;
+  State: TDemoEntityState;
+  Url: String;
+  I, Snd: Integer;
+
+  function WriteDemo(const Name: String; const Large: Boolean): String;
+  var
+    J: Integer;
+  begin
+    W := TQuakeDemoWriter.Create;
+    try
+      W.BeginLevel('maps/far.bsp', 'Far level', Vector3(0, 0, 0), 0, 0, Large);
+      Snd := W.SoundIndex('misc/far.wav');
+      CD := Default(TDemoClientData);
+      CD.ViewHeight := 22;
+      CD.Health := 100;
+      State := Default(TDemoEntityState);
+      State.ModelIndex := W.ModelIndex('progs/player.mdl');
+      { The baseline far away, then moving further }
+      for J := 0 to 39 do
+      begin
+        W.BeginFrame(1.0 + J * 0.1);
+        W.WriteClientData(CD);
+        State.Origin := Vector3(9000.5, -12000.25, 5000 + J);
+        State.Angles := Vector3(-10, 200.5 + J, 0);
+        W.WriteEntity(1, State);
+        if J = 20 then
+          W.WriteSound(1, 1, Snd, 1, 1, Vector3(-8191.5, 7000.125, 4200));
+        W.EndFrame(TVector3.Zero);
+      end;
+      Result := TempUrl(Name);
+      Check(W.SaveToUrl(Result), 'demo saved');
+    finally
+      FreeAndNil(W);
+    end;
+  end;
+
+begin
+  StartTest('Demo round trip beyond 16-bit coordinates (protocol 999)');
+  Listener := TDemoListener.Create;
+  R := TQuakeDemoReader.Create;
+  try
+    Url := WriteDemo('quaketests_far.dem', True);
+    R.OnSound := @Listener.OnSound;
+    Check(R.Load(Url), 'demo loads');
+    for I := 1 to 120 do
+      R.Advance(0.05);
+    CheckEquals(ProtocolRMQ, R.Protocol, 'a level beyond 16-bit coordinates is protocol 999');
+    CheckEquals(RMQProtocolFlags, R.ProtocolFlags, 'float coordinates and 16-bit angles');
+    CheckNear(9000.5, R.Entities[1].Baseline.Origin.X, 0.001, 'baseline x beyond 4096');
+    CheckNear(-12000.25, R.Entities[1].Baseline.Origin.Y, 0.001, 'baseline y beyond -4096');
+    CheckNear(5000, R.Entities[1].Baseline.Origin.Z, 0.001, 'baseline z');
+    CheckNear(5039, R.Entities[1].Msg[0].Origin.Z, 0.001, 'updated z beyond 4096');
+    CheckNear(9000.5, R.Entities[1].Msg[0].Origin.X, 0.001, 'unchanged x from the baseline');
+    { 16-bit angles: 360 / 65536 degrees apart }
+    CheckNear(-10, R.Entities[1].Msg[0].Angles.X, 0.01, 'pitch in 16 bits');
+    CheckNear(239.5 - 360, R.Entities[1].Msg[0].Angles.Y, 0.01, 'yaw in 16 bits');
+    CheckVector(Vector3(-8191.5, 7000.125, 4200), Listener.LastSoundOrigin, 0.001, 'sound origin beyond 4096');
+    Check(R.Finished, 'demo finished');
+
+    { Without the flag the level stays protocol 15, its coordinates 16-bit }
+    FreeAndNil(R);
+    R := TQuakeDemoReader.Create;
+    Url := WriteDemo('quaketests_near.dem', False);
+    Check(R.Load(Url), 'protocol 15 demo loads');
+    for I := 1 to 120 do
+      R.Advance(0.05);
+    CheckEquals(ProtocolNetQuake, R.Protocol, 'a level within 16-bit coordinates stays protocol 15');
+    CheckNear(4095.875, R.Entities[1].Msg[0].Origin.Z, 0.001, '16-bit coordinates stop at 4095.875');
+  finally
+    R.Free;
+    Listener.Free;
+  end;
+end;
+
 procedure TestDemoFogSkybox;
 var
   W: TQuakeDemoWriter;
@@ -896,6 +978,7 @@ begin
   TestDemoRoundTrip;
   TestDemoFitzQuake;
   TestDemoFogSkybox;
+  TestDemoLargeCoords;
   TestBindings;
   TestWebSocket;
   TestSoundFiles;

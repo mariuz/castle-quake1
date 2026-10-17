@@ -153,6 +153,9 @@ type
     OnParticle: TQcParticleEvent;
     OnLightStyle: TQcLightStyleEvent;
     OnMessage: TQcMessageEvent;
+    { The protocol bytes of the progs' WriteCoord / WriteAngle are protocol
+      999's (float coordinates, 16-bit angles): set by the server }
+    LargeCoordMessages: Boolean;
 
     constructor Create;
     destructor Destroy; override;
@@ -1675,6 +1678,7 @@ procedure TQuakeQcGame.WriteMessage(const Progs: TQuakeProgs; const Dest, Kind: 
   const S: String);
 var
   V, I: Integer;
+  F: Single;
 
   procedure RawByte(const B: Integer);
   begin
@@ -1706,8 +1710,23 @@ begin
       52, 53: RawByte(Round(Value.X));                     { byte, char }
       54, 59: begin V := Round(Value.X); RawByte(V); RawByte(V shr 8); end; { short, entity }
       55: begin V := Round(Value.X); RawByte(V); RawByte(V shr 8); RawByte(V shr 16); RawByte(V shr 24); end;
-      56: begin V := Round(Value.X * 8); RawByte(V); RawByte(V shr 8); end; { coord }
-      57: RawByte(Round(Value.X * 256 / 360) and 255);      { angle }
+      56: { coord }
+        if LargeCoordMessages then
+        begin
+          F := Value.X;
+          V := 0;
+          Move(F, V, 4);
+          RawByte(V); RawByte(V shr 8); RawByte(V shr 16); RawByte(V shr 24);
+        end else
+        begin
+          V := Round(Value.X * 8); RawByte(V); RawByte(V shr 8);
+        end;
+      57: { angle }
+        if LargeCoordMessages then
+        begin
+          V := Round(Value.X * 65536 / 360); RawByte(V); RawByte(V shr 8);
+        end else
+          RawByte(Round(Value.X * 256 / 360) and 255);
     end;
   end;
   HandleMessage;

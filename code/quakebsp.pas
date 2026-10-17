@@ -350,7 +350,23 @@ function WorldspawnFog(const Bsp: TQuakeBsp; out Density: Single; out Color: TVe
 { The worldspawn sky key (a skybox name, gfx/env/<name>), lowercase, '' for none }
 function WorldspawnSky(const Bsp: TQuakeBsp): String;
 
+{ The world reaches beyond the 16-bit coordinates of protocols 15 and 666
+  (-4096..4095.875 units): demos and network games need protocol 999 }
+function MapNeedsLargeCoords(const Bsp: TQuakeBsp): Boolean;
+
 implementation
+
+function MapNeedsLargeCoords(const Bsp: TQuakeBsp): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if (Bsp = nil) or (Bsp.ModelCount = 0) then
+    Exit;
+  for I := 0 to 2 do
+    if (Bsp.Models[0].Mins.Data[I] < -4096) or (Bsp.Models[0].Maxs.Data[I] > 4095) then
+      Exit(True);
+end;
 
 function WorldspawnFog(const Bsp: TQuakeBsp; out Density: Single; out Color: TVector3): Boolean;
 var

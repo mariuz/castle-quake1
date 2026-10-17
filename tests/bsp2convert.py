@@ -126,6 +126,57 @@ def set_worldspawn_key(data, key, value):
     return bytes(body)
 
 
+def translate(data, offset):
+    """A BSP29 map moved by offset (x, y, z, whole units): vertices, planes,
+    node, leaf and model bounds, texture offsets (so textures and lightmaps
+    stay where they were) and the entity origins; the visibility and the
+    lightmaps are unchanged."""
+    import re
+    version = struct.unpack_from('<i', data, 0)[0]
+    if version != 29:
+        raise ValueError('not a BSP29 map (version %d)' % version)
+    ox, oy, oz = offset
+    lumps = [struct.unpack_from('<ii', data, 4 + i * 8) for i in range(15)]
+    out = bytearray(data)
+
+    def each(lump, fmt):
+        position, length = lumps[lump]
+        size = struct.calcsize(fmt)
+        for i in range(length // size):
+            yield position + i * size, struct.unpack_from(fmt, data, position + i * size)
+
+    for pos, (nx, ny, nz, dist, kind) in each(1, '<4fi'):          # planes
+        struct.pack_into('<4fi', out, pos, nx, ny, nz, dist + nx * ox + ny * oy + nz * oz, kind)
+    for pos, (x, y, z) in each(3, '<3f'):                          # vertices
+        struct.pack_into('<3f', out, pos, x + ox, y + oy, z + oz)
+    for pos, rec in each(5, '<i2H6h2H'):                           # nodes
+        b = rec[3:9]
+        struct.pack_into('<6h', out, pos + 8, b[0] + ox, b[1] + oy, b[2] + oz, b[3] + ox, b[4] + oy, b[5] + oz)
+    for pos, rec in each(6, '<8f2i'):                              # texinfo
+        s0, s1, s2, s3, t0, t1, t2, t3 = rec[:8]
+        struct.pack_into('<8f', out, pos, s0, s1, s2, s3 - (s0 * ox + s1 * oy + s2 * oz),
+                         t0, t1, t2, t3 - (t0 * ox + t1 * oy + t2 * oz))
+    for pos, rec in each(10, '<ii6h2H4B'):                         # leaves
+        b = rec[2:8]
+        struct.pack_into('<6h', out, pos + 8, b[0] + ox, b[1] + oy, b[2] + oz, b[3] + ox, b[4] + oy, b[5] + oz)
+    for pos, rec in each(14, '<9f7i'):                             # models (the brush entities keep origin 0)
+        m = rec[:6]
+        struct.pack_into('<6f', out, pos, m[0] + ox, m[1] + oy, m[2] + oz, m[3] + ox, m[4] + oy, m[5] + oz)
+
+    position, length = lumps[0]
+    text = data[position:position + length].rstrip(b'\0').decode('latin1')
+
+    def move(m):
+        x, y, z = (float(v) for v in m.group(1).split())
+        return '"origin" "%g %g %g"' % (x + ox, y + oy, z + oz)
+    text = re.sub(r'"origin"\s+"([^"]*)"', move, text)
+    body = bytes(out) + b'\0' * (-len(out) % 4)
+    entities = text.encode('latin1') + b'\0'
+    result = bytearray(body + entities)
+    struct.pack_into('<ii', result, 4, len(body), len(entities))
+    return bytes(result)
+
+
 def write_pak(path, files):
     directory = b''
     body = b''
