@@ -48,19 +48,27 @@ begin
 end;
 
 procedure TViewMenu.HandleMenuAction(const Action: TMenuAction; const Param: String);
+var
+  Map: String;
 begin
   case Action of
     maNewGame:
       begin
         Pak.PreferOriginal := Param = 'quake';
+        ViewPlay.HordeMode := False;
         ViewPlay.MapName := 'start';
         Container.View := ViewPlay;
       end;
     maWarpMap:
       begin
+        { horde:<map> plays the map in horde mode }
+        Map := Param;
+        ViewPlay.HordeMode := Pos('horde:', Map) = 1;
+        if ViewPlay.HordeMode then
+          Delete(Map, 1, Length('horde:'));
         { Original episode maps come with the id1 hub to return to }
-        Pak.PreferOriginal := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
-        ViewPlay.MapName := Param;
+        Pak.PreferOriginal := (Map <> 'maps/start.bsp') and Pak.OriginalFileExists(Map);
+        ViewPlay.MapName := Map;
         Container.View := ViewPlay;
       end;
     maPlayQc:

@@ -193,6 +193,8 @@ begin
           FItems.Add('Quake: Episode Hub');
         FItems.Add('LibreQuake: Episode Hub');
         FItems.Add('Random Map: a new level from a seed');
+        FItems.Add('Horde Mode: waves of monsters on E1M1');
+        FItems.Add('Horde Mode: a random map');
         FItems.Add('QuakeC Mode: progs.dat runs the game');
         FItems.Add('Back to Main Menu');
       end;
@@ -213,6 +215,11 @@ begin
         FItems.Add('maps/e1m3.bsp');
         FItems.Add('maps/lq_e0m1.bsp');
         FItems.Add('maps/lq_e0m2.bsp');
+        { Random maps: a new seed, and a few fixed ones to come back to }
+        FItems.Add('Random map: new seed');
+        FItems.Add('maps/random1.bsp');
+        FItems.Add('maps/random42.bsp');
+        FItems.Add('maps/random1234.bsp');
         FItems.Add('Back to Main Menu');
       end;
     smDemos:
@@ -364,6 +371,10 @@ begin
             FOnMenuAction(maNewGame, 'quake')
           else if Pos('QuakeC', ItemText) = 1 then
             FOnMenuAction(maPlayQc, 'start')
+          else if ItemText = 'Horde Mode: a random map' then
+            FOnMenuAction(maWarpMap, 'horde:maps/' + RandomMapName(NewRandomMapSeed) + '.bsp')
+          else if Pos('Horde Mode', ItemText) = 1 then
+            FOnMenuAction(maWarpMap, 'horde:maps/e1m1.bsp')
           else if Pos('Random Map', ItemText) = 1 then
             FOnMenuAction(maWarpMap, 'maps/' + RandomMapName(NewRandomMapSeed) + '.bsp')
           else
@@ -378,7 +389,12 @@ begin
           RebuildMenuItems;
         end else
         if Assigned(FOnMenuAction) then
-          FOnMenuAction(maWarpMap, ItemText);
+        begin
+          if Pos('Random map', ItemText) = 1 then
+            FOnMenuAction(maWarpMap, 'maps/' + RandomMapName(NewRandomMapSeed) + '.bsp')
+          else
+            FOnMenuAction(maWarpMap, ItemText);
+        end;
       end;
     smDemos:
       begin

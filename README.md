@@ -47,6 +47,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
 - Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
 - Random maps: `-randommap [seed]` (or Single Player > Random Map, `?randommap=new` in the browser) builds a level in memory, rooms and corridors compiled into a real BSP with collision hulls, colored lightmaps, monsters getting harder toward the exit, weapons, ammo and health; the exit leads to the next seed, so the levels never end. The same seed is the same map everywhere, so a network game only needs its name (`-host random42`).
+- Horde mode: `-horde` (or Single Player > Horde Mode) turns any map, a random one too, into waves of monsters that teleport in out of sight, stronger every wave, with a score and the best score per map.
 - Accessibility: captions for the sounds that matter (monsters waking and attacking, doors, lifts, secrets, pickups) with a hint of where they came from, a high contrast HUD and reduced damage and pickup flashes, in Options or the console (`captions`, `hud_contrast`, `reduced_flashes`).
 - Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
 - Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games.
@@ -63,7 +64,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
 - Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `fps`, `novis <0|1>`, `help`.
+- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `fps`, `novis <0|1>`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
 
 ---
@@ -126,6 +127,7 @@ castle-quake1 -warp e1m1                      Jump to E1M1
 castle-quake1 -warp start                     The LibreQuake hub
 castle-quake1 -game quake -warp start         The original Quake hub with the episode portals
 castle-quake1 -randommap 42                   A random level from seed 42 (no seed: a new one)
+castle-quake1 -horde -warp e1m1               Horde mode: waves of monsters on E1M1
 castle-quake1 -pak custom.pak                 Load another PAK (mods, the registered id1 paks)
 castle-quake1 -playdemo demo1.dem             Play a demo from the PAKs
 castle-quake1 -qc e1m1                        QuakeC mode: progs.dat runs the game

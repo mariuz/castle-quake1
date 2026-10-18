@@ -514,11 +514,14 @@ begin
     if (M.State = msDead) and not M.KillCounted then
     begin
       Inc(FPlayerStats.Kills);
+      HordeKill(M);
       if FRecorder <> nil then
         FRecorder.WriteKilledMonster;
       M.KillCounted := True;
     end;
   end;
+
+  UpdateHorde(SecondsPassed);
 
   { Advance projectiles }
   UpdateProjectiles(SecondsPassed, Hud);

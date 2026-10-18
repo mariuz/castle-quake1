@@ -162,6 +162,9 @@ type
     Enemy: TQuakeMonster;
     { Nightmare skill: at most one pain animation every 5 seconds }
     Nightmare: Boolean;
+    { Horde mode: the nearest it came to the player, and for how long not
+      nearer }
+    HordeBestDist, HordeStuckTime: Single;
 
     constructor Create(const Parent: TCastleTransform; const ADef: TMonsterDef;
       const AOrigin: TVector3; const AYaw: Single);

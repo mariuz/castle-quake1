@@ -11,7 +11,7 @@ uses
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils, CastleTimeUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
-  GameInput, GameVideo, GameTouch, QuakeCaptions,
+  GameInput, GameVideo, GameTouch, QuakeCaptions, CastleConfig,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
   QuakePhysics, QuakeSaveGame, QuakeDebug;
@@ -53,6 +53,8 @@ type
     FUnderwaterTime: TSFFloat;
     FWarpTime: Single;
     FDeathTimer: Single;
+    FHordeMode: Boolean;
+    FHordeReported: Boolean;
     FQuitRequested: Boolean;
     { Autotest movement: forward / side / up fractions of full speed, and jump time left }
     FDemoMove: TVector3;
@@ -93,10 +95,14 @@ type
     procedure SaveGameSlot(const Slot: String);
 
     procedure LoadGameSlot(const Slot: String);
+    procedure ReportHorde;
     procedure SetCameraMode(const Mode: TCameraMode);
 
     property World: TQuakeWorld read FWorld;
     property MapName: String read FMapName write FMapName;
+    { Horde mode: waves of monsters on the maps loaded (-horde, the menu,
+      console horde) }
+    property HordeMode: Boolean read FHordeMode write FHordeMode;
     property AutoTestMap: String read FAutoTestMap write FAutoTestMap;
     property AutoTestPrefix: String read FAutoTestPrefix write FAutoTestPrefix;
     property AutoTestDemo: String read FAutoTestDemo write FAutoTestDemo;
@@ -340,6 +346,8 @@ var
 begin
   FMapName := AMapName;
   WritelnLog('GameViewPlay', 'Loading level "%s"', [FMapName]);
+  FWorld.HordeMode := FHordeMode;
+  FHordeReported := False;
 
   if FWorld.LoadMap(FMapName) then
   begin
@@ -351,9 +359,40 @@ begin
     FViewport.Camera.Direction := Vector3(Cos(Rad), 0, -Sin(Rad));
     FViewport.Camera.Up := Vector3(0, 1, 0);
 
-    FHud.ShowMessage('Welcome to Castle Quake: ' + FMapName, 4.0);
+    if FWorld.HordeActive then
+      FHud.ShowMessage('HORDE MODE: ' + FMapName + LineEnding + 'Survive the waves', 4.0)
+    else
+      FHud.ShowMessage('Welcome to Castle Quake: ' + FMapName, 4.0);
   end else
     FHud.ShowMessage('Failed to load level: ' + FMapName, 5.0);
+end;
+
+{ The horde ended with the player's death: the score against the best one
+  of the map (user config horde/<map>/...) }
+procedure TViewPlay.ReportHorde;
+var
+  Key: String;
+  Best, BestWave: Integer;
+begin
+  FHordeReported := True;
+  Key := 'horde/' + LowerCase(FWorld.MapName) + '/';
+  Best := UserConfig.GetValue(Key + 'score', 0);
+  BestWave := UserConfig.GetValue(Key + 'wave', 0);
+  WritelnLog('Horde', 'Horde over on "%s": wave %d, score %d (best %d, wave %d)',
+    [FWorld.MapName, FWorld.HordeWave, FWorld.HordeScore, Best, BestWave]);
+  if FWorld.HordeScore > Best then
+  begin
+    FHud.ShowMessage(Format('HORDE OVER' + LineEnding + 'Wave %d, score %d' + LineEnding + 'New best!',
+      [FWorld.HordeWave, FWorld.HordeScore]), 5.0);
+    if not VideoSettingsVolatile then
+    begin
+      UserConfig.SetValue(Key + 'score', FWorld.HordeScore);
+      UserConfig.SetValue(Key + 'wave', FWorld.HordeWave);
+      UserConfig.Save;
+    end;
+  end else
+    FHud.ShowMessage(Format('HORDE OVER' + LineEnding + 'Wave %d, score %d' + LineEnding + 'Best: %d (wave %d)',
+      [FWorld.HordeWave, FWorld.HordeScore, Best, BestWave]), 5.0);
 end;
 
 procedure TViewPlay.SaveGameSlot(const Slot: String);
@@ -813,6 +852,9 @@ begin
     FHud.FpsText := 'FPS: ' + Container.Fps.ToString
   else
     FHud.FpsText := '';
+  FHud.HordeText := FWorld.HordeText;
+  if FWorld.HordeActive and FWorld.PlayerDead and not FHordeReported then
+    ReportHorde;
 
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
@@ -1236,6 +1278,22 @@ begin
     FWorld.CheatGodMode(FHud);
     FConsole.Print('God mode enabled');
   end else
+  if Cmd = 'horde' then
+  begin
+    { horde [0|1]: restart the map with waves of monsters (or without) }
+    if Args <> '' then
+      FHordeMode := (Args = '1') or (Args = 'on')
+    else
+      FHordeMode := not FHordeMode;
+    FConsole.Print('Horde mode: ' + BoolToStr(FHordeMode, 'on', 'off'));
+    FWorld.RespawnPlayer;
+    LoadLevel(FMapName);
+  end else
+  if Cmd = 'killall' then
+  begin
+    FWorld.KillAllMonsters;
+    FConsole.Print('Killed every monster');
+  end else
   if (Cmd = 'give') and (Args = 'all') then
   begin
     FWorld.CheatGiveAll(FHud);
@@ -1272,6 +1330,7 @@ begin
     FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
     FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
     FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
+    FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
     FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
     FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
     FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');

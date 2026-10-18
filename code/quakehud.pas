@@ -81,6 +81,8 @@ type
     OnMessage: procedure(const S: String) of object;
     { Appended to the stats line (the console's fps command) }
     FpsText: String;
+    { Horde mode's wave, monsters left and score, first in the stats line }
+    HordeText: String;
   private
     procedure UpdateIntermission(const SecondsPassed: Single);
     procedure RenderIntermission;
@@ -354,6 +356,8 @@ begin
     Secs := Trunc(Stats.LevelTime) mod 60;
     FStatsLabel.Caption := Format('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d',
       [Stats.Kills, Stats.TotalKills, Stats.Secrets, Stats.TotalSecrets, Mins, Secs]);
+    if HordeText <> '' then
+      FStatsLabel.Caption := HordeText + '   ' + FStatsLabel.Caption;
     if FpsText <> '' then
       FStatsLabel.Caption := FStatsLabel.Caption + '   ' + FpsText;
   end else

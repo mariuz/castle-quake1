@@ -379,6 +379,9 @@ begin
   SetLength(FPhys.SolidBoxes, 0);
   SpawnEntities;
   ApplyEpisodeGates;
+  FHordeActive := False;
+  if FHordeMode then
+    StartHorde;
 
   { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
   FAmbient.Setup(FBsp, FRootTransform);

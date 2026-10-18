@@ -64,8 +64,9 @@ end;
 
 function TQuakeWorld.CanSave: Boolean;
 begin
+  { Horde mode is not saved (its waves are not in the savegame) }
   Result := (FBsp <> nil) and (FGeometry <> nil) and not FPlayerDead and
-    not FIntermission and not FLevelExited;
+    not FIntermission and not FLevelExited and not FHordeActive;
 end;
 
 function TQuakeWorld.SaveGame(const Url: String; const ViewDir: TVector3): Boolean;
