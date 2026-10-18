@@ -46,6 +46,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - All eight weapons from `weapons.qc`: hitscan, nails, bouncing grenades, rockets with splash damage, the lightning beam.
 - All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
 - Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
+- Random maps: `-randommap [seed]` (or Single Player > Random Map, `?randommap=new` in the browser) builds a level in memory, rooms and corridors compiled into a real BSP with collision hulls, colored lightmaps, monsters getting harder toward the exit, weapons, ammo and health; the exit leads to the next seed, so the levels never end. The same seed is the same map everywhere, so a network game only needs its name (`-host random42`).
 - Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
 - Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games.
 
@@ -116,13 +117,14 @@ The releases include app bundles for Intel and Apple Silicon Macs. They are not 
 ### Web
 The `test` job builds `tests/quaketests` (the BSP tracer, the QuakeC VM, savegames, the demo writer and reader against the shareware pak) and runs it before the packages are released; locally: `cd tests && castle-engine compile && ./quaketests ../data/paks`.
 
-The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js, smoke-tests it in headless Chromium (`tests/websmoke.js`: E1M1 starts, renders, saves, and the save loads after a reload) and deploys it from main to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/). In the browser, savegames, controls and video options are kept in the browser's local storage between visits; `?warp=e1m1` in the page URL starts a map.
+The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js, smoke-tests it in headless Chromium (`tests/websmoke.js`: E1M1 starts, renders, saves, and the save loads after a reload) and deploys it from main to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/). In the browser, savegames, controls and video options are kept in the browser's local storage between visits; `?warp=e1m1` in the page URL starts a map, `?randommap=new` a random one.
 
 ### Command line
 ```
 castle-quake1 -warp e1m1                      Jump to E1M1
 castle-quake1 -warp start                     The LibreQuake hub
 castle-quake1 -game quake -warp start         The original Quake hub with the episode portals
+castle-quake1 -randommap 42                   A random level from seed 42 (no seed: a new one)
 castle-quake1 -pak custom.pak                 Load another PAK (mods, the registered id1 paks)
 castle-quake1 -playdemo demo1.dem             Play a demo from the PAKs
 castle-quake1 -qc e1m1                        QuakeC mode: progs.dat runs the game

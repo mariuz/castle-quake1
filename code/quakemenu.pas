@@ -56,6 +56,9 @@ type
 
 implementation
 
+uses
+  QuakeRandomMap;
+
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -189,6 +192,7 @@ begin
         if Pak.OriginalFileExists('maps/start.bsp') then
           FItems.Add('Quake: Episode Hub');
         FItems.Add('LibreQuake: Episode Hub');
+        FItems.Add('Random Map: a new level from a seed');
         FItems.Add('QuakeC Mode: progs.dat runs the game');
         FItems.Add('Back to Main Menu');
       end;
@@ -197,6 +201,7 @@ begin
         FItems.Add('Host Deathmatch: start (port 26000)');
         FItems.Add('Host Deathmatch: e1m1 (port 26000)');
         FItems.Add('Host Coop: e1m1 (port 26000)');
+        FItems.Add('Host Deathmatch: random map (port 26000)');
         FItems.Add('Join: localhost');
         FItems.Add('Back to Main Menu');
       end;
@@ -337,6 +342,8 @@ begin
             FOnMenuAction(maHostGame, 'e1m1')
           else if Pos('Host Coop: e1m1', ItemText) = 1 then
             FOnMenuAction(maHostGame, 'coop:e1m1')
+          else if Pos('Host Deathmatch: random', ItemText) = 1 then
+            FOnMenuAction(maHostGame, RandomMapName(NewRandomMapSeed))
           else
             FOnMenuAction(maJoinGame, '127.0.0.1');
         end;
@@ -354,6 +361,8 @@ begin
             FOnMenuAction(maNewGame, 'quake')
           else if Pos('QuakeC', ItemText) = 1 then
             FOnMenuAction(maPlayQc, 'start')
+          else if Pos('Random Map', ItemText) = 1 then
+            FOnMenuAction(maWarpMap, 'maps/' + RandomMapName(NewRandomMapSeed) + '.bsp')
           else
             FOnMenuAction(maNewGame, 'librequake');
         end;

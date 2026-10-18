@@ -9,7 +9,7 @@ from PIL import Image, ImageStat
 
 out_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
 failed = False
-for name in ('websmoke_1.png', 'websmoke_2.png'):
+for name in ('websmoke_1.png', 'websmoke_2.png', 'websmoke_rnd.png'):
     path = os.path.join(out_dir, name)
     if not os.path.exists(path):
         print('FAIL %s is missing' % name)

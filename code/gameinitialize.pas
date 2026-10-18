@@ -10,7 +10,8 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient,
+  QuakeRandomMap;
 
 var
   Window: TCastleWindow;
@@ -274,6 +275,16 @@ begin
       CmdWarp := Parameters[I + 1];
       Inc(I);
     end else
+    if (Parameters[I] = '-randommap') or (Parameters[I] = '--randommap') then
+    begin
+      { -randommap [seed]: play maps/random<seed>.bsp (a new seed without one) }
+      if (I + 1 <= Parameters.High) and (StrToInt64Def(Parameters[I + 1], -1) >= 0) then
+      begin
+        CmdWarp := RandomMapName(LongWord(StrToInt64(Parameters[I + 1])));
+        Inc(I);
+      end else
+        CmdWarp := RandomMapName(NewRandomMapSeed);
+    end else
     if ((Parameters[I] = '-qc') or (Parameters[I] = '--qc')) and (I + 1 <= Parameters.High) then
     begin
       CmdQc := Parameters[I + 1];
@@ -496,6 +507,14 @@ begin
     log, the browser has no files) }
   if PageParameter('warp') <> '' then
     CmdWarp := PageParameter('warp');
+  { ?randommap=<seed> plays that random map, ?randommap=new a new one }
+  if PageParameter('randommap') <> '' then
+  begin
+    if StrToInt64Def(PageParameter('randommap'), -1) >= 0 then
+      CmdWarp := RandomMapName(LongWord(StrToInt64(PageParameter('randommap'))))
+    else
+      CmdWarp := RandomMapName(NewRandomMapSeed);
+  end;
   { ?touch=1 always shows the touch controls, ?touch=0 never; without it
     they appear at the first touch }
   if PageParameter('touch') = '1' then
