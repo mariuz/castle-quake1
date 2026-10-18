@@ -108,6 +108,11 @@ type
     FRecordUrl: String;
     FRecordMuzzle: Boolean;
     FRecordHud: TQuakeHud;
+    { Horde mode (quakeworld_horde.inc) }
+    FHordeMode, FHordeActive, FHordeFighting: Boolean;
+    FHordeWave, FHordeScore, FHordeToSpawn, FHordeAlive, FHordeMoves: Integer;
+    FHordeTimer, FHordeSpawnTimer: Single;
+    FHordeSpots: array of TVector3;
     FLockedTimer: Single;       { attack_finished of the last locked door message }
     procedure UpdateDebugOverlay;
     procedure BeginIntermissionView;
@@ -180,6 +185,13 @@ type
     procedure UpdateGibs(const SecondsPassed: Single);
     procedure PressButton(const Sub: TQuakeSubmodel);
     procedure SpawnEntities;
+    procedure StartHorde;
+    function HordeClass: String;
+    function HordeSpot(const Def: TMonsterDef; const AllowVisible: Boolean; out Spot: TVector3): Boolean;
+    function SpawnHordeMonster(const AClassName: String): Boolean;
+    procedure UpdateHorde(const SecondsPassed: Single);
+    procedure HordeKill(const M: TQuakeMonster);
+    function OwnsProjectile(const M: TQuakeMonster): Boolean;
     procedure UpdateWeaponModel;
     procedure ResetPlayerStats;
     procedure CheckPickups(const Hud: TQuakeHud);
@@ -300,6 +312,16 @@ type
     property IntermissionEye: TVector3 read FIntermissionEye;
     property IntermissionDir: TVector3 read FIntermissionDir;
     property Monsters: TQuakeMonsterList read FMonsters;
+    { Horde mode for the maps loaded from now on: waves of monsters instead
+      of the map's, no exits (set before LoadMap) }
+    property HordeMode: Boolean read FHordeMode write FHordeMode;
+    property HordeActive: Boolean read FHordeActive;
+    property HordeWave: Integer read FHordeWave;
+    property HordeScore: Integer read FHordeScore;
+    { The HUD line: wave, monsters left, score ('' outside horde mode) }
+    function HordeText: String;
+    { Cheat: every monster dies (console killall) }
+    procedure KillAllMonsters;
   public
     { Debug overlay over the level: trigger volumes, monster boxes and
       sight lines, mover bounds, the player's BSP leaf and box }
@@ -328,5 +350,6 @@ function SubmodelIsSolid(const Sub: TQuakeSubmodel): Boolean; forward;
 {$I world/quakeworld_weapons.inc}
 {$I world/quakeworld_map.inc}
 {$I world/quakeworld_pickups.inc}
+{$I world/quakeworld_horde.inc}
 
 end.

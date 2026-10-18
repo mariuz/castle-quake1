@@ -19,6 +19,8 @@ var
   AutoTestPrefix: String;
   AutoTestDemo: String;
   CmdWarp: String;
+  { -horde: waves of monsters on the map played }
+  CmdHorde: Boolean = False;
   CmdPaks: TStringList;
   CmdGame: String;
   CmdPlayDemo: String;
@@ -275,6 +277,9 @@ begin
       CmdWarp := Parameters[I + 1];
       Inc(I);
     end else
+    if (Parameters[I] = '-horde') or (Parameters[I] = '--horde') then
+      CmdHorde := True
+    else
     if (Parameters[I] = '-randommap') or (Parameters[I] = '--randommap') then
     begin
       { -randommap [seed]: play maps/random<seed>.bsp (a new seed without one) }
@@ -507,6 +512,9 @@ begin
     log, the browser has no files) }
   if PageParameter('warp') <> '' then
     CmdWarp := PageParameter('warp');
+  { ?horde=1: horde mode on the map }
+  if PageParameter('horde') = '1' then
+    CmdHorde := True;
   { ?randommap=<seed> plays that random map, ?randommap=new a new one }
   if PageParameter('randommap') <> '' then
   begin
@@ -550,6 +558,7 @@ begin
   { Create views }
   ViewMenu := TViewMenu.Create(Application);
   ViewPlay := TViewPlay.Create(Application);
+  ViewPlay.HordeMode := CmdHorde;
   ViewDemo := TViewDemo.Create(Application);
   ViewQc := TViewQc.Create(Application);
 

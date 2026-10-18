@@ -562,6 +562,24 @@ def check_access(logs):
     return result
 
 
+def check_horde(logs):
+    result = common_checks(logs, 'waves') + common_checks(logs, 'rndhorde')
+    w = logs['waves']
+    m = re.search(r'Horde on "e1m1": (\d+) spawn spots', w)
+    result.append((m is not None and int(m.group(1)) > 20, 'E1M1 has horde spawn spots (%s)' % (m.group(1) if m else 0)))
+    result.append(('Wave 1: 6 monsters' in w, 'wave 1 brings 6 monsters'))
+    m = re.search(r'Wave 1 cleared: score (\d+)', w)
+    result.append((m is not None and int(m.group(1)) >= 100, 'killing wave 1 clears it with a score (%s)' %
+                   (m.group(1) if m else '-')))
+    result.append(('Wave 2: 8 monsters' in w, 'wave 2 follows with 8 monsters'))
+    v = views(w)
+    result.append((len(v) == 2 and v[1]['kills'] >= 6, 'the kills count the horde (%s)' %
+                   (v[1]['kills'] if len(v) == 2 else '-')))
+    result.append(('Wave 1:' in logs['rndhorde'] and 'Horde on "random42"' in logs['rndhorde'],
+                   'horde mode on a random map'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -682,6 +700,13 @@ SCENARIOS = [
                         ('off', ['--autotest', 'random42', '{out}/off', '--demo',
                                  'W:0.5,Y,G:-450;80;-768,A:180,X,W:2,Q'], 0)],
              check_access, ['pickup_1']),
+    # Horde mode: E1M1's monsters give way to waves (killall clears wave 1,
+    # wave 2 follows after the pause) and a random map plays it too
+    Scenario('horde', [('waves', ['-horde', '--autotest', 'e1m1', '{out}/waves', '--demo',
+                                  'W:0.5,Y,W:5,S,CMD:killall,W:8,S,Q'], 0),
+                       ('rndhorde', ['-horde', '--autotest', 'random42', '{out}/rndhorde', '--demo',
+                                     'W:0.5,Y,W:5,S,Q'], 0)],
+             check_horde, []),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

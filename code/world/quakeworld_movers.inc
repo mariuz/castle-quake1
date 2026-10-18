@@ -232,6 +232,9 @@ begin
 
     if Trig.EntityClassName = 'trigger_changelevel' then
     begin
+      { Horde mode has no way out }
+      if FHordeActive then
+        Continue;
       if not Pak.FileExists('maps/' + Trig.MapName + '.bsp') then
       begin
         { A portal to an episode these paks do not have (shareware) }
