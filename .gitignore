@@ -29,3 +29,5 @@ tests/quaketests.exe
 
 # Python bytecode of the test scripts
 __pycache__/
+*.apk
+*.aab

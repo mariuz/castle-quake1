@@ -44,6 +44,10 @@ function WebSocketUrl(const Host: String; const Port: Word): String;
   in a native build }
 function PageParameter(const Name: String): String;
 
+{ The page's devicePixelRatio (canvas pixels per CSS pixel; the engine
+  renders at the canvas's device pixels), 0 in a native build }
+function PageDevicePixelRatio: Single;
+
 implementation
 
 {$if defined(WASI)}
@@ -253,10 +257,20 @@ begin
     TJSObject(FSocket).InvokeJSNoResult('quakeClose', []);
 end;
 
+function PageDevicePixelRatio: Single;
+begin
+  Result := JSWindow.devicePixelRatio;
+end;
+
 {$else}
 
 { Native builds use UDP directly: the class exists so the code compiles,
   and never connects }
+
+function PageDevicePixelRatio: Single;
+begin
+  Result := 0;
+end;
 
 function PageParameter(const Name: String): String;
 begin

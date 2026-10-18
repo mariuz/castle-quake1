@@ -1,4 +1,4 @@
-# Native builds: Windows x86_64, Linux x86_64 and macOS x86_64 / aarch64 on GitHub's runners, with
+# Native builds: Windows x86_64, Linux x86_64, macOS x86_64 / aarch64 and Android (APK) on GitHub's runners, with
 # FPC and the CGE snapshot set up by castle-build-ci (like CGE's own template
 # castle-game/.github/workflows/build.yml). The CGE Docker image did the same,
 # but Docker Hub's unauthenticated pull rate limit on the shared runner IPs
@@ -183,10 +183,72 @@ jobs:
           path: "*-darwin-*.zip"
           if-no-files-found: error
 
+  # Android: an APK for arm64-v8a and armeabi-v7a. The CGE Docker image has
+  # the cross-compilers but Docker Hub's pull limit failed the runs, so FPC
+  # 3.2.2 comes from Ubuntu, the CGE build tool is built with it, and
+  # tools/android-fpc.sh builds ppcrossarm / ppcrossa64 from the same
+  # version's sources (cached) with GNU binutils and the NDK's libraries.
+  # Without a release key the build tool signs with the debug key (the APK
+  # installs by side-loading; a store upload needs a release key).
+  build-android:
+    name: Package Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FPC 3.2.2 and the ARM binutils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fpc binutils-arm-linux-gnueabi binutils-aarch64-linux-gnu
+          fpc -iV
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Castle Game Engine (built with that FPC)
+        timeout-minutes: 20
+        run: |
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine --install-fpc=false
+
+      - name: Android SDK packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "ndk;27.3.13750724" > /dev/null
+
+      - name: Cache the Android cross-compilers
+        uses: actions/cache@v4
+        with:
+          path: ~/android-fpc
+          key: android-fpc-${{ runner.os }}-3.2.2-${{ hashFiles('tools/android-fpc.sh') }}
+
+      - name: FPC cross-compilers for Android
+        run: tools/android-fpc.sh ~/android-fpc "$ANDROID_HOME/ndk/27.3.13750724"
+
+      - name: Package Android (APK)
+        run: |
+          source ~/android-fpc/env.sh
+          castle-engine package --target=android --mode=release --verbose
+          ls -l *.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: castle-quake1-android
+          path: "*-android*.apk"
+          if-no-files-found: error
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: [test, scenarios, build-linux, build-windows, build-macos]
+    needs: [test, scenarios, build-linux, build-windows, build-macos, build-android]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -206,4 +268,5 @@ jobs:
           files: |
             packages/*.zip
             packages/*.tar.gz
+            packages/*.apk
           generate_release_notes: true

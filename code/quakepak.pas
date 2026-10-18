@@ -381,7 +381,10 @@ var
   MemStream: TMemoryStream;
   EndDir: TZipEndOfCentralDir;
   Central: TZipCentralHeader;
-  Pos, I, Count, Idx: Int64;
+  Pos, Count, Idx: Int64;
+  { An Integer: a 32-bit CPU (Android arm) has no Int64 for loops; the
+    entry count is 16-bit anyway }
+  I: Integer;
   Name: String;
   Entry: TQuakePakEntry;
   Base: PByte;

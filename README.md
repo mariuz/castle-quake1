@@ -5,7 +5,7 @@ A port of **Quake 1** to the [Castle Game Engine](https://castle-engine.io/) (Ob
 ![Rocket explosion in E1M1](docs/screenshots/rocket-explosion.jpg)
 
 - 🌐 **[Play in the browser (WebAssembly)](https://mariuz.github.io/castle-quake1/)**
-- 📦 **[Windows, Linux and macOS releases](https://github.com/mariuz/castle-quake1/releases)**
+- 📦 **[Windows, Linux, macOS and Android releases](https://github.com/mariuz/castle-quake1/releases)** (the Android APK is signed with a debug key: allow installing from unknown sources)
 - 📖 **[Architecture and engine mapping](docs/ARCHITECTURE.md)**
 - 🗺️ **[Quake 1 comparison and roadmap](docs/ROADMAP.md)**
 
@@ -83,7 +83,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | **F8** | Engine inspector (component tree, live properties) |
 | **F12** | Screenshot |
 | **~** | Developer console |
-| **Touch** | Move stick on the left (where the finger lands), drag on the right to look, FIRE / JUMP / USE / weapon / MENU buttons; on by themselves on touch screens and in the browser after the first touch (`-touch`, `?touch=1`) |
+| **Touch** | Move stick on the left (where the finger lands), drag on the right to look, FIRE / JUMP / USE / weapon / MENU buttons; on by themselves on touch screens and in the browser after the first touch (`-touch`, `?touch=1`), which also goes fullscreen in landscape; the HUD and menus scale with the phone's pixel density |
 | **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons; sensitivity, dead zone and inverted look in Options > Controls |
 
 Every key can be rebound in Options > Controls (saved in the user config).
@@ -144,7 +144,7 @@ The Options menu switches the world lighting between Quake's lightmaps and dynam
 
 ## Continuous Integration
 
-- `.github/workflows/build.yml`: Windows x86_64, Linux x86_64 and macOS x86_64 / aarch64 (app bundle zips) packages on GitHub's runners (FPC and the CGE snapshot set up by `castle-build-ci`). A tag `v*`, or a manual run with a `release_tag`, creates the GitHub Release with the packages.
+- `.github/workflows/build.yml`: Windows x86_64, Linux x86_64, macOS x86_64 / aarch64 (app bundle zips) and Android (APK, cross-compilers from `tools/android-fpc.sh`) packages on GitHub's runners (FPC and the CGE snapshot set up by `castle-build-ci`). A tag `v*`, or a manual run with a `release_tag`, creates the GitHub Release with the packages.
 - `.github/workflows/web.yml`: the WebAssembly build and the GitHub Pages deployment.
 
 ---
