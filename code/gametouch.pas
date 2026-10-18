@@ -10,7 +10,8 @@
   touch pointers by pointerId and keeps them from reaching the engine as
   mouse clicks while the controls are shown; the controls turn on by
   themselves at the first touch. The layout is the editor design
-  data/ui/touch.castle-user-interface, scaled with the window height. }
+  data/ui/touch.castle-user-interface, scaled to fit the design units
+  (portrait screens make it narrower). }
 unit GameTouch;
 
 {$mode objfpc}{$H+}
@@ -81,6 +82,9 @@ type
 var
   { -touch / -notouch, ?touch=1 / ?touch=0: on, off or by the device }
   TouchControlsMode: TTouchControlsMode = tcAuto;
+  { ?fullscreen=0: the first touch in the browser does not ask for
+    fullscreen and the landscape lock }
+  TouchFullscreen: Boolean = True;
   { A touch was seen (the web page) or the script used one }
   TouchSeen: Boolean;
 
@@ -95,6 +99,8 @@ uses
 const
   { The design is made for a 900 pixel high window }
   DesignHeight = 900;
+  { The width the stick, the right buttons and a gap between them need }
+  DesignMinWidth = 800;
   { Part of the move stick's radius that does nothing }
   MoveDeadZone = 0.12;
 
@@ -117,10 +123,16 @@ const
     pixels from the bottom left; while active it stops them there, so they
     are not mouse clicks too. Everything inside try / catch. }
   WebTouchHelperSource =
-    'var t = {}; var seen = 0; var active = 0;' +
+    'var t = {}; var seen = 0; var active = 0; var fs = 1;' +
+    { The first touch (a user gesture) asks for fullscreen and a landscape
+      lock, so the browser's bars do not take the phone's screen }
+    'function full() { try { fs = 0; var d = document.documentElement;' +
+    '  if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen().then(function () {' +
+    '    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); } catch (x) {}' +
+    '  }).catch(function () {}); } catch (x) {} }' +
     'function canvas() { return document.querySelector("canvas"); }' +
     'function rec(e, kind) {' +
-    '  try { if (e.pointerType !== "touch") return; seen = 1;' +
+    '  try { if (e.pointerType !== "touch") return; seen = 1; if (kind === 1 && fs) full();' +
     '    var c = canvas(); if (!c) return;' +
     '    if (kind === 2) { delete t[e.pointerId]; }' +
     '    else if (kind === 1 || t[e.pointerId]) {' +
@@ -137,6 +149,7 @@ const
     'return {' +
     '  poll: function () { var s = ""; try { for (var k in t) s += k + "," + t[k][0] + "," + t[k][1] + ";"; } catch (x) {} return s; },' +
     '  seen: function () { return seen; },' +
+    '  setFullscreen: function (a) { fs = a; return 1; },' +
     '  setActive: function (a) { active = a; try { var c = canvas(); if (c) c.style.touchAction = a ? "none" : ""; } catch (x) {} return 1; }' +
     '};';
 
@@ -156,6 +169,7 @@ begin
     FunctionClass.Free;
     JSWindow.WriteJSPropertyObject(WebTouchHelperName + 'Factory', Factory);
     WebTouchHelper := JSWindow.InvokeJSObjectResult(WebTouchHelperName + 'Factory', [], TJSObject);
+    WebTouchHelper.InvokeJSLongIntResult('setFullscreen', [Ord(TouchFullscreen and (TouchControlsMode <> tcOff))]);
   end;
   Result := WebTouchHelper;
 end;
@@ -229,9 +243,13 @@ end;
 procedure TQuakeTouchControls.Resize;
 begin
   inherited;
-  if (Container <> nil) and (Container.PixelsHeight > 0) then
+  { In design units (the container's UI scale, GameScreen, already follows
+    the screen's size and density): as tall as the design allows, narrow
+    enough that the stick and the right buttons do not meet (portrait) }
+  if (Container <> nil) and (Container.UnscaledHeight > 0) then
   begin
-    FScale := Max(0.5, Container.PixelsHeight / DesignHeight);
+    FScale := EnsureRange(Min(Container.UnscaledHeight / DesignHeight, Container.UnscaledWidth / DesignMinWidth),
+      0.55, 1.4);
     ApplyScale;
   end;
 end;

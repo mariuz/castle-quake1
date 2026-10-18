@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, QuakeWebSocketRelay, CastleInternalSoundFile;
+  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile;
 
 var
   Checks, Failures: Integer;
@@ -652,6 +652,20 @@ end;
 
 { FitzQuake's svc_skybox and svc_fog: the level's sky and fog in the
   signon and a change during the level, and a stuffed fog command }
+procedure TestUIScale;
+begin
+  StartTest('UI scale for the screen size and density (GameScreen)');
+  CheckNear(1.0, ComputeUIScale(1600, 900, 1), 0.001, 'a 1600 x 900 desktop window keeps the design size');
+  CheckNear(0.8, ComputeUIScale(1280, 720, 1), 0.001, 'a smaller desktop window encloses the design');
+  CheckNear(1.2, ComputeUIScale(1920, 1080, 1.5), 0.001, 'a 150% desktop: the enclosing scale is readable');
+  { A phone of 844 x 390 CSS pixels at devicePixelRatio 3 }
+  CheckNear(2.1, ComputeUIScale(2532, 1170, 3), 0.001, 'a landscape phone: readable text, not the 1.3 of enclosing');
+  CheckNear(1170 / 800, ComputeUIScale(1170, 2532, 3), 0.001, 'a portrait phone: capped by the width');
+  Check(1170 / ComputeUIScale(1170, 2532, 3) >= 799.9, 'a portrait phone keeps 800 design units across');
+  Check(1170 / ComputeUIScale(2532, 1170, 3) >= 479.9, 'a landscape phone keeps 480 design units high');
+  CheckNear(1.0, ComputeUIScale(0, 0, 3), 0.001, 'no window yet: 1');
+end;
+
 procedure TestDemoLargeCoords;
 var
   W: TQuakeDemoWriter;
@@ -979,6 +993,7 @@ begin
   TestDemoFitzQuake;
   TestDemoFogSkybox;
   TestDemoLargeCoords;
+  TestUIScale;
   TestBindings;
   TestWebSocket;
   TestSoundFiles;

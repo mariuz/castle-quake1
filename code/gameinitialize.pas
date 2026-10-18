@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, QuakeWebStorage, QuakeWebSocketClient;
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient;
 
 var
   Window: TCastleWindow;
@@ -330,6 +330,12 @@ begin
     if (Parameters[I] = '-notouch') or (Parameters[I] = '--notouch') then
       TouchControlsMode := tcOff
     else
+    if ((Parameters[I] = '-density') or (Parameters[I] = '--density')) and (I + 1 <= Parameters.High) then
+    begin
+      { Device pixels per density-independent pixel (a phone's layout on a desktop) }
+      ForcedDensity := StrToFloatDef(Parameters[I + 1], 0);
+      Inc(I);
+    end else
     if ((Parameters[I] = '-protocol') or (Parameters[I] = '--protocol')) and (I + 1 <= Parameters.High) then
     begin
       { 666: recorded demos and the network game always use FitzQuake,
@@ -394,6 +400,8 @@ begin
   TCastleContainer.InputInspector.PressFingers := 3;
 
   Window.Container.LoadSettings('castle-data:/CastleSettings.xml');
+  { The UI scale also follows the screen's density (phones), see GameScreen }
+  InstallUIScaleWatcher(Window.Container);
   { Quake's textures and lightmaps are not linear: no gamma correction, even
     for the physical materials of the dynamic world lighting }
   ColorSpace := csSRGB;
@@ -495,6 +503,8 @@ begin
   else
   if PageParameter('touch') = '0' then
     TouchControlsMode := tcOff;
+  if PageParameter('fullscreen') = '0' then
+    TouchFullscreen := False;
   if PageParameter('autotest') <> '' then
   begin
     AutoTestMap := PageParameter('autotest');

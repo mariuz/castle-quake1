@@ -491,6 +491,15 @@ def check_touch(logs):
         result.append((v[3]['ammo'] < v[2]['ammo'], 'the fire button fires (ammo %d -> %d)'
                        % (v[2]['ammo'], v[3]['ammo'])))
     result.append(('Touch TD 4' in log and 'buttons fire on' in log, 'the button touches are logged'))
+    # A portrait phone (1170 x 2532 at devicePixelRatio 3): the UI scale
+    # keeps 800 design units across and the stick still walks
+    phone = logs['phone']
+    result += common_checks(logs, 'phone')
+    result.append(('UI scale 1.46 for 1170 x 2532 pixels at density 3.00' in phone,
+                   'a portrait phone gets the UI scale 1.46 (800 design units across)'))
+    pv = views(phone)
+    result.append((len(pv) == 2 and pv[1]['eye'][1] - pv[0]['eye'][1] > 200,
+                   'the stick walks on the portrait phone (%s)' % ', '.join('%.0f' % p['eye'][1] for p in pv)))
     return result
 
 
@@ -594,10 +603,13 @@ SCENARIOS = [
     # E1M1 (touch_1 has a reference: the overlay over the start view), then
     # the menu button opens the menu
     Scenario('touch', [('touch', ['--autotest', 'e1m1', '{out}/touch', '--demo',
-                                  'W:0.5,Y,TD:1;0.15;0.2,TM:1;0.15;0.35,W:0.2,S,W:1.3,TU:1,W:0.3,S,'
+                                  'W:0.5,Y,TD:1;0.15;0.2,TM:1;0.15;0.35,S,W:1.5,TU:1,W:0.3,S,'
                                   'TD:2;0.7;0.5,TM:2;0.8;0.5,TU:2,W:0.2,S,TD:3;0.9125;0.1556,W:0.4,TU:3,W:0.5,S,'
-                                  'TD:4;0.97;0.95,W:0.3,TU:4,W:0.3,Q'], 0)],
-             check_touch, ['touch_1']),
+                                  'TD:4;0.97;0.95,W:0.3,TU:4,W:0.3,Q'], 0),
+                       ('phone', ['--geometry', '1170x2532', '-density', '3', '-touch', '--autotest', 'e1m1',
+                                  '{out}/phone', '--demo', 'W:0.5,Y,S,TD:1;0.2;0.12,TM:1;0.2;0.2,W:1.5,TU:1,W:0.2,S,Q'],
+                        0)],
+             check_touch, ['touch_1', 'phone_1']),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times
