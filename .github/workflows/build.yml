@@ -90,6 +90,54 @@ jobs:
           path: castle-engine-output/scenarios
           if-no-files-found: ignore
 
+  # Community maps from Quaddicted (BSP2 with colored light and fog, a large
+  # BSP29, another BSP2; fetched by URL and SHA-256, cached): culling must
+  # change no pixel, the PVS counts stay within tests/community_budgets.json,
+  # QuakeC spawns each level. Not a release gate: it depends on an outside
+  # host.
+  community-maps:
+    name: Community maps
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up FPC and Castle Game Engine
+        timeout-minutes: 20
+        run: |
+          cd /tmp/
+          git clone https://github.com/castle-engine/castle-build-ci.git \
+            --depth=1 --single-branch --branch=master
+          castle-build-ci/install_dependencies
+          castle-build-ci/setup_castle_engine
+
+      - name: Install a virtual display and Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libopenal1 python3-pil
+
+      - name: Cache the community map zips
+        uses: actions/cache@v4
+        with:
+          path: ~/community-maps
+          key: community-maps-${{ hashFiles('tests/community_maps.py') }}
+
+      - name: Build and play the community maps
+        run: |
+          castle-engine compile --mode=release --verbose
+          COMMUNITY_MAPS_CACHE="$HOME/community-maps" python3 tests/community_maps.py
+
+      - name: Upload the community map logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-maps
+          path: |
+            castle-engine-output/community/*.log
+            castle-engine-output/community/*.png
+            castle-engine-output/community/community.json
+          if-no-files-found: ignore
+
   build-linux:
     name: Package Linux
     runs-on: ubuntu-latest
