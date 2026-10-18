@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap;
+  QuakeRandomMap, QuakeCaptions;
 
 var
   Checks, Failures: Integer;
@@ -1138,6 +1138,62 @@ begin
   end;
 end;
 
+{ Captions: the table, the direction hint, merging repeats, the flash scale }
+procedure TestCaptions;
+var
+  C: TQuakeCaptions;
+  Lines: TStringArray;
+begin
+  StartTest('Captions');
+  CheckEqualsStr('Ogre wakes', SoundCaption('sound/ogre/ogwake.wav'), 'a monster sight sound');
+  CheckEqualsStr('Door moves', SoundCaption('sound/doors/drclos4.wav'), 'any door sound');
+  CheckEqualsStr('Secret found', SoundCaption('misc/secret.wav'), 'a path without sound/');
+  CheckEqualsStr('', SoundCaption('sound/weapons/guncock.wav'), 'the player''s shotgun has none');
+  CheckEqualsStr('', SoundCaption('sound/player/pain1.wav'), 'the player''s pain has none');
+
+  { The view at the origin looking along -Z (Quake +Y): +X is right }
+  Check(CaptionDirection(TVector3.Zero, Vector3(0, 0, -1), Vector3(0, 0, -500)) = cdAhead, 'ahead');
+  Check(CaptionDirection(TVector3.Zero, Vector3(0, 0, -1), Vector3(0, 0, 500)) = cdBehind, 'behind');
+  Check(CaptionDirection(TVector3.Zero, Vector3(0, 0, -1), Vector3(500, 0, 0)) = cdRight, 'right');
+  Check(CaptionDirection(TVector3.Zero, Vector3(0, 0, -1), Vector3(-500, 100, 0)) = cdLeft, 'left (height ignored)');
+  Check(CaptionDirection(TVector3.Zero, Vector3(1, 0, 0), Vector3(0, 0, 500)) = cdRight,
+    'looking along +X, +Z is on the right');
+  Check(CaptionDirection(TVector3.Zero, Vector3(0, 0, -1), Vector3(10, 0, 20)) = cdNone, 'too close for a hint');
+
+  C := TQuakeCaptions.Create;
+  try
+    C.SetListener(TVector3.Zero, Vector3(0, 0, -1));
+    C.Add('sound/weapons/guncock.wav', False, TVector3.Zero);
+    CheckEquals(0, C.Count, 'no caption for an uncaptioned sound');
+    C.Add('sound/ogre/ogwake.wav', True, Vector3(-400, 0, 0));
+    C.Add('sound/doors/doormv1.wav', True, Vector3(0, 0, -400));
+    C.Add('sound/doors/drclos4.wav', True, Vector3(0, 0, -400));
+    CheckEquals(2, C.Count, 'a door''s two sounds are one caption');
+    Lines := C.Text.Split([LineEnding]);
+    CheckEquals(2, Length(Lines), 'two lines');
+    if Length(Lines) = 2 then
+    begin
+      CheckEqualsStr('< Ogre wakes', Lines[0], 'left hint');
+      CheckEqualsStr('^ Door moves ^', Lines[1], 'ahead hint');
+    end;
+    C.Add('sound/items/armor1.wav', False, TVector3.Zero);
+    C.Add('sound/weapons/pkup.wav', False, TVector3.Zero);
+    C.Add('sound/weapons/lock4.wav', False, TVector3.Zero);
+    CheckEquals(MaxCaptions, C.Count, 'at most MaxCaptions');
+    Check(Pos('Ogre', C.Text) = 0, 'the oldest went first');
+    C.Update(CaptionDuration + 0.1);
+    CheckEquals(0, C.Count, 'captions go away');
+  finally
+    C.Free;
+  end;
+
+  ReducedFlashes := False;
+  CheckNear(1, FlashScale, 1e-6, 'full flashes');
+  ReducedFlashes := True;
+  Check((FlashScale < 0.5) and (FlashLimit <= 50), 'reduced flashes');
+  ReducedFlashes := False;
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -1180,6 +1236,7 @@ begin
   TestGamepad;
   TestVideo;
   TestRandomMap;
+  TestCaptions;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

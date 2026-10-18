@@ -173,6 +173,11 @@ Player dimensions:
 
 ---
 
+### Captions and accessibility (QuakeCaptions)
+
+- `TQuakeSounds.OnCaption` is called for every `Play` / `PlayAt`, before the check for a sound device, so captions work with the sound off and in every view. `QuakeCaptions` installs `Captions.HandleSound` there in its initialization; `SoundCaption` looks the path up in `CaptionTable` (a file, or a directory prefix like `sound/doors/`), and a positional sound gets a direction from the camera that `ApplyVideoSettings` passes each frame (`CaptionDirection`, CGE coordinates seen from above: forward -Z, right +X).
+- `TQuakeHud.Update` ages the captions and shows them in the design's `CaptionsPanel` / `CaptionsLabel`; `ApplyContrast` recolors the status bar, titles, stats, message and captions when `HighContrastHud` changes. `DamageFlash` and `BonusFlash` scale by `FlashScale` and stop at `FlashLimit` (`ReducedFlashes`). `GameVideo` loads and saves the three options under `access/`.
+
 ## 9. QuakeWorld & Combat Simulation
 
 - Layout: `code/quakeworld.pas` holds the `TQuakeWorld` declaration and includes its implementation from `code/world/quakeworld_*.inc`, one file per subsystem: `game` (construction, new game, respawn, intermission, `Update`), `map` (entity spawning, `LoadMap`), `player` (water rules, movement, damage, use, cheats), `weapons` (view model, traces, bullets, projectiles, explosions, gibs), `monsters` (`TWorldMonsterEnv`, steps, sight, noise, monster attacks), `movers` (submodels, targets, buttons, doors, lifts, triggers), `pickups`, `save`, `record` and `debug`. The pieces share the class's private state, so they are include files rather than units; the standalone helpers in them (`SaveStats`, `VelocityForDamage`, `ProjectileAttacker`, `SubmodelIsSolid`) have no world dependency.

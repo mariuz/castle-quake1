@@ -25,6 +25,50 @@
       "VerticalAnchorSelf": "vpTop"
     },
     {
+      "$$ClassName": "TCastleRectangleControl",
+      "Name": "CaptionsPanel",
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.0,
+        "Green": 0.0,
+        "Blue": 0.0,
+        "Alpha": 0.7
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "AutoSizeToChildren": true,
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 96
+      },
+      "Exists": false,
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "CaptionsLabel",
+          "Text": [
+            ""
+          ],
+          "Alignment": "hpMiddle",
+          "PaddingHorizontal": 16,
+          "PaddingVertical": 8,
+          "FontSize": 26,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1.0,
+            "Green": 1.0,
+            "Blue": 1.0
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpBottom",
+          "VerticalAnchorSelf": "vpBottom"
+        }
+      ]
+    },
+    {
       "$$ClassName": "TCastleLabel",
       "Name": "StatsLabel",
       "Text": [

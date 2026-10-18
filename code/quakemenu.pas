@@ -57,7 +57,7 @@ type
 implementation
 
 uses
-  QuakeRandomMap;
+  QuakeRandomMap, QuakeCaptions;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -269,6 +269,9 @@ begin
           FItems.Add('Show Weapon: [ON]')
         else
           FItems.Add('Show Weapon: [OFF]');
+        FItems.Add('Captions: [' + BoolToStr(CaptionsEnabled, 'ON', 'OFF') + ']');
+        FItems.Add('High Contrast HUD: [' + BoolToStr(HighContrastHud, 'ON', 'OFF') + ']');
+        FItems.Add('Reduced Flashes: [' + BoolToStr(ReducedFlashes, 'ON', 'OFF') + ']');
         FItems.Add('Controls');
         FItems.Add('Back to Main Menu');
       end;
@@ -416,26 +419,30 @@ begin
             RebuildMenuItems;
             FSelectedIdx := 3;
           end;
-        4, 5, 6, 7:
+        4, 5, 6, 7, 8, 9, 10:
           begin
-            { Video options, applied by the views each frame and saved }
+            { Video and accessibility options, applied by the views each
+              frame and saved }
             case FSelectedIdx of
               4: VideoFov := NextInCycle(VideoFov, [75, 90, 100, 110, 120]);
               5: VideoGamma := NextInCycle(VideoGamma, [0.6, 0.7, 0.8, 0.9, 1.0, 1.2]);
               6: if ViewBob > 0 then ViewBob := 0 else ViewBob := DefaultViewBob;
               7: ShowWeapon := not ShowWeapon;
+              8: CaptionsEnabled := not CaptionsEnabled;
+              9: HighContrastHud := not HighContrastHud;
+              10: ReducedFlashes := not ReducedFlashes;
             end;
             SaveVideoSettings;
             Selected := FSelectedIdx;
             RebuildMenuItems;
             FSelectedIdx := Selected;
           end;
-        8:
+        11:
           begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        9:
+        12:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;
@@ -474,7 +481,7 @@ begin
         begin
           FSubMenu := smOptions;
           RebuildMenuItems;
-          FSelectedIdx := 8;
+          FSelectedIdx := 11;
           Exit;
         end;
         if (FSelectedIdx > N) and (FSelectedIdx <= N + 4) then
