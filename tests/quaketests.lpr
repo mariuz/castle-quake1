@@ -8,10 +8,11 @@ program quaketests;
 {$mode objfpc}{$H+}
 
 uses
-  SysUtils, Classes, Math,
+  SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile;
+  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
+  QuakeRandomMap;
 
 var
   Checks, Failures: Integer;
@@ -958,6 +959,185 @@ begin
   CheckEqualsStr('s3pPLMBiTxaQ9kYGzzhZRbK+xOo=', WebSocketAcceptKey(' dGhlIHNhbXBsZSBub25jZQ== '), 'key with spaces');
 end;
 
+{ Random maps: the same seed gives the same bytes, the map loads, every
+  room is reachable on the grid and the exit by walking the player hull,
+  and the entities stand in open space }
+procedure TestRandomMap;
+const
+  Seeds: array[0..4] of LongWord = (1, 7, 42, 1234, 99999);
+var
+  SeedIdx, I, D, Head, Steps: Integer;
+  Seed: LongWord;
+  Donor, A, B, LitA, LitB: TMemoryStream;
+  InfoA, InfoB: TRandomMapInfo;
+  Bsp: TQuakeBsp;
+  Ent, ExitEnt, Start: TQuakeEntity;
+  CName: String;
+  Hull, Contents: Integer;
+  T: TQuakeTrace;
+  Queue: array of TVector3;
+  Seen: specialize TDictionary<Int64, Boolean>;
+  P, Up, Moved, Down: TVector3;
+  ExitReached: Boolean;
+  FirstBytes: TBytes;
+const
+  DX: array[0..3] of Single = (32, -32, 0, 0);
+  DY: array[0..3] of Single = (0, 0, 32, -32);
+
+  function Key(const V: TVector3): Int64;
+  begin
+    Result := (Int64(Round(V.X / 16) + 10000) shl 32) or (Int64(Round(V.Y / 16) + 10000) shl 16) or
+      (Round(V.Z / 8) + 10000);
+  end;
+
+begin
+  StartTest('Random maps');
+  Donor := Pak.GetStream('maps/start.bsp');
+  Seen := specialize TDictionary<Int64, Boolean>.Create;
+  try
+    Check(Donor <> nil, 'the shareware start.bsp gives the textures');
+    for SeedIdx := 0 to High(Seeds) do
+    begin
+      Seed := Seeds[SeedIdx];
+      A := BuildRandomMap(Seed, Donor, LitA, InfoA);
+      B := BuildRandomMap(Seed, Donor, LitB, InfoB);
+      try
+        Check((A.Size = B.Size) and CompareMem(A.Memory, B.Memory, A.Size),
+          Format('seed %d: the same bytes twice', [Seed]));
+        Check((LitA.Size = LitB.Size) and CompareMem(LitA.Memory, LitB.Memory, LitA.Size),
+          Format('seed %d: the same .lit twice', [Seed]));
+        Check(InfoA.Rooms >= 3, Format('seed %d: %d rooms', [Seed, InfoA.Rooms]));
+        CheckEquals(InfoA.Rooms, InfoA.ReachableRooms, Format('seed %d: rooms reachable on the grid', [Seed]));
+        Check(InfoA.Monsters > 0, Format('seed %d: monsters', [Seed]));
+        Check(InfoA.Faces > 50, Format('seed %d: %d faces', [Seed, InfoA.Faces]));
+        if SeedIdx = 0 then
+        begin
+          SetLength(FirstBytes, A.Size);
+          Move(A.Memory^, FirstBytes[0], A.Size);
+        end else
+          Check((A.Size <> Length(FirstBytes)) or not CompareMem(A.Memory, @FirstBytes[0], A.Size),
+            Format('seed %d differs from seed %d', [Seed, Seeds[0]]));
+      finally
+        A.Free;
+        B.Free;
+        LitA.Free;
+        LitB.Free;
+      end;
+
+      { Through the pak, like a warp or a changelevel }
+      Check(Pak.FileExists('maps/' + RandomMapName(Seed) + '.bsp'), Format('seed %d: in the pak', [Seed]));
+      Bsp := TQuakeBsp.Create;
+      try
+        Check(Bsp.LoadFromPak('maps/' + RandomMapName(Seed) + '.bsp'), Format('seed %d: loads', [Seed]));
+        Check(Bsp.LitData <> nil, Format('seed %d: colored lightmaps', [Seed]));
+        CheckEquals(2, Bsp.ModelCount, Format('seed %d: the world and the exit trigger', [Seed]));
+        Start := Bsp.FindEntity('info_player_start');
+        ExitEnt := Bsp.FindEntity('trigger_changelevel');
+        Check((Start <> nil) and (ExitEnt <> nil), Format('seed %d: a start and an exit', [Seed]));
+        if (Start = nil) or (ExitEnt = nil) or (Bsp.ModelCount < 2) then
+          Continue;
+        CheckEqualsStr(RandomMapName(Seed + 1), ExitEnt.GetField('map'), 'the exit leads to the next seed');
+        CheckEqualsStr('*1', ExitEnt.Model, 'the exit is model 1');
+
+        { The player stands on the floor at the start }
+        Check(Bsp.HullPointContents(1, Bsp.Models[0].HeadNodes[1], Start.Origin) = CONTENTS_EMPTY,
+          Format('seed %d: the start is open for the player hull', [Seed]));
+        T := Bsp.TraceHull(1, 0, TVector3.Zero, Start.Origin + Vector3(0, 0, 1), Start.Origin - Vector3(0, 0, 64));
+        Check(not T.StartSolid and (T.Fraction < 1) and (Abs(T.EndPos.Z - Start.Origin.Z) < 2),
+          Format('seed %d: the floor is under the start (%.1f)', [Seed, T.EndPos.Z]));
+        CheckEquals(CONTENTS_SOLID, Bsp.PointContents(Vector3(5000, 0, 0)), 'far outside is solid');
+
+        { Monsters in open space for their hull, items above the floor }
+        for Ent in Bsp.Entities do
+        begin
+          CName := Ent.ClassName;
+          if Pos('monster_', CName) = 1 then
+          begin
+            if (CName = 'monster_ogre') or (CName = 'monster_demon1') or (CName = 'monster_shambler') or
+               (CName = 'monster_shalrath') then
+              Hull := 2
+            else
+              Hull := 1;
+            Contents := Bsp.HullPointContents(Hull, Bsp.Models[0].HeadNodes[Hull], Ent.Origin);
+            Check(Contents = CONTENTS_EMPTY, Format('seed %d: %s at %s is open (%d)',
+              [Seed, CName, Ent.Origin.ToString, Contents]));
+          end else
+          if (Pos('item_', CName) = 1) or (Pos('weapon_', CName) = 1) then
+            Check(Bsp.PointContents(Ent.Origin + Vector3(16, 16, 8)) = CONTENTS_EMPTY,
+              Format('seed %d: %s at %s is open', [Seed, CName, Ent.Origin.ToString]));
+        end;
+
+        { Walk the player hull from the start in 32 unit steps, stepping up
+          18 units and falling down, until the exit box is reached }
+        Seen.Clear;
+        Queue := nil;
+        SetLength(Queue, 1);
+        Queue[0] := Start.Origin;
+        Seen.Add(Key(Start.Origin), True);
+        Head := 0;
+        Steps := 0;
+        ExitReached := False;
+        while (Head < Length(Queue)) and not ExitReached and (Steps < 20000) do
+        begin
+          P := Queue[Head];
+          Inc(Head);
+          Inc(Steps);
+          if (P.X + 16 > Bsp.Models[1].Mins.X) and (P.X - 16 < Bsp.Models[1].Maxs.X) and
+             (P.Y + 16 > Bsp.Models[1].Mins.Y) and (P.Y - 16 < Bsp.Models[1].Maxs.Y) and
+             (P.Z + 32 > Bsp.Models[1].Mins.Z) and (P.Z - 24 < Bsp.Models[1].Maxs.Z) then
+            ExitReached := True;
+          for D := 0 to 3 do
+          begin
+            Up := P + Vector3(0, 0, 18);
+            T := Bsp.TraceHull(1, 0, TVector3.Zero, P, Up);
+            Up := T.EndPos;
+            T := Bsp.TraceHull(1, 0, TVector3.Zero, Up, Up + Vector3(DX[D], DY[D], 0));
+            if T.Fraction < 1 then
+              Continue;
+            Moved := T.EndPos;
+            T := Bsp.TraceHull(1, 0, TVector3.Zero, Moved, Moved - Vector3(0, 0, 80));
+            if T.StartSolid or (T.Fraction >= 1) then
+              Continue;
+            Down := T.EndPos;
+            if Seen.ContainsKey(Key(Down)) then
+              Continue;
+            Seen.Add(Key(Down), True);
+            SetLength(Queue, Length(Queue) + 1);
+            Queue[High(Queue)] := Down;
+          end;
+        end;
+        Check(ExitReached, Format('seed %d: the exit is reached walking the player hull (%d spots)',
+          [Seed, Length(Queue)]));
+      finally
+        Bsp.Free;
+      end;
+    end;
+
+    { No textures to take: generated ones }
+    A := BuildRandomMap(5, nil, LitA, InfoA);
+    try
+      Bsp := TQuakeBsp.Create;
+      try
+        Check(Bsp.LoadFromStream(A, 'maps/random5.bsp'), 'a map with generated textures loads');
+        Check(Pos('rnd_', InfoA.Textures) = 1, 'generated textures: ' + InfoA.Textures);
+      finally
+        Bsp.Free;
+      end;
+    finally
+      A.Free;
+      LitA.Free;
+    end;
+
+    Check(ParseRandomMapName('random42', Seed) and (Seed = 42), 'random42 is seed 42');
+    Check(not ParseRandomMapName('randomx', Seed), 'randomx is no random map');
+    Check(not ParseRandomMapName('e1m1', Seed), 'e1m1 is no random map');
+    Check(not Pak.FileExists('maps/random.bsp'), 'random.bsp without a seed does not exist');
+  finally
+    Seen.Free;
+    Donor.Free;
+  end;
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -999,6 +1179,7 @@ begin
   TestSoundFiles;
   TestGamepad;
   TestVideo;
+  TestRandomMap;
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then

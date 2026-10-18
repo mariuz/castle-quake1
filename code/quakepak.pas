@@ -44,6 +44,10 @@ type
 
   TQuakePakEntryList = specialize TList<TQuakePakEntry>;
 
+  { Asked for a file no container has (a normalized path); True when it
+    added the file (QuakeRandomMap builds maps/random<seed>.bsp) }
+  TQuakePakMissingFileHook = function(const APath: String): Boolean;
+
   { Quake PAK archive manager. Supports stacking multiple PAK files
     (e.g. pak0.pak, pak1.pak) where later paks override earlier ones. }
   TQuakePak = class
@@ -58,7 +62,8 @@ type
     FPreferOriginal: Boolean;
     { Unpacked zip entries and loose files handed out by GetData }
     FDataCache: specialize TObjectDictionary<String, TMemoryStream>;
-    function FindEntryIndex(const APath: String): Integer;
+    FInMissingHook: Boolean;
+    function FindEntryIndex(const APath: String; const AllowHook: Boolean = True): Integer;
     function FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
     function AddContainer(const Name: String; const Stream: TMemoryStream; const Original: Boolean): Integer;
     procedure AddEntry(const Entry: TQuakePakEntry);
@@ -77,6 +82,10 @@ type
     { Add the loose files under a directory (maps/x.bsp, progs/y.mdl...),
       searched below the archives added after it. Returns the file count. }
     function AddDirectory(const Dir: String): Integer;
+
+    { Add a file made in memory (the pak owns Stream from now on), above
+      everything added before }
+    procedure AddMemoryFile(const APath: String; const Stream: TMemoryStream);
 
     { An original Quake pak (id1, shareware) provides this file }
     function OriginalFileExists(const APath: String): Boolean;
@@ -118,6 +127,7 @@ type
 
 var
   Pak: TQuakePak;
+  PakMissingFileHook: TQuakePakMissingFileHook = nil;
   { The -game directory in use ('' for id1 / the bundled paks; 'hipnotic',
     'rogue' or a mod), after its paks were loaded on top of id1 }
   GameDir: String;
@@ -342,7 +352,7 @@ var
 begin
   { A later container replaces the entry; the old one stays reachable for
     PreferOriginal }
-  ExistingIndex := FindEntryIndex(Entry.Path);
+  ExistingIndex := FindEntryIndex(Entry.Path, False);
   if ExistingIndex >= 0 then
   begin
     FShadowed.Add(FEntries[ExistingIndex]);
@@ -517,6 +527,19 @@ begin
       [Result, Root, FEntries.Count]);
 end;
 
+procedure TQuakePak.AddMemoryFile(const APath: String; const Stream: TMemoryStream);
+var
+  Entry: TQuakePakEntry;
+begin
+  Entry := Default(TQuakePakEntry);
+  Entry.Path := NormalizePath(APath);
+  Entry.Offset := 0;
+  Entry.Size := Stream.Size;
+  Entry.PakIndex := AddContainer(Entry.Path, Stream, False);
+  Entry.Kind := pekPak;
+  AddEntry(Entry);
+end;
+
 function TQuakePak.ReadEntry(const Entry: TQuakePakEntry): TMemoryStream;
 var
   Src: TMemoryStream;
@@ -588,16 +611,29 @@ begin
     Result.Position := 0;
 end;
 
-function TQuakePak.FindEntryIndex(const APath: String): Integer;
+function TQuakePak.FindEntryIndex(const APath: String; const AllowHook: Boolean): Integer;
 var
   Target: String;
   I: Integer;
+  Added: Boolean;
 begin
   Target := NormalizePath(APath);
   for I := FEntries.Count - 1 downto 0 do
     if FEntries[I].Path = Target then
       Exit(I);
   Result := -1;
+  if not AllowHook or FInMissingHook or not Assigned(PakMissingFileHook) then
+    Exit;
+  FInMissingHook := True;
+  try
+    Added := PakMissingFileHook(Target);
+  finally
+    FInMissingHook := False;
+  end;
+  if Added then
+    for I := FEntries.Count - 1 downto 0 do
+      if FEntries[I].Path = Target then
+        Exit(I);
 end;
 
 function TQuakePak.FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;

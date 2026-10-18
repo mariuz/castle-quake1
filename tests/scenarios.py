@@ -513,6 +513,45 @@ def check_quake_hub(logs):
     return result
 
 
+RANDOM_RE = re.compile(r'Random map (\d+): (\d+) rooms \((\d+) reachable\).*?start ([-\d]+ [-\d]+ [-\d]+), '
+                       r'exit ([-\d]+ [-\d]+ [-\d]+)')
+
+
+def check_randommap(logs):
+    log = logs['rnd']
+    result = common_checks(logs, 'rnd')
+    maps = {m.group(1): m for m in RANDOM_RE.finditer(log)}
+    m = maps.get('42')
+    result.append((m is not None, 'random42 is built'))
+    if m:
+        result.append((m.group(2) == m.group(3), 'every room is reachable (%s of %s)' % (m.group(3), m.group(2))))
+        # The demo script teleports to this exit: a generator change moves it
+        result.append((m.group(4) == '416 480 24' and m.group(5) == '-320 768 56',
+                       'the start and the exit of seed 42 (start %s, exit %s)' % (m.group(4), m.group(5))))
+    result.append(('Colored lightmaps from "maps/random42.lit"' in log, 'random42 has colored light'))
+    v = views(log)
+    result.append((len(v) == 4, 'four screenshots (got %d)' % len(v)))
+    if len(v) == 4:
+        result.append((v[0]['map'] == 'random42' and v[0]['eye'] == (416, 480, 46), 'starts at the start of random42'))
+        walked = ((v[1]['eye'][0] - v[0]['eye'][0]) ** 2 + (v[1]['eye'][1] - v[0]['eye'][1]) ** 2) ** 0.5
+        result.append((walked > 150, 'walked toward the exit (%.0f units)' % walked))
+        result.append((v[2]['intermission'], 'the exit pad starts the intermission'))
+        result.append((v[3]['map'] == 'random43' and not v[3]['intermission'], 'a button press loads random43'))
+    result.append(('43' in maps, 'random43 is built for the next level'))
+
+    result += common_checks(logs, 'rqc')
+    m = re.search(r'(\d+) edicts in use', logs['rqc'])
+    count = int(m.group(1)) if m else 0
+    result.append((count >= 40, 'progs.dat spawned random42 (%d edicts)' % count))
+
+    host = [x.group(0) for x in RANDOM_RE.finditer(logs['rhost'])]
+    client = [x.group(0) for x in RANDOM_RE.finditer(logs['rclient'])]
+    result += common_checks(logs, 'rhost') + common_checks(logs, 'rclient')
+    result.append((len(host) == 1 and host == client, 'the client builds the same random7 as the host'))
+    result.append(('signon 4' in logs['rclient'], 'the client joins the random map'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -610,6 +649,17 @@ SCENARIOS = [
                                   '{out}/phone', '--demo', 'W:0.5,Y,S,TD:1;0.2;0.12,TM:1;0.2;0.2,W:1.5,TU:1,W:0.2,S,Q'],
                         0)],
              check_touch, ['touch_1', 'phone_1']),
+    # A random map: the start view (reference), a walk, the exit pad of
+    # seed 42 (G: its coordinates), the tallies and random43; QuakeC spawns
+    # it; a client builds the host's random7 from the name alone
+    Scenario('randommap', [('rnd', ['--autotest', 'random42', '{out}/rnd', '--demo',
+                                    'W:0.5,Y,S,V:1;0;0,W:1,V:0;0;0,S,G:-320;80;-768,W:1.5,S,W:5,X,W:3,S,Q'], 0),
+                           ('rqc', ['--autotest', 'qc:random42', '{out}/rqc', '--demo', 'W:1,E,S,Q'], 0),
+                           ('rhost', ['--autotest', 'host:random7', '{out}/rhost', '--demo', 'W:16,S,Q',
+                                      '-port', '26310'], 0),
+                           ('rclient', ['--autotest', 'connect:127.0.0.1:26310', '{out}/rclient', '--demo',
+                                        'W:6,S,Q'], 4)],
+             check_randommap, ['rnd_1']),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times
