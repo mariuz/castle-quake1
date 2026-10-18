@@ -8,7 +8,8 @@
 // 2. Reloads the page: the files come back from localStorage and the save
 //    loads.
 // 3. ?game=quake plays the original content (id1 models and samples).
-// 4. A touch screen page: the first touch shows the touch controls, a drag
+// 4. A random map (random42) is built in the browser and played.
+// 5. A touch screen page: the first touch shows the touch controls, a drag
 //    on the move stick walks the player forward (between two screenshots
 //    the eye moves) and the touches do not reach the engine as clicks.
 // Fails (exit code 1) on a page error, a WebAssembly crash or a missing log
@@ -95,7 +96,14 @@ async function run(page, url, expected, seconds, shot) {
   ], 150, 'websmoke_3.png');
   report('the original Quake content loads (?game=quake)', third);
 
-  // 4. Touch: a tap shows the controls, a held drag on the move stick walks
+  // 4. A random map, built in memory in the browser
+  const fourth = await run(page, withParams(base, { autotest: 'random42', demo: 'W:3,S' }), [
+    /Random map 42: \d+ rooms/,
+    /View: map random42/,
+  ], 150, 'websmoke_rnd.png');
+  report('a random map is built and plays (random42)', fourth);
+
+  // 5. Touch: a tap shows the controls, a held drag on the move stick walks
   const touchPage = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
   const touchLines = [];
   const touchErrors = [];

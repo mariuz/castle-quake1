@@ -32,7 +32,7 @@ unit QuakeRandomMap;
 interface
 
 uses
-  Classes, SysUtils, Types, Math, Generics.Collections, Generics.Defaults, CastleVectors;
+  Classes, SysUtils, Types, Math, Generics.Collections, CastleVectors;
 
 type
   TRandomMapInfo = record
@@ -1631,7 +1631,7 @@ begin
   Result := -1;
 end;
 
-function CompareQuads(constref A, B: TQuad): Integer;
+function CompareQuads(const A, B: TQuad): Integer;
 begin
   Result := A.Node - B.Node;
   if Result = 0 then
@@ -1642,6 +1642,43 @@ begin
     Result := A.V - B.V;
   if Result = 0 then
     Result := A.U - B.U;
+end;
+
+{ Sorted by CompareQuads (a heap sort: the same result with every compiler) }
+procedure SortQuads(var Q: array of TQuad);
+
+  procedure SiftDown(Root, Last: Integer);
+  var
+    Child: Integer;
+    Tmp: TQuad;
+  begin
+    while 2 * Root + 1 <= Last do
+    begin
+      Child := 2 * Root + 1;
+      if (Child + 1 <= Last) and (CompareQuads(Q[Child], Q[Child + 1]) < 0) then
+        Inc(Child);
+      if CompareQuads(Q[Root], Q[Child]) >= 0 then
+        Exit;
+      Tmp := Q[Root];
+      Q[Root] := Q[Child];
+      Q[Child] := Tmp;
+      Root := Child;
+    end;
+  end;
+
+var
+  I: Integer;
+  Tmp: TQuad;
+begin
+  for I := (Length(Q) - 2) div 2 downto 0 do
+    SiftDown(I, High(Q));
+  for I := High(Q) downto 1 do
+  begin
+    Tmp := Q[0];
+    Q[0] := Q[I];
+    Q[I] := Tmp;
+    SiftDown(0, I - 1);
+  end;
 end;
 
 const
@@ -1736,7 +1773,7 @@ begin
           Inc(QuadCount);
         end;
   SetLength(Quads, QuadCount);
-  specialize TArrayHelper<TQuad>.Sort(Quads, specialize TComparer<TQuad>.Construct(@CompareQuads));
+  SortQuads(Quads);
 
   { Merge each node's quads of one side and texture into rectangles }
   SetLength(UsedQ, QuadCount);
