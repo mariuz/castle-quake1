@@ -14,6 +14,21 @@ uses
   QuakeBehaviors, QuakeDebug;
 
 type
+  { A moment of a run: the time in the level, the origin and the yaw
+    (Quake coordinates) }
+  TGhostSample = packed record
+    T, X, Y, Z, Yaw: Single;
+  end;
+
+var
+  { Show the level time to the hundredth and the split at the end
+    (Options, console speedrun) }
+  SpeedrunTimer: Boolean = False;
+  { Record the runs and show the map's best one as a ghost (Options,
+    console ghost) }
+  GhostRacing: Boolean = False;
+
+type
   { World simulation manager }
   TQuakeWorld = class
   private
@@ -113,6 +128,15 @@ type
     FHordeWave, FHordeScore, FHordeToSpawn, FHordeAlive, FHordeMoves: Integer;
     FHordeTimer, FHordeSpawnTimer: Single;
     FHordeSpots: array of TVector3;
+    { Speedrun timer and ghost racing (quakeworld_ghost.inc) }
+    FGhostRec, FGhostRun: array of TGhostSample;
+    FGhostRecTimer, FGhostBest, FGhostDelta, FGhostDeltaTime: Single;
+    FGhostRecValid, FRunFinished: Boolean;
+    FGhostNextCheck: Integer;
+    FGhostTransform: TCastleTransform;
+    FGhostScene: TCastleScene;
+    FGhostAnimator: TMdlAnimator;
+    FGhostRunSeq, FGhostStandSeq: TMdlSequence;
     FLockedTimer: Single;       { attack_finished of the last locked door message }
     procedure UpdateDebugOverlay;
     procedure BeginIntermissionView;
@@ -186,6 +210,11 @@ type
     procedure PressButton(const Sub: TQuakeSubmodel);
     procedure SpawnEntities;
     procedure StartHorde;
+    procedure FreeGhost;
+    procedure SetupGhost;
+    procedure UpdateGhostPose;
+    procedure UpdateGhost(const SecondsPassed: Single);
+    procedure FinishRun;
     function HordeClass: String;
     function HordeSpot(const Def: TMonsterDef; const AllowVisible: Boolean; out Spot: TVector3): Boolean;
     function SpawnHordeMonster(const AClassName: String): Boolean;
@@ -322,6 +351,11 @@ type
     function HordeText: String;
     { Cheat: every monster dies (console killall) }
     procedure KillAllMonsters;
+    { The HUD line of the speedrun timer and the ghost's split ('' when
+      neither shows) }
+    function SpeedrunText: String;
+    { Forget the map's best run (console ghost_reset) }
+    procedure ResetGhost;
   public
     { Debug overlay over the level: trigger volumes, monster boxes and
       sight lines, mover bounds, the player's BSP leaf and box }
@@ -333,6 +367,9 @@ type
   end;
 
 implementation
+
+uses
+  CastleDownload, CastleUriUtils, X3DNodes;
 
 const
   { Trace entity numbers of monsters: MonsterEntityBase - index in FMonsters }
@@ -351,5 +388,6 @@ function SubmodelIsSolid(const Sub: TQuakeSubmodel): Boolean; forward;
 {$I world/quakeworld_map.inc}
 {$I world/quakeworld_pickups.inc}
 {$I world/quakeworld_horde.inc}
+{$I world/quakeworld_ghost.inc}
 
 end.

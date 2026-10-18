@@ -322,6 +322,8 @@ begin
     ApplyEpisodeGates;
     UpdateSolids;
     UpdateWeaponModel;
+    { A loaded game is no run to race against }
+    FGhostRecValid := False;
     WritelnLog('QuakeWorld', 'Loaded game from "%s" (health %d, armor %d, shells %d, kills %d/%d, monsters %d)',
       [Url, FPlayerStats.Health, FPlayerStats.Armor, FPlayerStats.Shells, FPlayerStats.Kills,
        FPlayerStats.TotalKills, FMonsters.Count]);

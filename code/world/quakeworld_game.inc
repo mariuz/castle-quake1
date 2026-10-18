@@ -127,6 +127,7 @@ var
   Title: String;
 begin
   { execute_changelevel }
+  FinishRun;
   BeginIntermissionView;
   FIntermissionStage := 1;
   FIntermissionExitTime := FTime + 5;
@@ -522,6 +523,7 @@ begin
   end;
 
   UpdateHorde(SecondsPassed);
+  UpdateGhost(SecondsPassed);
 
   { Advance projectiles }
   UpdateProjectiles(SecondsPassed, Hud);

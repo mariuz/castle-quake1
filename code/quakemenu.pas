@@ -57,7 +57,7 @@ type
 implementation
 
 uses
-  QuakeRandomMap, QuakeCaptions;
+  QuakeRandomMap, QuakeCaptions, QuakeWorld;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -279,6 +279,8 @@ begin
         FItems.Add('Captions: [' + BoolToStr(CaptionsEnabled, 'ON', 'OFF') + ']');
         FItems.Add('High Contrast HUD: [' + BoolToStr(HighContrastHud, 'ON', 'OFF') + ']');
         FItems.Add('Reduced Flashes: [' + BoolToStr(ReducedFlashes, 'ON', 'OFF') + ']');
+        FItems.Add('Speedrun Timer: [' + BoolToStr(SpeedrunTimer, 'ON', 'OFF') + ']');
+        FItems.Add('Ghost of the Best Run: [' + BoolToStr(GhostRacing, 'ON', 'OFF') + ']');
         FItems.Add('Controls');
         FItems.Add('Back to Main Menu');
       end;
@@ -435,7 +437,7 @@ begin
             RebuildMenuItems;
             FSelectedIdx := 3;
           end;
-        4, 5, 6, 7, 8, 9, 10:
+        4, 5, 6, 7, 8, 9, 10, 11, 12:
           begin
             { Video and accessibility options, applied by the views each
               frame and saved }
@@ -447,18 +449,20 @@ begin
               8: CaptionsEnabled := not CaptionsEnabled;
               9: HighContrastHud := not HighContrastHud;
               10: ReducedFlashes := not ReducedFlashes;
+              11: SpeedrunTimer := not SpeedrunTimer;
+              12: GhostRacing := not GhostRacing;
             end;
             SaveVideoSettings;
             Selected := FSelectedIdx;
             RebuildMenuItems;
             FSelectedIdx := Selected;
           end;
-        11:
+        13:
           begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        12:
+        14:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;
@@ -497,7 +501,7 @@ begin
         begin
           FSubMenu := smOptions;
           RebuildMenuItems;
-          FSelectedIdx := 11;
+          FSelectedIdx := 13;
           Exit;
         end;
         if (FSelectedIdx > N) and (FSelectedIdx <= N + 4) then

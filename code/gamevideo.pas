@@ -49,7 +49,7 @@ procedure ApplyVideoSettings(const Viewport: TCastleViewport);
 implementation
 
 uses
-  CastleConfig, CastleLog, CastleUtils, QuakeCaptions;
+  CastleConfig, CastleLog, CastleUtils, QuakeCaptions, QuakeWorld;
 
 const
   GammaFragmentShader =
@@ -73,6 +73,8 @@ begin
   CaptionsEnabled := UserConfig.GetValue('access/captions', False);
   HighContrastHud := UserConfig.GetValue('access/hud_contrast', False);
   ReducedFlashes := UserConfig.GetValue('access/reduced_flashes', False);
+  SpeedrunTimer := UserConfig.GetValue('speedrun/timer', False);
+  GhostRacing := UserConfig.GetValue('speedrun/ghost', True);
 end;
 
 procedure SaveVideoSettings;
@@ -90,6 +92,8 @@ begin
     UserConfig.SetDeleteValue('access/captions', CaptionsEnabled, False);
     UserConfig.SetDeleteValue('access/hud_contrast', HighContrastHud, False);
     UserConfig.SetDeleteValue('access/reduced_flashes', ReducedFlashes, False);
+    UserConfig.SetDeleteValue('speedrun/timer', SpeedrunTimer, False);
+    UserConfig.SetDeleteValue('speedrun/ghost', GhostRacing, True);
     UserConfig.Save;
   except
     on E: Exception do
