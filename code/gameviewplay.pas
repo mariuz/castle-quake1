@@ -11,7 +11,7 @@ uses
   CastleViewport, CastleCameras, CastleTransform, CastleColors, CastleLog,
   CastleApplicationProperties, CastleImages, CastleWindow, CastleUtils, CastleTimeUtils,
   X3DNodes, X3DFields, CastleRenderOptions,
-  GameInput, GameVideo, GameTouch,
+  GameInput, GameVideo, GameTouch, QuakeCaptions,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
   QuakePhysics, QuakeSaveGame, QuakeDebug;
@@ -1125,6 +1125,22 @@ begin
       WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
     FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
   end else
+  if (Cmd = 'captions') or (Cmd = 'hud_contrast') or (Cmd = 'reduced_flashes') then
+  begin
+    { Accessibility options (saved like the Options menu ones) }
+    if Args <> '' then
+    begin
+      if Cmd = 'captions' then
+        CaptionsEnabled := (Args = '1') or (Args = 'on')
+      else if Cmd = 'hud_contrast' then
+        HighContrastHud := (Args = '1') or (Args = 'on')
+      else
+        ReducedFlashes := (Args = '1') or (Args = 'on');
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format('captions %d, hud_contrast %d, reduced_flashes %d',
+      [Ord(CaptionsEnabled), Ord(HighContrastHud), Ord(ReducedFlashes)]));
+  end else
   if (Cmd = 'fov') or (Cmd = 'gamma') or (Cmd = 'cl_bob') or (Cmd = 'r_drawviewmodel') then
   begin
     { Video options (saved like the Options menu ones); no argument shows them }
@@ -1255,6 +1271,7 @@ begin
     FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
     FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
     FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
+    FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
     FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
     FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
     FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');

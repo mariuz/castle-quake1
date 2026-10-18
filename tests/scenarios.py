@@ -552,6 +552,16 @@ def check_randommap(logs):
     return result
 
 
+def check_access(logs):
+    result = common_checks(logs, 'pickup') + common_checks(logs, 'monsters')
+    result.append(('Caption: Health' in logs['pickup'], 'the health box is captioned'))
+    hinted = re.findall(r'Caption: (.+) \((left|right|ahead|behind)\)', logs['monsters'])
+    result.append((len(hinted) >= 2, 'monsters waking are captioned with a direction (%s)' %
+                   ', '.join('%s %s' % h for h in hinted[:4])))
+    result.append(('Caption:' not in logs['off'], 'no captions when they are off'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -660,6 +670,18 @@ SCENARIOS = [
                            ('rclient', ['--autotest', 'connect:127.0.0.1:26310', '{out}/rclient', '--demo',
                                         'W:6,S,Q'], 4)],
              check_randommap, ['rnd_1']),
+    # Accessibility: captions and the high contrast HUD on E1M1's health box
+    # (pickup_1 has a reference: the caption panel and the black and yellow
+    # status bar), monsters waking in random42's exit room captioned with a
+    # direction, and no captions by default
+    Scenario('access', [('pickup', ['--autotest', 'e1m1', '{out}/pickup', '--demo',
+                                    'W:0.5,CMD:captions 1,CMD:hud_contrast 1,G:1392;-386;-824,W:0.5,'
+                                    'G:1300;-386;-690,A:75,P:-20,W:0.3,S,Q'], 0),
+                        ('monsters', ['--autotest', 'random42', '{out}/monsters', '--demo',
+                                      'W:0.5,CMD:captions 1,Y,G:-450;80;-768,A:180,X,W:2,S,Q'], 0),
+                        ('off', ['--autotest', 'random42', '{out}/off', '--demo',
+                                 'W:0.5,Y,G:-450;80;-768,A:180,X,W:2,Q'], 0)],
+             check_access, ['pickup_1']),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

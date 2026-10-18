@@ -48,6 +48,11 @@ type
     FStatsLabel: TCastleLabel;
     FArmorValue, FHealthValue, FAmmoValue, FKeysLabel: TCastleLabel;
     FStatusFrame, FAirBar, FAirFill: TCastleUserInterface;
+    FStatusBar: TCastleRectangleControl;
+    FTitles: array[0..2] of TCastleLabel;
+    FCaptionsPanel: TCastleUserInterface;
+    FCaptionsLabel: TCastleLabel;
+    FContrastApplied: Boolean;
     FMessageTimer: Single;
     FCrosshairVisible: Boolean;
     FStatsVisible: Boolean;
@@ -70,6 +75,7 @@ type
     FFinaleText: String;
     FFinaleClock: Single;
     function CalcBlend: TVector4;
+    procedure ApplyContrast;
   public
     { Demo recording: centerprints }
     OnMessage: procedure(const S: String) of object;
@@ -121,7 +127,7 @@ implementation
 
 uses
   CastleGLImages,
-  QuakeBsp, QuakeSound, QuakePics;
+  QuakeBsp, QuakeSound, QuakePics, QuakeCaptions;
 
 const
   { Seconds to count each tally }
@@ -157,6 +163,13 @@ begin
   FStatusFrame := FindRequiredComponent('StatusBarFrame') as TCastleUserInterface;
   FAirBar := FindRequiredComponent('AirBar') as TCastleUserInterface;
   FAirFill := FindRequiredComponent('AirFill') as TCastleUserInterface;
+  FStatusBar := FindRequiredComponent('StatusBar') as TCastleRectangleControl;
+  FTitles[0] := FindRequiredComponent('ArmorTitle') as TCastleLabel;
+  FTitles[1] := FindRequiredComponent('HealthTitle') as TCastleLabel;
+  FTitles[2] := FindRequiredComponent('AmmoTitle') as TCastleLabel;
+  FCaptionsPanel := FindRequiredComponent('CaptionsPanel') as TCastleUserInterface;
+  FCaptionsLabel := FindRequiredComponent('CaptionsLabel') as TCastleLabel;
+  FContrastApplied := False;
 
   FCrosshairVisible := True;
   FStatsVisible := True;
@@ -166,6 +179,34 @@ end;
 destructor TQuakeHud.Destroy;
 begin
   inherited Destroy;
+end;
+
+{ High contrast: an opaque black bar in a yellow frame, white titles and
+  stats, the message in pure yellow; off: the design's colors }
+procedure TQuakeHud.ApplyContrast;
+var
+  I: Integer;
+begin
+  FContrastApplied := HighContrastHud;
+  if HighContrastHud then
+  begin
+    (FStatusFrame as TCastleRectangleControl).Color := Vector4(1.0, 0.85, 0.0, 1.0);
+    FStatusBar.Color := Vector4(0, 0, 0, 1);
+    for I := 0 to High(FTitles) do
+      FTitles[I].Color := Vector4(1, 1, 1, 1);
+    FStatsLabel.Color := Vector4(1, 1, 1, 1);
+    FMessageLabel.Color := Vector4(1, 1, 0, 1);
+    FCaptionsLabel.Color := Vector4(1, 1, 0, 1);
+  end else
+  begin
+    (FStatusFrame as TCastleRectangleControl).Color := Vector4(0.22, 0.22, 0.26, 0.95);
+    FStatusBar.Color := Vector4(0.09, 0.09, 0.11, 0.92);
+    for I := 0 to High(FTitles) do
+      FTitles[I].Color := Vector4(0.65, 0.65, 0.7, 0.9);
+    FStatsLabel.Color := Vector4(0.8, 0.8, 0.8, 0.85);
+    FMessageLabel.Color := Vector4(1.0, 0.9, 0.2, 1.0);
+    FCaptionsLabel.Color := Vector4(1, 1, 1, 1);
+  end;
 end;
 
 procedure TQuakeHud.ShowMessage(const S: String; const Duration: Single);
@@ -181,7 +222,7 @@ var
   Count: Integer;
 begin
   Count := Max(Armor + Blood, 10);
-  FDamageShift.Percent := Min(150, FDamageShift.Percent + 3 * Count);
+  FDamageShift.Percent := Min(Min(150, FlashLimit), FDamageShift.Percent + 3 * Count * FlashScale);
   if Armor > Blood then
     FDamageShift.Dest := Vector3(200, 100, 100)
   else if Armor > 0 then
@@ -192,7 +233,7 @@ end;
 
 procedure TQuakeHud.BonusFlash;
 begin
-  FBonusShift := ColorShift(215, 186, 69, 50);
+  FBonusShift := ColorShift(215, 186, 69, Min(50 * FlashScale, FlashLimit));
 end;
 
 procedure TQuakeHud.SetContents(const Contents: Integer);
@@ -244,14 +285,22 @@ begin
   FAirBar.Exists := Stats.Underwater and not FIntermission;
   FAirFill.Width := 600 * EnsureRange(Stats.AirLeft / 12.0, 0, 1);
 
-  { The status bar values and their colors }
+  if FContrastApplied <> HighContrastHud then
+    ApplyContrast;
+
+  { The status bar values and their colors (high contrast: saturated, and
+    no dimmed zero) }
   FArmorValue.Caption := IntToStr(Max(0, Stats.Armor));
   if Stats.Armor > 100 then
     FArmorValue.Color := Vector4(1.0, 0.85, 0.1, 1.0)
   else if Stats.Armor > 0 then
     FArmorValue.Color := Vector4(0.35, 0.9, 0.35, 1.0)
+  else if HighContrastHud then
+    FArmorValue.Color := Vector4(1.0, 1.0, 1.0, 1.0)
   else
     FArmorValue.Color := Vector4(0.5, 0.5, 0.5, 0.7);
+  if HighContrastHud and (Stats.Armor > 0) and (Stats.Armor <= 100) then
+    FArmorValue.Color := Vector4(0.2, 1.0, 0.2, 1.0);
   FHealthValue.Caption := IntToStr(Max(0, Stats.Health));
   if Stats.Health > 100 then
     FHealthValue.Color := Vector4(0.4, 0.7, 1.0, 1.0)
@@ -259,6 +308,21 @@ begin
     FHealthValue.Color := Vector4(0.95, 0.95, 0.95, 1.0)
   else
     FHealthValue.Color := Vector4(1.0, 0.25, 0.25, 1.0);
+  if HighContrastHud then
+  begin
+    if Stats.Health > 100 then
+      FHealthValue.Color := Vector4(0.3, 0.8, 1.0, 1.0)
+    else if Stats.Health > 25 then
+      FHealthValue.Color := Vector4(1.0, 1.0, 1.0, 1.0)
+    else
+      FHealthValue.Color := Vector4(1.0, 0.1, 0.1, 1.0);
+  end;
+
+  { Captions of the sounds }
+  Captions.Update(SecondsPassed);
+  if Captions.TakeChanged then
+    FCaptionsLabel.Caption := Captions.Text;
+  FCaptionsPanel.Exists := CaptionsEnabled and (Captions.Count > 0) and not FIntermission;
   FAmmoValue.Caption := IntToStr(Max(0, Stats.Ammo));
   FKeysLabel.Caption := '';
   if (Stats.Keys and 1) <> 0 then

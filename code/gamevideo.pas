@@ -1,5 +1,7 @@
 { Video options: field of view, brightness, view bob and the view weapon,
-  saved in the user config and applied by the play, QuakeC and demo views. }
+  saved in the user config and applied by the play, QuakeC and demo views.
+  The accessibility options of QuakeCaptions (captions, high contrast HUD,
+  reduced flashes) are saved with them under access/. }
 unit GameVideo;
 
 {$mode objfpc}{$H+}
@@ -38,7 +40,8 @@ function VerticalFov: Single;
   -7 .. 4 units (0 without speed or with ViewBob 0) }
 function CalcViewBob(const Time: Single; const Velocity: TVector3): Single;
 
-{ Apply the field of view and the brightness to a viewport (each frame:
+{ Apply the field of view and the brightness to a viewport, and give the
+  captions the camera (each frame:
   only changes cost anything). The brightness is a screen effect added to
   the viewport once. }
 procedure ApplyVideoSettings(const Viewport: TCastleViewport);
@@ -46,7 +49,7 @@ procedure ApplyVideoSettings(const Viewport: TCastleViewport);
 implementation
 
 uses
-  CastleConfig, CastleLog, CastleUtils;
+  CastleConfig, CastleLog, CastleUtils, QuakeCaptions;
 
 const
   GammaFragmentShader =
@@ -67,6 +70,9 @@ begin
   VideoGamma := EnsureRange(UserConfig.GetFloat('video/gamma', DefaultGamma), 0.4, 1.5);
   ViewBob := EnsureRange(UserConfig.GetFloat('video/bob', DefaultViewBob), 0, 0.1);
   ShowWeapon := UserConfig.GetValue('video/show_weapon', True);
+  CaptionsEnabled := UserConfig.GetValue('access/captions', False);
+  HighContrastHud := UserConfig.GetValue('access/hud_contrast', False);
+  ReducedFlashes := UserConfig.GetValue('access/reduced_flashes', False);
 end;
 
 procedure SaveVideoSettings;
@@ -81,6 +87,9 @@ begin
     UserConfig.SetDeleteFloat('video/gamma', VideoGamma, DefaultGamma);
     UserConfig.SetDeleteFloat('video/bob', ViewBob, ViewBobDefault);
     UserConfig.SetDeleteValue('video/show_weapon', ShowWeapon, True);
+    UserConfig.SetDeleteValue('access/captions', CaptionsEnabled, False);
+    UserConfig.SetDeleteValue('access/hud_contrast', HighContrastHud, False);
+    UserConfig.SetDeleteValue('access/reduced_flashes', ReducedFlashes, False);
     UserConfig.Save;
   except
     on E: Exception do
@@ -127,6 +136,9 @@ var
 begin
   if Viewport = nil then
     Exit;
+  { Where the captions' directions are measured from }
+  if Viewport.Camera <> nil then
+    Captions.SetListener(Viewport.Camera.WorldTranslation, Viewport.Camera.WorldDirection);
   Fov := VerticalFov;
   if (Viewport.Camera.Perspective.FieldOfViewAxis <> faVertical) or
      not SameValue(Viewport.Camera.Perspective.FieldOfView, Fov, 1e-4) then

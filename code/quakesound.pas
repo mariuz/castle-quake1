@@ -27,6 +27,9 @@ type
     { Demo recording: every sound played (Spatial = False for Play) }
     OnPlay: procedure(const APath: String; const Spatial: Boolean; const ATransform: TCastleTransform;
       const Volume: Single) of object;
+    { Captions: every sound played, even with the sound off (Spatial with
+      the transform it plays at) }
+    OnCaption: procedure(const APath: String; const Spatial: Boolean; const ATransform: TCastleTransform) of object;
     function GetSound(const APath: String): TCastleSound;
   public
     constructor Create;
@@ -113,6 +116,8 @@ var
 begin
   if Assigned(OnPlay) then
     OnPlay(APath, False, nil, Volume);
+  if Assigned(OnCaption) then
+    OnCaption(APath, False, nil);
   if not FEnabled or (SoundEngine = nil) then
     Exit;
 
@@ -140,6 +145,8 @@ var
 begin
   if Assigned(OnPlay) and (ATransform <> nil) then
     OnPlay(APath, True, ATransform, Volume);
+  if Assigned(OnCaption) then
+    OnCaption(APath, ATransform <> nil, ATransform);
   if not FEnabled or (SoundEngine = nil) or (ATransform = nil) then
     Exit;
 
