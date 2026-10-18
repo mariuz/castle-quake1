@@ -1,0 +1,20 @@
+{
+  "tofaz": {"qc_edicts": 526, "spots": [
+    {"spot": "104;72;-40", "leaf": 10115, "clusters": 98, "shapes": 470, "entities": 113, "ms_average": 45.94, "ms_longest": 49.27},
+    {"spot": "-632;160;-2392", "leaf": 1329, "clusters": 191, "shapes": 692, "entities": 156, "ms_average": 121.93, "ms_longest": 329.31},
+    {"spot": "1368;-56;-1232", "leaf": 696, "clusters": 324, "shapes": 1215, "entities": 156, "ms_average": 68.65, "ms_longest": 84.86},
+    {"spot": "-422;32;1394", "leaf": 13214, "clusters": 121, "shapes": 601, "entities": 147, "ms_average": 26.84, "ms_longest": 36.67}
+  ]},
+  "digs08": {"qc_edicts": 599, "spots": [
+    {"spot": "707.924;80;1791.22", "leaf": 2812, "clusters": 170, "shapes": 702, "entities": 181, "ms_average": 71.61, "ms_longest": 110.48},
+    {"spot": "-2640;0;984", "leaf": 8202, "clusters": 120, "shapes": 558, "entities": 188, "ms_average": 29.0, "ms_longest": 65.88},
+    {"spot": "128;136;-1280", "leaf": 879, "clusters": 28, "shapes": 127, "entities": 157, "ms_average": 40.98, "ms_longest": 93.68},
+    {"spot": "-744;-2232;2800", "leaf": 8160, "clusters": 24, "shapes": 130, "entities": 156, "ms_average": 39.01, "ms_longest": 79.05}
+  ]},
+  "grim": {"qc_edicts": 572, "spots": [
+    {"spot": "672;-64;2848", "leaf": 4981, "clusters": 21, "shapes": 40, "entities": 30, "ms_average": 30.53, "ms_longest": 67.36},
+    {"spot": "744;104;-2152", "leaf": 996, "clusters": 117, "shapes": 350, "entities": 57, "ms_average": 34.9, "ms_longest": 73.97},
+    {"spot": "-432;392;296", "leaf": 2597, "clusters": 22, "shapes": 103, "entities": 36, "ms_average": 25.54, "ms_longest": 57.46},
+    {"spot": "1496;680;-88", "leaf": 1529, "clusters": 59, "shapes": 179, "entities": 65, "ms_average": 59.7, "ms_longest": 98.53}
+  ]}
+}
