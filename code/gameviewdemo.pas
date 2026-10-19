@@ -139,6 +139,8 @@ type
     HostMap: String;
     HostCoop: Boolean;
     HostSkill: Integer;
+    { Deathmatch bots the hosted game starts with (-bots N) }
+    HostBots: Integer;
     { Rendezvous (UDP hole punching): the host registers as RegisterName
       at RegisterHost:RegisterPort; a client with NetName set looks the
       name up at NetHost:NetPort instead of connecting there }
@@ -322,6 +324,8 @@ begin
         FDemo.Finished := True;
         Exit;
       end;
+      if HostBots > 0 then
+        ListenServer.AddBots(HostBots, HostSkill);
       if RegisterName <> '' then
         ListenServer.Net.RegisterAt(RegisterHost, RegisterPort, RegisterName);
       if WebSocketPort > 0 then

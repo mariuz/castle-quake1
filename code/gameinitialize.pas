@@ -21,6 +21,8 @@ var
   CmdWarp: String;
   { -horde: waves of monsters on the map played }
   CmdHorde: Boolean = False;
+  { -bots N: deathmatch bots in the hosted game }
+  CmdBots: Integer = 0;
   { -speedrun / -ghost: the timer / ghost racing on (over the user config) }
   CmdSpeedrun: Boolean = False;
   CmdGhost: Boolean = False;
@@ -278,6 +280,11 @@ begin
     if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
     begin
       CmdWarp := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-bots') or (Parameters[I] = '--bots')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdBots := StrToIntDef(Parameters[I + 1], 0);
       Inc(I);
     end else
     if (Parameters[I] = '-horde') or (Parameters[I] = '--horde') then
@@ -613,6 +620,7 @@ begin
     ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.HostSkill := CmdSkill;
+    ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
     SetRegistration(ViewDemo);
     ViewDemo.AutoTestPrefix := AutoTestPrefix;
@@ -637,6 +645,7 @@ begin
     ViewDemo.HostMap := CmdHost;
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.HostSkill := CmdSkill;
+    ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
     SetRegistration(ViewDemo);
     Window.Container.View := ViewDemo;

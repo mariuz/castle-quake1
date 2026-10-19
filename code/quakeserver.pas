@@ -14,13 +14,14 @@ interface
 uses
   SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleLog,
-  QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet;
+  QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots;
 
 type
   TQuakeServer = class
   private
     FGame: TQuakeQcGame;
     FNet: TQuakeNetServer;
+    FBots: TQuakeBots;
     FMapName: String;
     FSkill: Integer;
     FEvents: array[1..MaxNetClients] of TQuakeNetMessage;    { unreliable, this frame }
@@ -74,6 +75,10 @@ type
     function Valid: Boolean;
     { One server frame: the clients' input, the progs, the messages }
     procedure Update(const SecondsPassed: Single);
+    { Deathmatch bots: fake clients that play with the others; how many
+      joined (a slot is kept free for the host) }
+    function AddBots(const N: Integer; const ASkill: Integer = 1): Integer;
+    property Bots: TQuakeBots read FBots;
     property Game: TQuakeQcGame read FGame;
     property Net: TQuakeNetServer read FNet;
     property MapName: String read FMapName;
@@ -113,6 +118,7 @@ begin
     FReliable[I] := TQuakeNetMessage.Create;
   end;
   FGame := TQuakeQcGame.Create;
+  FBots := TQuakeBots.Create(FGame);
   FGame.MaxClients := EnsureRange(AMaxClients, 1, Min(MaxQcClients, MaxNetClients));
   if ACoop then
   begin
@@ -149,6 +155,7 @@ begin
   if FNet <> nil then
     FNet.Shutdown;
   FNet.Free;
+  FBots.Free;
   FGame.Free;
   for I := 1 to MaxNetClients do
   begin
@@ -591,6 +598,28 @@ begin
     end;
 end;
 
+function TQuakeServer.AddBots(const N: Integer; const ASkill: Integer): Integer;
+var
+  I, E, O: Integer;
+begin
+  Result := 0;
+  FBots.Skill := EnsureRange(ASkill, 0, 3);
+  for I := 1 to N do
+  begin
+    { Keep a slot for the host's own client }
+    if FBots.Count + 1 >= FGame.MaxClients then
+      Break;
+    E := FBots.Add;
+    if E = 0 then
+      Break;
+    FLastFrags[E] := 0;
+    for O := 1 to MaxNetClients do
+      if FNet.ClientActive(O) then
+        FReliable[O].UpdateName(E - 1, FGame.ClientName(E));
+    Inc(Result);
+  end;
+end;
+
 procedure TQuakeServer.Update(const SecondsPassed: Single);
 var
   C, E, I: Integer;
@@ -621,6 +650,7 @@ begin
       end;
     end;
 
+  FBots.Update(SecondsPassed);
   FGame.Frame(Min(SecondsPassed, 0.1));
   if FGame.LevelChange <> '' then
     ChangeLevel(FGame.LevelChange);
