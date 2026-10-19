@@ -867,8 +867,10 @@ SCENARIOS = [
                                     'W:0.3,Y,V:0.5;0;0,W:3,S,W:9,V:0;0;0,G:1312;-230;-544,W:1.5,S,Q'], 20)],
              check_speedrun, []),
     # Bots: a deathmatch host on E1M1 with three bots (navigation built from
-    # the map, items, fights, frags) and a network client joining them
-    Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,S,Q',
+    # the map, items, fights, frags) and a network client joining them; the
+    # idle host is their target and may be dead at the end, so it takes no
+    # screenshot
+    Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
                                  '-port', '26320'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
                                    'W:6,S,Q'], 5)],
