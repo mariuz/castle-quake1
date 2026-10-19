@@ -597,6 +597,27 @@ def check_speedrun(logs):
     return result
 
 
+def check_bots(logs):
+    result = common_checks(logs, 'bhost') + common_checks(logs, 'bclient')
+    h = logs['bhost']
+    m = re.search(r'Navigation of "e1m1": (\d+) spots, (\d+) links', h)
+    result.append((m is not None and int(m.group(1)) > 1000, 'E1M1 has bot navigation (%s spots)' %
+                   (m.group(1) if m else 0)))
+    joined = re.findall(r'Bot "(\w+)" joined as client', h)
+    result.append((len(joined) == 3, 'three bots join (%s)' % ', '.join(joined)))
+    result.append((re.search(r'Client \d+ connected', h) is not None, 'a network client joins with the bots'))
+    lines = re.findall(r'Bots: (.*)', h)
+    last = lines[-1] if lines else ''
+    moved = [float(x) for x in re.findall(r'([\d.]+) units', last)]
+    result.append((len(moved) == 3 and min(moved) > 1000, 'every bot walks the map (%s units)' %
+                   ', '.join('%.0f' % x for x in moved)))
+    frags = sum(int(x) for line in lines for x in re.findall(r'(-?\d+) frags', line))
+    result.append((frags != 0 or 'fighting' in ' '.join(lines), 'the bots fight (%d frags in the logs)' % frags))
+    shots = NET_SHOT_RE.findall(logs['bclient'])
+    result.append((len(shots) == 1 and shots[0][0] == '4', 'the client plays with the bots'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -733,6 +754,13 @@ SCENARIOS = [
                           ('run2', ['-speedrun', '-ghost', '--autotest', 'e1m1', '{out}/run2', '--demo',
                                     'W:0.3,Y,V:0.5;0;0,W:3,S,W:9,V:0;0;0,G:1312;-230;-544,W:1.5,S,Q'], 20)],
              check_speedrun, []),
+    # Bots: a deathmatch host on E1M1 with three bots (navigation built from
+    # the map, items, fights, frags) and a network client joining them
+    Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,S,Q',
+                                 '-port', '26320'], 0),
+                      ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
+                                   'W:6,S,Q'], 5)],
+             check_bots, []),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

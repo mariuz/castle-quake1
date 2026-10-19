@@ -204,6 +204,8 @@ begin
         FItems.Add('Host Deathmatch: e1m1 (port 26000)');
         FItems.Add('Host Coop: e1m1 (port 26000)');
         FItems.Add('Host Deathmatch: random map (port 26000)');
+        FItems.Add('Deathmatch vs 3 bots: start');
+        FItems.Add('Deathmatch vs 3 bots: e1m1');
         FItems.Add('Join: localhost');
         FItems.Add('Back to Main Menu');
       end;
@@ -354,6 +356,10 @@ begin
             FOnMenuAction(maHostGame, 'e1m1')
           else if Pos('Host Coop: e1m1', ItemText) = 1 then
             FOnMenuAction(maHostGame, 'coop:e1m1')
+          else if ItemText = 'Deathmatch vs 3 bots: start' then
+            FOnMenuAction(maHostGame, 'bots:start')
+          else if ItemText = 'Deathmatch vs 3 bots: e1m1' then
+            FOnMenuAction(maHostGame, 'bots:e1m1')
           else if Pos('Host Deathmatch: random', ItemText) = 1 then
             FOnMenuAction(maHostGame, RandomMapName(NewRandomMapSeed))
           else

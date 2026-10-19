@@ -270,6 +270,9 @@ type
     { An entity's box in world coordinates (origin + mins / maxs); False for a free edict }
     function EntityBox(const E: Integer; out AMins, AMaxs: TVector3): Boolean;
     function EntityModel(const E: Integer): String;
+    { Edicts in use (the bots look through them for items) }
+    function EdictCount: Integer;
+    function EntityClassName(const E: Integer): String;
     function EntityOrigin(const E: Integer): TVector3;
     function EntityAngles(const E: Integer): TVector3;
     function EntityFrame(const E: Integer): Integer;
@@ -1207,7 +1210,7 @@ var
   Yaw, Pitch: Single;
 begin
   { SV_RunClients for one player: input into the edict, PlayerPreThink,
-    the movement, PlayerPostThink }
+    the think, the movement, PlayerPostThink }
   FPhys := FClients[E].Phys;
   Yaw := FClients[E].Yaw;
   Pitch := FClients[E].Pitch;
@@ -1222,6 +1225,11 @@ begin
   if FFnPlayerPreThink > 0 then
     FProgs.CallWith(FFnPlayerPreThink, E);
   if FProgs.EdictFree(E) or not FClients[E].Active then
+    Exit;
+  { SV_Physics_Client: the player's own think (the animation frames: the
+    death frames end in DEAD_DEAD, which lets the player respawn, and the
+    nailguns fire from theirs) }
+  if not RunThink(E) then
     Exit;
 
   { Movement with the Quake player physics, unless the progs moved the
@@ -2012,6 +2020,21 @@ end;
 function TQuakeQcGame.EntityEffects(const E: Integer): Integer;
 begin
   Result := Round(FProgs.Field(E, FFEffects)^.F);
+end;
+
+function TQuakeQcGame.EdictCount: Integer;
+begin
+  if FProgs.Loaded then
+    Result := FProgs.NumEdicts
+  else
+    Result := 0;
+end;
+
+function TQuakeQcGame.EntityClassName(const E: Integer): String;
+begin
+  if not FProgs.Loaded or (E < 1) or (E >= FProgs.NumEdicts) or FProgs.EdictFree(E) then
+    Exit('');
+  Result := FProgs.FieldString(E, FFClassName);
 end;
 
 function TQuakeQcGame.EntityVisible(const E: Integer): Boolean;

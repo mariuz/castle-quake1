@@ -94,9 +94,15 @@ begin
         ViewDemo.NetPort := 0;
         ViewDemo.HostCoop := Pos('coop:', Param) = 1;
         ViewDemo.HostSkill := 1;
+        ViewDemo.HostBots := 0;
         if ViewDemo.HostCoop then
           ViewDemo.HostMap := Copy(Param, 6, MaxInt)
-        else
+        else if Pos('bots:', Param) = 1 then
+        begin
+          { bots:<map>: deathmatch against three bots }
+          ViewDemo.HostBots := 3;
+          ViewDemo.HostMap := Copy(Param, 6, MaxInt);
+        end else
           ViewDemo.HostMap := Param;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';
