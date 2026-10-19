@@ -120,6 +120,71 @@ def common_checks(logs, prefix):
 
 # Scenarios --------------------------------------------------------------------
 
+MAPBROWSER_PORT = 26340
+
+
+def prepare_mapbrowser(out_dir):
+    # A catalog of two "Quaddicted" releases served over HTTP from this
+    # process: qtest (E1M1 as qtest1 and, in BSP2, qtest2, in a qtest/
+    # folder of the zip mapped to id1/maps/) and qbad (the same zip with a
+    # wrong SHA-256, which must not install)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    import hashlib
+    import http.server
+    import threading
+    import zipfile
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    site = os.path.join(out_dir, 'site')
+    os.makedirs(site, exist_ok=True)
+    zip_path = os.path.join(site, 'qtest.zip')
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('qtest/', '')
+        z.writestr('qtest/qtest1.bsp', data)
+        z.writestr('qtest/qtest2.bsp', bsp2convert.convert(data, 'BSP2'))
+        z.writestr('qtest/qtest_readme.txt', 'A test release for the map browser scenario\n')
+    with open(zip_path, 'rb') as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    size = os.path.getsize(zip_path)
+    url = 'http://127.0.0.1:%d/qtest.zip' % MAPBROWSER_PORT
+    with open(os.path.join(out_dir, 'maps.txt'), 'w') as f:
+        f.write('# test catalog\n')
+        f.write('\t'.join(['qtest', digest, str(size), 'Test Release', 'Scenarios', '2026-10-19', '4.50',
+                           'small', 'lit,singleplayer', 'qtest1,qtest2', 'qtest/>id1/maps/', url]) + '\n')
+        f.write('\t'.join(['qbad', '0' * 64, str(size), 'Broken Download', 'Scenarios', '2026-10-18', '',
+                           'small', 'singleplayer', 'qtest1', 'qtest/>id1/maps/', url]) + '\n')
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=site, **kwargs)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', MAPBROWSER_PORT), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
+def check_mapbrowser(logs):
+    log = logs['browse']
+    result = common_checks(logs, 'browse')
+    result.append(('Map catalog' in log and ': 2 maps' in log, 'the test catalog is read'))
+    result.append(('qtest: Test Release by Scenarios (2026) 4.5/5' in log, 'maps lists the catalog by rating'))
+    result.append(('Map "qbad": SHA-256' in log and 'Map "qbad" installed' not in log,
+                   'a download with the wrong SHA-256 is not installed'))
+    result.append(('Map "qtest" is not installed' in log, 'an uninstalled map does not play'))
+    result.append(('Map "qtest" installed' in log, 'the download is checked and installed'))
+    result.append(('Loaded PK3' in log and 'quaddicted_qtest.zip' in log, 'the zip is mounted'))
+    v = views(log)
+    result.append((len(v) == 3 and v[0]['map'] == 'qtest1', 'its start map plays from the folder mapped to maps/'))
+    result.append((len(v) == 3 and v[1]['map'] == 'qtest2' and 'Loaded map "maps/qtest2.bsp" (BSP2)' in log,
+                   'its second map (BSP2) plays'))
+    result.append((len(v) == 3 and v[2]['map'] == 'qtest1', 'the menu walks to the map browser and plays it'))
+    result.append(('Map "qtest" removed' in log and log.rstrip().count('[installed]') == 1,
+                   'removing it leaves no installed map'))
+    return result
+
+
 def check_e1m1_finish(logs):
     v = views(logs['finish'])
     result = common_checks(logs, 'finish')
@@ -761,6 +826,20 @@ SCENARIOS = [
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
                                    'W:6,S,Q'], 5)],
              check_bots, []),
+    # Map browser: a test catalog served over HTTP, a download with a wrong
+    # SHA-256 refused, the good one installed, mounted with its folder
+    # mapped to maps/, both start maps played (the console, then the menu
+    # with the virtual gamepad) and the release removed
+    Scenario('mapbrowser', [('browse', ['-mapcatalog', '{out}/maps.txt', '--autotest', 'e1m1', '{out}/browse',
+                                        '--demo',
+                                        'W:0.5,CMD:maps_remove qtest,CMD:maps,CMD:maps_install qbad,W:2,'
+                                        'CMD:maps_play qtest,CMD:maps_install qtest,W:3,CMD:maps installed,'
+                                        'CMD:maps_play qtest,W:1.5,S,CMD:maps_play qtest qtest2,W:1.5,S,'
+                                        'TD:4;0.97;0.95,W:0.3,TU:4,W:0.3,GB:down,W:0.3,GB:down,W:0.3,GB:down,'
+                                        'W:0.3,GB:south,W:0.5,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.3,GB:down,'
+                                        'W:0.3,GB:down,W:0.3,GB:down,W:0.3,GB:south,W:1.5,S,'
+                                        'CMD:maps_remove qtest,CMD:maps installed,Q'], 0)],
+             check_mapbrowser, [], prepare=prepare_mapbrowser),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

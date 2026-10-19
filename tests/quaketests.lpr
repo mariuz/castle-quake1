@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap, QuakeCaptions;
+  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser;
 
 var
   Checks, Failures: Integer;
@@ -1194,6 +1194,67 @@ begin
   ReducedFlashes := False;
 end;
 
+{ Map browser: SHA-256 against the FIPS 180-2 vectors, zip paths moved by
+  a release's mapping, and the bundled catalog }
+procedure TestMapBrowser(const CatalogFile: String);
+var
+  S: AnsiString;
+  P: String;
+  B: TQuakeMapBrowser;
+  I: Integer;
+  List: specialize TArray<Integer>;
+  Sorted: Boolean;
+begin
+  StartTest('Map browser');
+  S := '';
+  CheckEqualsStr('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', Sha256Hex(PChar(S), 0),
+    'SHA-256 of nothing');
+  S := 'abc';
+  CheckEqualsStr('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', Sha256Hex(PChar(S), 3),
+    'SHA-256 of abc');
+  S := 'abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq';
+  CheckEqualsStr('248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1',
+    Sha256Hex(PChar(S), Length(S)), 'SHA-256 of 56 bytes (two padding blocks)');
+  S := StringOfChar('a', 1000000);
+  CheckEqualsStr('cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0',
+    Sha256Hex(PChar(S), Length(S)), 'SHA-256 of a million a');
+
+  Check(MapArchivePath('tofaz/>id1/maps/', 'tofaz/tofaz.bsp', P) and (P = 'maps/tofaz.bsp'), 'a folder to maps/');
+  Check(MapArchivePath('>id1/maps/', 'Digs08.BSP', P) and (P = 'maps/digs08.bsp'), 'the zip root to maps/, lowercase');
+  Check(MapArchivePath('tntmap01/>;tntmap01/tntmap01.txt>id1/maps/tntmap01.txt',
+    'tntmap01/id1/maps/snartroom.bsp', P) and (P = 'maps/snartroom.bsp'), 'a folder holding id1/');
+  Check(MapArchivePath('tntmap01/>;tntmap01/tntmap01.txt>id1/maps/tntmap01.txt', 'tntmap01/tntmap01.txt', P) and
+    (P = 'maps/tntmap01.txt'), 'the longest prefix wins');
+  Check(not MapArchivePath('tntmap01/>', 'tntmap01/Extra files/x.map', P), 'a path outside id1 is left out');
+  Check(not MapArchivePath('xl2/>id1/maps/', 'other/x.bsp', P), 'a path no prefix matches is left out');
+
+  MapCatalogOverride := CatalogFile;
+  B := TQuakeMapBrowser.Create;
+  try
+    Check(B.Count > 1000, Format('the bundled catalog lists Quaddicted''s maps (%d)', [B.Count]));
+    I := B.IndexOf('tofaz');
+    Check(I >= 0, 'tofaz is in the catalog');
+    if I >= 0 then
+    begin
+      CheckEqualsStr('85c31466dda028d264b89ce54d613dfd7383306db97dc2b94f95cfce2a8cb8dc', B[I].Sha256, 'its SHA-256');
+      CheckEqualsStr('tofaz', B[I].StartMaps[0], 'its start map');
+      CheckEqualsStr('tofaz/>id1/maps/', B[I].Mapping, 'its mapping');
+      Check(Pos('Temple of Azathoth by YukiRaven (2017) 5.0/5', B.Describe(I)) = 1, 'its line: ' + B.Describe(I));
+    end;
+    List := B.Sorted(msRating);
+    Sorted := Length(List) = B.Count;
+    for I := 1 to High(List) do
+      if B[List[I]].Rating > B[List[I - 1]].Rating then
+        Sorted := False;
+    Check(Sorted, 'sorted by rating, best first');
+    List := B.Sorted(msNewest, 'temple of azathoth');
+    Check((Length(List) >= 1) and (B[List[0]].Id = 'tofaz'), 'a filter finds a title');
+  finally
+    B.Free;
+    MapCatalogOverride := '';
+  end;
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -1237,6 +1298,8 @@ begin
   TestVideo;
   TestRandomMap;
   TestCaptions;
+  TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +
+    PathDelim + 'maps.txt'));
 
   WriteLn(Format('%d checks, %d failures', [Checks, Failures]));
   if Failures > 0 then
