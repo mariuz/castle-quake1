@@ -83,6 +83,8 @@ type
     FpsText: String;
     { Horde mode's wave, monsters left and score, first in the stats line }
     HordeText: String;
+    { The speedrun timer and the ghost's split, first in the stats line }
+    SpeedrunText: String;
   private
     procedure UpdateIntermission(const SecondsPassed: Single);
     procedure RenderIntermission;
@@ -358,6 +360,8 @@ begin
       [Stats.Kills, Stats.TotalKills, Stats.Secrets, Stats.TotalSecrets, Mins, Secs]);
     if HordeText <> '' then
       FStatsLabel.Caption := HordeText + '   ' + FStatsLabel.Caption;
+    if SpeedrunText <> '' then
+      FStatsLabel.Caption := SpeedrunText + '   ' + FStatsLabel.Caption;
     if FpsText <> '' then
       FStatsLabel.Caption := FStatsLabel.Caption + '   ' + FpsText;
   end else

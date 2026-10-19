@@ -382,6 +382,7 @@ begin
   FHordeActive := False;
   if FHordeMode then
     StartHorde;
+  SetupGhost;
 
   { Looping ambient sounds (ambient_*, torches, fluorescent lights) }
   FAmbient.Setup(FBsp, FRootTransform);

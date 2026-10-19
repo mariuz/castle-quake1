@@ -11,7 +11,7 @@ uses
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient,
-  QuakeRandomMap;
+  QuakeRandomMap, QuakeWorld;
 
 var
   Window: TCastleWindow;
@@ -21,6 +21,9 @@ var
   CmdWarp: String;
   { -horde: waves of monsters on the map played }
   CmdHorde: Boolean = False;
+  { -speedrun / -ghost: the timer / ghost racing on (over the user config) }
+  CmdSpeedrun: Boolean = False;
+  CmdGhost: Boolean = False;
   CmdPaks: TStringList;
   CmdGame: String;
   CmdPlayDemo: String;
@@ -279,6 +282,12 @@ begin
     end else
     if (Parameters[I] = '-horde') or (Parameters[I] = '--horde') then
       CmdHorde := True
+    else
+    if (Parameters[I] = '-speedrun') or (Parameters[I] = '--speedrun') then
+      CmdSpeedrun := True
+    else
+    if (Parameters[I] = '-ghost') or (Parameters[I] = '--ghost') then
+      CmdGhost := True
     else
     if (Parameters[I] = '-randommap') or (Parameters[I] = '--randommap') then
     begin
@@ -554,6 +563,10 @@ begin
     VideoSettingsVolatile := True
   else
     LoadVideoSettings;
+  if CmdSpeedrun then
+    SpeedrunTimer := True;
+  if CmdGhost then
+    GhostRacing := True;
 
   { Create views }
   ViewMenu := TViewMenu.Create(Application);

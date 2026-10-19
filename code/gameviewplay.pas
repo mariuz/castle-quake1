@@ -853,6 +853,7 @@ begin
   else
     FHud.FpsText := '';
   FHud.HordeText := FWorld.HordeText;
+  FHud.SpeedrunText := FWorld.SpeedrunText;
   if FWorld.HordeActive and FWorld.PlayerDead and not FHordeReported then
     ReportHorde;
 
@@ -1289,6 +1290,25 @@ begin
     FWorld.RespawnPlayer;
     LoadLevel(FMapName);
   end else
+  if (Cmd = 'speedrun') or (Cmd = 'ghost') then
+  begin
+    { speedrun [0|1]: the timer; ghost [0|1]: race the best run (from the
+      next map load; saved like the Options ones) }
+    if Args <> '' then
+    begin
+      if Cmd = 'speedrun' then
+        SpeedrunTimer := (Args = '1') or (Args = 'on')
+      else
+        GhostRacing := (Args = '1') or (Args = 'on');
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format('speedrun %d, ghost %d', [Ord(SpeedrunTimer), Ord(GhostRacing)]));
+  end else
+  if Cmd = 'ghost_reset' then
+  begin
+    FWorld.ResetGhost;
+    FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
+  end else
   if Cmd = 'killall' then
   begin
     FWorld.KillAllMonsters;
@@ -1331,6 +1351,7 @@ begin
     FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
     FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
     FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
+    FConsole.Print('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it');
     FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
     FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
     FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');

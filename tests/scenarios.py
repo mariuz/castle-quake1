@@ -580,6 +580,23 @@ def check_horde(logs):
     return result
 
 
+def check_speedrun(logs):
+    result = common_checks(logs, 'run1') + common_checks(logs, 'run2')
+    r1, r2 = logs['run1'], logs['run2']
+    m = re.search(r'Speedrun: e1m1 in (\d+):(\d+)\.(\d+) \(first run\)', r1)
+    result.append((m is not None, 'the first run is timed'))
+    result.append(('New best run of "e1m1" kept' in r1, 'the first run is kept as the ghost'))
+    result.append(('Ghost of "e1m1": best' in r2, 'the second run races the ghost'))
+    m = re.search(r'Checkpoint at \S+: ([-+]\d+\.\d+)', r2)
+    result.append((m is not None and float(m.group(1)) > 0, 'the slower run is behind at the checkpoint (%s)' %
+                   (m.group(1) if m else '-')))
+    m = re.search(r'Speedrun: e1m1 in \S+ \(best \S+, ([-+]\d+\.\d+)\)', r2)
+    result.append((m is not None and float(m.group(1)) > 0, 'the split at the end is behind the best (%s)' %
+                   (m.group(1) if m else '-')))
+    result.append(('New best run' not in r2, 'a slower run does not replace the ghost'))
+    return result
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -707,6 +724,15 @@ SCENARIOS = [
                        ('rndhorde', ['-horde', '--autotest', 'random42', '{out}/rndhorde', '--demo',
                                      'W:0.5,Y,W:5,S,Q'], 0)],
              check_horde, []),
+    # Speedrun timer and ghost: a first run on E1M1 (6 s forward, the exit)
+    # becomes the ghost, a second one at half speed races it: behind at the
+    # checkpoint and at the end, and not kept. The second starts after the
+    # first wrote castle-config:/ghost_e1m1.ghost
+    Scenario('speedrun', [('run1', ['-speedrun', '-ghost', '--autotest', 'e1m1', '{out}/run1', '--demo',
+                                    'W:0.3,CMD:ghost_reset,Y,V:1;0;0,W:6,V:0;0;0,G:1312;-230;-544,W:1.5,S,Q'], 0),
+                          ('run2', ['-speedrun', '-ghost', '--autotest', 'e1m1', '{out}/run2', '--demo',
+                                    'W:0.3,Y,V:0.5;0;0,W:3,S,W:9,V:0;0;0,G:1312;-230;-544,W:1.5,S,Q'], 20)],
+             check_speedrun, []),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

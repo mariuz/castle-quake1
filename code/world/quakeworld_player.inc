@@ -198,6 +198,7 @@ begin
     for I := 0 to High(FBeams[J].Segments) do
       FBeams[J].Segments[I].Free;
   StopRecording;
+  FreeGhost;
   FreeAndNil(FMonsterEnv);
   FreeAndNil(FLightningEvents);
   FreeAndNil(FWeaponAnim);
