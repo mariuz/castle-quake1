@@ -10,7 +10,7 @@ uses
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
   CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils, CastleComponentSerialize,
   CastleGameControllers,
-  QuakeSound, QuakePak, QuakeGeometry, GameInput, GameVideo;
+  QuakeSound, QuakePak, QuakeGeometry, QuakeMapBrowser, GameInput, GameVideo;
 
 type
   TMenuAction = (
@@ -24,7 +24,17 @@ type
   TQuakeMenu = class(TCastleUserInterface)
   private
     FSelectedIdx: Integer;
-    FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smControls, smShowcase);
+    FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smControls, smShowcase,
+      smBrowser, smBrowserMap);
+    { Map browser: the list's sort and page, the map shown, what each item
+      does (BrowserActions, parallel to FItems), a download to play when it
+      is done, the state the items were built for }
+    FBrowserSort: TMapSort;
+    FBrowserPage: Integer;
+    FBrowserMap: Integer;
+    FBrowserActions: TStringList;
+    FPlayAfterInstall: Integer;
+    FBrowserBuiltFor: String;
     FBindWaiting: Boolean; { Controls: the next key / button goes to FBindTarget }
     FBindTarget: TQuakeBinding;
     FDefaultHint: String;
@@ -42,6 +52,10 @@ type
     procedure RebuildMenuItems;
     procedure ExecuteSelection;
     procedure SyncDesign;
+    procedure BuildBrowserItems;
+    procedure BrowserAction(const Action: String);
+    function BrowserState: String;
+    procedure GoBack;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -57,7 +71,7 @@ type
 implementation
 
 uses
-  QuakeRandomMap, QuakeCaptions, QuakeWorld;
+  StrUtils, QuakeRandomMap, QuakeCaptions, QuakeWorld;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -65,6 +79,9 @@ begin
   FullSize := True;
   FItems := TStringList.Create;
   FDemoUrls := TStringList.Create;
+  FBrowserActions := TStringList.Create;
+  FBrowserMap := -1;
+  FPlayAfterInstall := -1;
   FSelectedIdx := 0;
   FSubMenu := smMain;
   FShadowsEnabled := False;
@@ -124,10 +141,18 @@ begin
     FHintLabel.Caption := 'Enter rebinds; the gamepad: left stick moves, right stick turns, A jumps, ' +
       'X uses, RB / right trigger fires, D-pad changes weapons'
   else
+  if (FSubMenu in [smBrowser, smBrowserMap]) and (MapBrowser.Status <> '') then
+    FHintLabel.Caption := MapBrowser.Status
+  else
+  if FSubMenu in [smBrowser, smBrowserMap] then
+    FHintLabel.Caption := Format('%d maps from Quaddicted: Enter shows one, Escape goes back', [MapBrowser.Count])
+  else
     FHintLabel.Caption := FDefaultHint;
 end;
 
 procedure TQuakeMenu.Update(const SecondsPassed: Single; var HandleInput: Boolean);
+var
+  N: Integer;
 begin
   inherited Update(SecondsPassed, HandleInput);
   { The gamepad walks the menu: D-pad, A selects, B goes back }
@@ -148,12 +173,27 @@ begin
       ExecuteSelection;
     if GamepadJustPressed(gbEast) and (FSubMenu <> smMain) then
     begin
-      if FSubMenu = smControls then
-        FSubMenu := smOptions
-      else
-        FSubMenu := smMain;
-      RebuildMenuItems;
+      GoBack;
       Sounds.Play('sound/misc/menu3.wav');
+    end;
+  end;
+  { Map browser: the download goes on; the items follow its state (and a
+    finished "download and play" plays) }
+  if Exists and (FSubMenu in [smBrowser, smBrowserMap]) then
+  begin
+    MapBrowser.Update;
+    if (FPlayAfterInstall >= 0) and not MapBrowser.Downloading then
+    begin
+      FBrowserMap := FPlayAfterInstall;
+      FPlayAfterInstall := -1;
+      if MapBrowser.Installed(FBrowserMap) then
+        BrowserAction('play:' + MapBrowser[FBrowserMap].StartMaps[0]);
+    end;
+    if BrowserState <> FBrowserBuiltFor then
+    begin
+      N := FSelectedIdx;
+      RebuildMenuItems;
+      FSelectedIdx := Min(N, FItems.Count - 1);
     end;
   end;
   SyncDesign;
@@ -163,6 +203,7 @@ destructor TQuakeMenu.Destroy;
 begin
   FItems.Free;
   FDemoUrls.Free;
+  FBrowserActions.Free;
   inherited Destroy;
 end;
 
@@ -180,6 +221,7 @@ begin
         FItems.Add('Single Player');
         FItems.Add('Multiplayer');
         FItems.Add('Map Warp');
+        FItems.Add('Map Browser');
         FItems.Add('Demos');
         FItems.Add('Options');
         FItems.Add('CGE Features Showcase');
@@ -304,8 +346,170 @@ begin
       begin
         FItems.Add('Back to Main Menu');
       end;
+    smBrowser, smBrowserMap:
+      BuildBrowserItems;
   end;
   FSelectedIdx := 0;
+end;
+
+const
+  BrowserPageSize = 10;
+  SortNames: array[TMapSort] of String = ('Rating', 'Newest', 'Name', 'Installed');
+
+{ What the browser's items show: rebuilt when it changes }
+function TQuakeMenu.BrowserState: String;
+var
+  Installed: Boolean;
+begin
+  Installed := (FBrowserMap >= 0) and MapBrowser.Installed(FBrowserMap);
+  Result := Format('%d %d %d %d %s %d', [Ord(FSubMenu), Ord(FBrowserSort), FBrowserPage, FBrowserMap,
+    BoolToStr(Installed, True), MapBrowser.DownloadingIndex]);
+  if MapBrowser.Downloading then
+    Result := Result + ' ' + IntToStr(Round(MapBrowser.Progress * 20));
+end;
+
+procedure TQuakeMenu.BuildBrowserItems;
+
+  procedure Add(const Caption, Action: String);
+  begin
+    FItems.Add(Caption);
+    FBrowserActions.Add(Action);
+  end;
+
+var
+  List: specialize TArray<Integer>;
+  Pages, I, J: Integer;
+  M: TCatalogMap;
+  Needs: String;
+begin
+  FBrowserActions.Clear;
+  if FSubMenu = smBrowser then
+  begin
+    List := MapBrowser.Sorted(FBrowserSort);
+    Pages := Max(1, (Length(List) + BrowserPageSize - 1) div BrowserPageSize);
+    FBrowserPage := EnsureRange(FBrowserPage, 0, Pages - 1);
+    Add(Format('Sort: [%s]  page %d of %d', [SortNames[FBrowserSort], FBrowserPage + 1, Pages]), 'sort');
+    for J := FBrowserPage * BrowserPageSize to Min(Length(List), (FBrowserPage + 1) * BrowserPageSize) - 1 do
+    begin
+      I := List[J];
+      if MapBrowser.Installed(I) then
+        Add('* ' + MapBrowser.Describe(I), 'map:' + IntToStr(I))
+      else
+        Add(MapBrowser.Describe(I), 'map:' + IntToStr(I));
+    end;
+    if Length(List) = 0 then
+      Add('(no maps installed yet)', '');
+    if FBrowserPage + 1 < Pages then
+      Add('Next page', 'next');
+    if FBrowserPage > 0 then
+      Add('Previous page', 'prev');
+    Add('Back to Main Menu', 'back');
+  end else
+  begin
+    M := MapBrowser[FBrowserMap];
+    Add(M.Title, '');
+    Add('by ' + M.Author + ', released ' + M.Date, '');
+    if M.Rating >= 0 then
+      Add(Format('Rating %.1f / 5, %s, %.1f MB', [M.Rating, M.Size, M.Bytes / (1024 * 1024)],
+        DefaultFormatSettings), '')
+    else
+      Add(Format('Not rated, %s, %.1f MB', [M.Size, M.Bytes / (1024 * 1024)], DefaultFormatSettings), '');
+    Needs := '';
+    if Pos('limits', M.Flags) > 0 then
+      Needs := 'raised engine limits';
+    if Pos('bsp2', M.Flags) > 0 then
+      Needs := Needs + IfThen(Needs <> '', ', ', '') + 'BSP2';
+    if Pos('lit', M.Flags) > 0 then
+      Needs := Needs + IfThen(Needs <> '', ', ', '') + 'colored light';
+    if Needs <> '' then
+      Add('Uses ' + Needs, '');
+    if MapBrowser.Installed(FBrowserMap) then
+    begin
+      for I := 0 to Min(High(M.StartMaps), 5) do
+        Add('Play: ' + M.StartMaps[I], 'play:' + M.StartMaps[I]);
+      Add('Remove', 'remove');
+    end else
+    if MapBrowser.DownloadingIndex = FBrowserMap then
+      Add(Format('Downloading: %d%%', [Round(MapBrowser.Progress * 100)]), '')
+    else
+      Add('Download and play', 'install');
+    Add('Back to the list', 'back');
+  end;
+  FBrowserBuiltFor := BrowserState;
+end;
+
+procedure TQuakeMenu.BrowserAction(const Action: String);
+var
+  Map: String;
+begin
+  if Action = '' then
+    Exit;
+  if Action = 'back' then
+    GoBack
+  else if Action = 'sort' then
+  begin
+    if FBrowserSort = High(TMapSort) then
+      FBrowserSort := Low(TMapSort)
+    else
+      FBrowserSort := Succ(FBrowserSort);
+    FBrowserPage := 0;
+    RebuildMenuItems;
+  end else
+  if Action = 'next' then
+  begin
+    Inc(FBrowserPage);
+    RebuildMenuItems;
+  end else
+  if Action = 'prev' then
+  begin
+    Dec(FBrowserPage);
+    RebuildMenuItems;
+  end else
+  if Pos('map:', Action) = 1 then
+  begin
+    FBrowserMap := StrToIntDef(Copy(Action, 5, MaxInt), -1);
+    if FBrowserMap >= 0 then
+    begin
+      FSubMenu := smBrowserMap;
+      RebuildMenuItems;
+    end;
+  end else
+  if Action = 'install' then
+  begin
+    if MapBrowser.Install(FBrowserMap) then
+      FPlayAfterInstall := FBrowserMap;
+    RebuildMenuItems;
+  end else
+  if Action = 'remove' then
+  begin
+    MapBrowser.Remove(FBrowserMap);
+    RebuildMenuItems;
+  end else
+  if Pos('play:', Action) = 1 then
+  begin
+    Map := Copy(Action, 6, MaxInt);
+    if MapBrowser.Mount(FBrowserMap) and Pak.FileExists('maps/' + Map + '.bsp') and Assigned(FOnMenuAction) then
+      FOnMenuAction(maWarpMap, 'maps/' + Map + '.bsp');
+  end;
+end;
+
+{ Escape, the gamepad's B and a click outside the items }
+procedure TQuakeMenu.GoBack;
+begin
+  case FSubMenu of
+    smControls:
+      begin
+        FSubMenu := smOptions;
+        RebuildMenuItems;
+        FSelectedIdx := 13;
+        Exit;
+      end;
+    smBrowserMap:
+      FSubMenu := smBrowser;
+    else
+      FSubMenu := smMain;
+  end;
+  RebuildMenuItems;
 end;
 
 { The value after Current in Values (the first one after the last) }
@@ -336,10 +540,11 @@ begin
         0: begin FSubMenu := smEpisodes; RebuildMenuItems; end;
         1: begin FSubMenu := smMultiplayer; RebuildMenuItems; end;
         2: begin FSubMenu := smMaps; RebuildMenuItems; end;
-        3: begin FSubMenu := smDemos; RebuildMenuItems; end;
-        4: begin FSubMenu := smOptions; RebuildMenuItems; end;
-        5: begin FSubMenu := smShowcase; RebuildMenuItems; end;
-        6: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+        3: begin FSubMenu := smBrowser; RebuildMenuItems; end;
+        4: begin FSubMenu := smDemos; RebuildMenuItems; end;
+        5: begin FSubMenu := smOptions; RebuildMenuItems; end;
+        6: begin FSubMenu := smShowcase; RebuildMenuItems; end;
+        7: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
       end;
     smMultiplayer:
       begin
@@ -520,6 +725,9 @@ begin
         FSubMenu := smMain;
         RebuildMenuItems;
       end;
+    smBrowser, smBrowserMap:
+      if FSelectedIdx < FBrowserActions.Count then
+        BrowserAction(FBrowserActions[FSelectedIdx]);
   end;
 end;
 
@@ -561,16 +769,7 @@ begin
         end;
     if FSubMenu = smMain then
       Exit(False);
-    if FSubMenu = smControls then
-    begin
-      FSubMenu := smOptions;
-      FSelectedIdx := 4;
-    end else
-    begin
-      FSubMenu := smMain;
-      FSelectedIdx := 0;
-    end;
-    RebuildMenuItems;
+    GoBack;
     Sounds.Play('sound/misc/menu3.wav');
     Exit(True);
   end;
@@ -595,23 +794,21 @@ begin
     Exit(True);
   end;
 
-  if Event.IsKey(keyEscape) then
+  if Event.IsKey(keyEscape) and (FSubMenu <> smMain) then
   begin
-    if FSubMenu = smControls then
-    begin
-      FSubMenu := smOptions;
-      RebuildMenuItems;
-      FSelectedIdx := 4;
-      Sounds.Play('sound/misc/menu3.wav');
-      Exit(True);
-    end;
-    if FSubMenu <> smMain then
-    begin
-      FSubMenu := smMain;
-      RebuildMenuItems;
-      Sounds.Play('sound/misc/menu3.wav');
-      Exit(True);
-    end;
+    GoBack;
+    Sounds.Play('sound/misc/menu3.wav');
+    Exit(True);
+  end;
+  { Map browser: left / right turn the pages }
+  if (FSubMenu = smBrowser) and (Event.IsKey(keyArrowRight) or Event.IsKey(keyArrowLeft)) then
+  begin
+    if Event.IsKey(keyArrowRight) and (FBrowserActions.IndexOf('next') >= 0) then
+      BrowserAction('next')
+    else if Event.IsKey(keyArrowLeft) and (FBrowserActions.IndexOf('prev') >= 0) then
+      BrowserAction('prev');
+    Sounds.Play('sound/misc/menu1.wav');
+    Exit(True);
   end;
 end;
 

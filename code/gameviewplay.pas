@@ -14,7 +14,7 @@ uses
   GameInput, GameVideo, GameTouch, QuakeCaptions, CastleConfig,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
-  QuakePhysics, QuakeSaveGame, QuakeDebug;
+  QuakePhysics, QuakeSaveGame, QuakeDebug, QuakeMapBrowser;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -96,6 +96,7 @@ type
 
     procedure LoadGameSlot(const Slot: String);
     procedure ReportHorde;
+    procedure MapBrowserCommand(const Cmd, Args: String);
     procedure SetCameraMode(const Mode: TCameraMode);
 
     property World: TQuakeWorld read FWorld;
@@ -369,6 +370,97 @@ end;
 
 { The horde ended with the player's death: the score against the best one
   of the map (user config horde/<map>/...) }
+{ The map browser from the console: maps lists, maps_install downloads (the
+  log says when it is installed), maps_play mounts and plays, maps_remove }
+procedure TViewPlay.MapBrowserCommand(const Cmd, Args: String);
+var
+  Words: TStringList;
+  Sort: TMapSort;
+  Filter, Line: String;
+  List: specialize TArray<Integer>;
+  I, Index: Integer;
+begin
+  Words := TStringList.Create;
+  try
+    Words.Delimiter := ' ';
+    Words.StrictDelimiter := True;
+    Words.DelimitedText := Trim(Args);
+    for I := Words.Count - 1 downto 0 do
+      if Words[I] = '' then
+        Words.Delete(I);
+    if Cmd = 'maps' then
+    begin
+      Sort := msRating;
+      Filter := '';
+      for I := 0 to Words.Count - 1 do
+        if SameText(Words[I], 'newest') then
+          Sort := msNewest
+        else if SameText(Words[I], 'name') then
+          Sort := msName
+        else if SameText(Words[I], 'installed') then
+          Sort := msInstalled
+        else if not SameText(Words[I], 'rating') then
+          Filter := Trim(Filter + ' ' + Words[I]);
+      List := MapBrowser.Sorted(Sort, Filter);
+      FConsole.Print(Format('%d maps (%s)', [Length(List), MapBrowser.CatalogUrl]));
+      WritelnLog('MapBrowser', '%d maps listed', [Length(List)]);
+      for I := 0 to Min(High(List), 9) do
+      begin
+        Line := MapBrowser[List[I]].Id + ': ' + MapBrowser.Describe(List[I]);
+        if MapBrowser.Installed(List[I]) then
+          Line := Line + ' [installed]';
+        FConsole.Print('  ' + Line);
+        WritelnLog('MapBrowser', '  %s', [Line]);
+      end;
+      Exit;
+    end;
+    if Words.Count = 0 then
+    begin
+      FConsole.Print('Usage: ' + Cmd + ' <id>');
+      Exit;
+    end;
+    Index := MapBrowser.IndexOf(Words[0]);
+    if Index < 0 then
+    begin
+      FConsole.Print('No map "' + Words[0] + '" in the catalog');
+      WritelnLog('MapBrowser', 'No map "%s" in the catalog', [Words[0]]);
+      Exit;
+    end;
+    if Cmd = 'maps_install' then
+    begin
+      MapBrowser.Install(Index);
+      FConsole.Print(MapBrowser.Status);
+    end else
+    if Cmd = 'maps_remove' then
+    begin
+      MapBrowser.Remove(Index);
+      FConsole.Print(MapBrowser.Status);
+    end else
+    begin
+      if not MapBrowser.Mount(Index) then
+      begin
+        FConsole.Print(MapBrowser[Index].Title + ' is not installed (maps_install ' + MapBrowser[Index].Id + ')');
+        WritelnLog('MapBrowser', 'Map "%s" is not installed', [MapBrowser[Index].Id]);
+        Exit;
+      end;
+      if Words.Count > 1 then
+        Line := LowerCase(Words[1])
+      else
+        Line := MapBrowser[Index].StartMaps[0];
+      if not Pak.FileExists('maps/' + Line + '.bsp') then
+      begin
+        FConsole.Print('No maps/' + Line + '.bsp in ' + MapBrowser[Index].Id);
+        Exit;
+      end;
+      FConsole.Close;
+      FWorld.NewGame;
+      LoadLevel('maps/' + Line + '.bsp');
+    end;
+  finally
+    Words.Free;
+  end;
+end;
+
 procedure TViewPlay.ReportHorde;
 var
   Key: String;
@@ -856,6 +948,9 @@ begin
   FHud.SpeedrunText := FWorld.SpeedrunText;
   if FWorld.HordeActive and FWorld.PlayerDead and not FHordeReported then
     ReportHorde;
+  { A map browser download started from the console goes on }
+  if MapBrowserCreated then
+    MapBrowser.Update;
 
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
@@ -1309,6 +1404,9 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
+  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') then
+    MapBrowserCommand(Cmd, Args)
+  else
   if Cmd = 'killall' then
   begin
     FWorld.KillAllMonsters;
@@ -1352,6 +1450,8 @@ begin
     FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
     FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
     FConsole.Print('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it');
+    FConsole.Print('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,');
+    FConsole.Print('    maps_play <id> [map], maps_remove <id> - download, play and remove one');
     FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
     FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
     FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');

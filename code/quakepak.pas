@@ -78,6 +78,9 @@ type
     { Add a .pk3 (zip) archive from a file or URL: stored and deflated
       entries. Returns true if successful. }
     function AddPk3(const AUrlOrFilename: String): Boolean;
+    { The same with the zip's paths moved by Mapping (MapArchivePath): a
+      map browser zip whose files land in id1/maps/ }
+    function AddPk3(const AUrlOrFilename, Mapping: String): Boolean;
 
     { Add the loose files under a directory (maps/x.bsp, progs/y.mdl...),
       searched below the archives added after it. Returns the file count. }
@@ -124,6 +127,12 @@ type
       original paks lack }
     property PreferOriginal: Boolean read FPreferOriginal write FPreferOriginal;
   end;
+
+{ Where a zip path lands in the game: Mapping is "from>to" pairs separated
+  by ';' (from a zip path prefix, to a Quake directory path like
+  'id1/maps/'), the longest matching prefix wins; True with the path in
+  the paks (relative to id1) when it lands in id1 }
+function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String): Boolean;
 
 var
   Pak: TQuakePak;
@@ -385,7 +394,56 @@ type
     NameLength, ExtraLength: Word;
   end;
 
+function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String): Boolean;
+var
+  Pairs: TStringList;
+  I, Sep, BestLen: Integer;
+  From, Target, BestTarget, Lower, Final: String;
+begin
+  Result := False;
+  PakPath := '';
+  Lower := LowerCase(ZipPath);
+  BestLen := -1;
+  BestTarget := '';
+  Pairs := TStringList.Create;
+  try
+    Pairs.Delimiter := ';';
+    Pairs.StrictDelimiter := True;
+    Pairs.DelimitedText := Mapping;
+    for I := 0 to Pairs.Count - 1 do
+    begin
+      Sep := Pos('>', Pairs[I]);
+      if Sep = 0 then
+        Continue;
+      From := LowerCase(Copy(Pairs[I], 1, Sep - 1));
+      Target := LowerCase(Copy(Pairs[I], Sep + 1, MaxInt));
+      if (Copy(Lower, 1, Length(From)) = From) and (Length(From) > BestLen) then
+      begin
+        BestLen := Length(From);
+        BestTarget := Target;
+      end;
+    end;
+  finally
+    Pairs.Free;
+  end;
+  if BestLen < 0 then
+    Exit;
+  Final := Copy(Lower, BestLen + 1, MaxInt);
+  if (BestTarget <> '') and (BestTarget[Length(BestTarget)] <> '/') and (Final <> '') then
+    BestTarget := BestTarget + '/';
+  Final := BestTarget + Final;
+  if Copy(Final, 1, 4) <> 'id1/' then
+    Exit;
+  PakPath := Copy(Final, 5, MaxInt);
+  Result := PakPath <> '';
+end;
+
 function TQuakePak.AddPk3(const AUrlOrFilename: String): Boolean;
+begin
+  Result := AddPk3(AUrlOrFilename, '');
+end;
+
+function TQuakePak.AddPk3(const AUrlOrFilename, Mapping: String): Boolean;
 var
   InStream: TStream;
   MemStream: TMemoryStream;
@@ -395,7 +453,7 @@ var
   { An Integer: a 32-bit CPU (Android arm) has no Int64 for loops; the
     entry count is 16-bit anyway }
   I: Integer;
-  Name: String;
+  Name, Mapped: String;
   Entry: TQuakePakEntry;
   Base: PByte;
 begin
@@ -458,6 +516,13 @@ begin
       WritelnWarning('QuakePak', 'PK3 "%s": "%s" uses compression method %d (only stored and deflated)',
         [AUrlOrFilename, Name, Central.Method]);
       Continue;
+    end;
+    if Mapping <> '' then
+    begin
+      { Only what lands in id1, at its place there }
+      if not MapArchivePath(Mapping, Name, Mapped) then
+        Continue;
+      Name := Mapped;
     end;
     Entry := Default(TQuakePakEntry);
     Entry.Path := NormalizePath(Name);

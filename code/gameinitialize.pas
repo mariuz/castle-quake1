@@ -11,7 +11,7 @@ uses
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient,
-  QuakeRandomMap, QuakeWorld;
+  QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
   Window: TCastleWindow;
@@ -285,6 +285,12 @@ begin
     if ((Parameters[I] = '-bots') or (Parameters[I] = '--bots')) and (I + 1 <= Parameters.High) then
     begin
       CmdBots := StrToIntDef(Parameters[I + 1], 0);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-mapcatalog') or (Parameters[I] = '--mapcatalog')) and (I + 1 <= Parameters.High) then
+    begin
+      { The map browser's catalog: a file or URL instead of the bundled one }
+      MapCatalogOverride := Parameters[I + 1];
       Inc(I);
     end else
     if (Parameters[I] = '-horde') or (Parameters[I] = '--horde') then
