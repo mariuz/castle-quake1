@@ -1,0 +1,73 @@
+{
+  "$$ClassName": "TCastleUserInterface",
+  "FullSize": true,
+  "Name": "PhotoDesign",
+  "$Children": [
+    {
+      "$$ClassName": "TCastleRectangleControl",
+      "Name": "PhotoPanel",
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.0,
+        "Green": 0.0,
+        "Blue": 0.0,
+        "Alpha": 0.6
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpBottom",
+      "VerticalAnchorSelf": "vpBottom",
+      "AutoSizeToChildren": true,
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": 24
+      },
+      "$Children": [
+        {
+          "$$ClassName": "TCastleLabel",
+          "Name": "PhotoLabel",
+          "Text": [
+            "PHOTO MODE"
+          ],
+          "Alignment": "hpMiddle",
+          "PaddingHorizontal": 16,
+          "PaddingVertical": 8,
+          "FontSize": 20,
+          "ColorPersistent": {
+            "$$ClassName": "TCastleColorPersistent",
+            "Red": 1.0,
+            "Green": 0.85,
+            "Blue": 0.15
+          },
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpBottom",
+          "VerticalAnchorSelf": "vpBottom"
+        }
+      ]
+    },
+    {
+      "$$ClassName": "TCastleLabel",
+      "Name": "PhotoStatusLabel",
+      "Text": [
+        ""
+      ],
+      "FontSize": 20,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 1.0,
+        "Green": 1.0,
+        "Blue": 1.0,
+        "Alpha": 0.9
+      },
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "Y": -24
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpTop",
+      "VerticalAnchorSelf": "vpTop"
+    }
+  ]
+}
