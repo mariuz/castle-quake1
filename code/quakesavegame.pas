@@ -36,27 +36,121 @@ type
     function LoadFromUrl(const Url: String): Boolean;
   end;
 
+  { What the load menu shows of a savegame }
+  TSaveGameInfo = record
+    Slot, Url, Map, Saved: String;
+    Skill, Health, Kills, TotalKills: Integer;
+    LevelTime: Single;
+  end;
+  TSaveGameInfoArray = array of TSaveGameInfo;
+
+{ The slot name kept to safe file name characters ('quick' when empty) }
+function SaveSlotName(const Slot: String): String;
 { URL of a savegame slot, e.g. 'quick' or 's0' }
 function SaveGameUrl(const Slot: String): String;
+{ URL of a slot's thumbnail (a small PNG of the view when it was saved) }
+function SaveThumbnailUrl(const Slot: String): String;
+{ The map, the date, skill, health, kills and level time of a savegame }
+function ReadSaveGameInfo(const Url: String; out Info: TSaveGameInfo): Boolean;
+{ The play view's savegames in the config directory (save_<slot>.sav, not
+  QuakeC mode's qc_save_*), the newest first }
+function ListSaveGames: TSaveGameInfoArray;
 
 implementation
+
+uses
+  CastleFindFiles, CastleUriUtils;
 
 var
   Fmt: TFormatSettings;
 
-function SaveGameUrl(const Slot: String): String;
+function SaveSlotName(const Slot: String): String;
 var
   I: Integer;
-  Name: String;
 begin
-  { Keep slot names to safe file name characters }
-  Name := '';
+  Result := '';
   for I := 1 to Length(Slot) do
     if Slot[I] in ['a'..'z', 'A'..'Z', '0'..'9', '_', '-'] then
-      Name := Name + Slot[I];
-  if Name = '' then
-    Name := 'quick';
-  Result := 'castle-config:/save_' + Name + '.sav';
+      Result := Result + Slot[I];
+  if Result = '' then
+    Result := 'quick';
+end;
+
+function SaveGameUrl(const Slot: String): String;
+begin
+  Result := 'castle-config:/save_' + SaveSlotName(Slot) + '.sav';
+end;
+
+function SaveThumbnailUrl(const Slot: String): String;
+begin
+  Result := 'castle-config:/save_' + SaveSlotName(Slot) + '.png';
+end;
+
+function ReadSaveGameInfo(const Url: String; out Info: TSaveGameInfo): Boolean;
+var
+  D: TQuakeSaveData;
+  Name: String;
+begin
+  Info := Default(TSaveGameInfo);
+  Result := False;
+  if UriExists(Url) <> ueFile then
+    Exit;
+  D := TQuakeSaveData.Create;
+  try
+    if not D.LoadFromUrl(Url) or not D.HasKey('map') then
+      Exit;
+    Info.Url := Url;
+    Name := ExtractUriName(Url);
+    { save_<slot>.sav }
+    Info.Slot := Copy(Name, 6, Length(Name) - 9);
+    Info.Map := D.GetStr('map');
+    Info.Saved := D.GetStr('saved');
+    Info.Skill := D.GetInt('skill', 1);
+    Info.Health := D.GetInt('stats.health');
+    Info.Kills := D.GetInt('stats.kills');
+    Info.TotalKills := D.GetInt('stats.totalkills');
+    Info.LevelTime := D.GetFloat('stats.leveltime');
+    Result := True;
+  finally
+    D.Free;
+  end;
+end;
+
+function ListSaveGames: TSaveGameInfoArray;
+var
+  Found: TFileInfoList;
+  I, J, N: Integer;
+  Info, T: TSaveGameInfo;
+begin
+  Result := nil;
+  N := 0;
+  if UriExists('castle-config:/') <> ueDirectory then
+    Exit;
+  Found := FindFilesList('castle-config:/', 'save_*.sav', False, []);
+  try
+    SetLength(Result, Found.Count);
+    for I := 0 to Found.Count - 1 do
+      if ReadSaveGameInfo(Found[I].Url, Info) then
+      begin
+        Result[N] := Info;
+        Inc(N);
+      end;
+  finally
+    Found.Free;
+  end;
+  SetLength(Result, N);
+  { The newest first (insertion sort: a handful of slots) }
+  for I := 1 to N - 1 do
+  begin
+    T := Result[I];
+    J := I;
+    while (J > 0) and (Result[J - 1].Saved < T.Saved) do
+    begin
+      Result[J] := Result[J - 1];
+      Dec(J);
+    end;
+    Result[J] := T;
+  end;
 end;
 
 constructor TQuakeSaveData.Create;

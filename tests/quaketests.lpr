@@ -1255,6 +1255,53 @@ begin
   end;
 end;
 
+{ Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestSaveList;
+var
+  D: TQuakeSaveData;
+  Info: TSaveGameInfo;
+  Saves: TSaveGameInfoArray;
+  I, A, B: Integer;
+begin
+  StartTest('Save list');
+  CheckEqualsStr('castle-config:/save_3.sav', SaveGameUrl('3'), 'the slot URL');
+  CheckEqualsStr('castle-config:/save_quick.png', SaveThumbnailUrl('../'), 'unsafe characters dropped');
+  for I := 1 to 2 do
+  begin
+    D := TQuakeSaveData.Create;
+    try
+      D.SetStr('map', 'e1m' + IntToStr(I));
+      D.SetStr('saved', '2026-10-2' + IntToStr(I) + ' 10:00:00');
+      D.SetInt('skill', 2);
+      D.SetInt('stats.health', 50 + I);
+      D.SetInt('stats.kills', I);
+      D.SetInt('stats.totalkills', 23);
+      D.SetFloat('stats.leveltime', 61.5);
+      Check(D.SaveToUrl(SaveGameUrl('unittest' + IntToStr(I))), 'a savegame is written');
+    finally
+      D.Free;
+    end;
+  end;
+  Check(ReadSaveGameInfo(SaveGameUrl('unittest1'), Info), 'its info is read');
+  CheckEqualsStr('unittest1', Info.Slot, 'the slot from the file name');
+  CheckEqualsStr('e1m1', Info.Map, 'the map');
+  CheckEquals(51, Info.Health, 'the health');
+  CheckEquals(2, Info.Skill, 'the skill');
+  CheckNear(61.5, Info.LevelTime, 0.01, 'the level time');
+  Check(not ReadSaveGameInfo(SaveGameUrl('nosuchslot'), Info), 'no info without a file');
+  Saves := ListSaveGames;
+  A := -1;
+  B := -1;
+  for I := 0 to High(Saves) do
+    if Saves[I].Slot = 'unittest1' then
+      A := I
+    else if Saves[I].Slot = 'unittest2' then
+      B := I;
+  Check((A >= 0) and (B >= 0) and (B < A), 'both are listed, the newer one first');
+  DeleteFile(UriToFilenameSafe(SaveGameUrl('unittest1')));
+  DeleteFile(UriToFilenameSafe(SaveGameUrl('unittest2')));
+end;
+
 { ---------------------------------------------------------------------- }
 
 var
@@ -1298,6 +1345,7 @@ begin
   TestVideo;
   TestRandomMap;
   TestCaptions;
+  TestSaveList;
   TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +
     PathDelim + 'maps.txt'));
 

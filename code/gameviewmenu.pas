@@ -71,6 +71,13 @@ begin
         ViewPlay.MapName := Map;
         Container.View := ViewPlay;
       end;
+    maLoadGame:
+      begin
+        { The play view starts from the savegame }
+        ViewPlay.HordeMode := False;
+        ViewPlay.LoadSlot := Param;
+        Container.View := ViewPlay;
+      end;
     maPlayQc:
       begin
         ViewQc.MapName := Param;

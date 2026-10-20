@@ -52,7 +52,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Speedrun timer and ghost racing: finish a level and your best run comes back as a translucent ghost to race, with splits at checkpoints and at the end (`-speedrun`, Options or the console's `speedrun` / `ghost`).
 - Map browser: Main Menu > Map Browser lists 1200 community maps from [Quaddicted](https://www.quaddicted.com/) with their ratings, downloads one (checked by SHA-256) and plays it; installed maps can be removed again. Also from the console: `maps`, `maps_install <id>`, `maps_play <id>`, `maps_remove <id>`.
 - Accessibility: captions for the sounds that matter (monsters waking and attacking, doors, lifts, secrets, pickups) with a hint of where they came from, a high contrast HUD and reduced damage and pickup flashes, in Options or the console (`captions`, `hud_contrast`, `reduced_flashes`).
-- Save and load (F6 / F9, console `save` / `load`), including projectiles and gibs in flight.
+- Save and load (F6 / F9, console `save` / `load`, Main Menu > Save Game / Load Game with eight slots and a thumbnail of each, `-load <slot>`), including projectiles and gibs in flight.
 - Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games.
 
 **QuakeC mode**
@@ -68,7 +68,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
 - Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `speedrun`, `ghost`, `ghost_reset`, `maps`, `maps_install`, `maps_play`, `maps_remove`, `photo`, `photo_fov`, `photo_effect`, `photo_scale`, `photo_shot`, `fps`, `novis <0|1>`, `help`.
+- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `speedrun`, `ghost`, `ghost_reset`, `saves`, `maps`, `maps_install`, `maps_play`, `maps_remove`, `photo`, `photo_fov`, `photo_effect`, `photo_scale`, `photo_shot`, `fps`, `novis <0|1>`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
 
 ---

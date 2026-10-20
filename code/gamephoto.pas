@@ -74,6 +74,10 @@ type
     property Scale: Integer read FScale write SetScale;
   end;
 
+{ The viewport alone (no HUD or menu) rendered off-screen into a W x H
+  image (the caller frees it); nil when the viewport has no container }
+function RenderViewportImage(const Viewport: TCastleViewport; const W, H: Integer): TCastleImage;
+
 const
   PhotoEffectNames: array[TPhotoEffect] of String = (
     'none', 'dof', 'gray', 'sepia', 'vignette', 'ao');
@@ -360,15 +364,50 @@ begin
   Result := Format('%s_photo_%d.png', [Prefix, FCount]);
 end;
 
-function TPhotoMode.TakePhoto(const FileName: String): String;
+function RenderViewportImage(const Viewport: TCastleViewport; const W, H: Integer): TCastleImage;
 var
   Container: TCastleContainer;
   RenderTarget: TGLRenderToTexture;
-  W, H, MaxSize: Integer;
   Rect: TRectangle;
-  Image: TCastleImage;
   OldFullSize: Boolean;
   OldWidth, OldHeight: Single;
+begin
+  Result := nil;
+  Container := Viewport.Container;
+  if Container = nil then
+    Exit;
+  Rect := Rectangle(0, 0, W, H);
+  OldFullSize := Viewport.FullSize;
+  OldWidth := Viewport.Width;
+  OldHeight := Viewport.Height;
+  RenderTarget := TGLRenderToTexture.Create(W, H);
+  try
+    RenderTarget.Buffer := tbNone;
+    RenderTarget.GLContextOpen;
+    RenderTarget.RenderBegin;
+    try
+      { The viewport alone, W x H pixels from the bottom left }
+      Viewport.FullSize := False;
+      Viewport.Width := W / Viewport.UIScale;
+      Viewport.Height := H / Viewport.UIScale;
+      Container.RenderControl(Viewport, Rect);
+      Result := SaveScreen_NoFlush(TRGBImage, Rect, RenderTarget.ColorBuffer);
+    finally
+      RenderTarget.RenderEnd;
+      Viewport.Width := OldWidth;
+      Viewport.Height := OldHeight;
+      Viewport.FullSize := OldFullSize;
+    end;
+  finally
+    FreeAndNil(RenderTarget);
+  end;
+end;
+
+function TPhotoMode.TakePhoto(const FileName: String): String;
+var
+  Container: TCastleContainer;
+  W, H, MaxSize: Integer;
+  Image: TCastleImage;
 begin
   Result := '';
   Container := FViewport.Container;
@@ -377,30 +416,12 @@ begin
   MaxSize := Min(GLFeatures.MaxTextureSize, 8192);
   W := Min(Container.PixelsWidth * FScale, MaxSize);
   H := Min(Container.PixelsHeight * FScale, MaxSize);
-  Rect := Rectangle(0, 0, W, H);
-  OldFullSize := FViewport.FullSize;
-  OldWidth := FViewport.Width;
-  OldHeight := FViewport.Height;
   Image := nil;
   ApplyView;
-  RenderTarget := TGLRenderToTexture.Create(W, H);
   try
-    RenderTarget.Buffer := tbNone;
-    RenderTarget.GLContextOpen;
-    RenderTarget.RenderBegin;
-    try
-      { The viewport alone (no HUD), W x H pixels from the bottom left }
-      FViewport.FullSize := False;
-      FViewport.Width := W / FViewport.UIScale;
-      FViewport.Height := H / FViewport.UIScale;
-      Container.RenderControl(FViewport, Rect);
-      Image := SaveScreen_NoFlush(TRGBImage, Rect, RenderTarget.ColorBuffer);
-    finally
-      RenderTarget.RenderEnd;
-      FViewport.Width := OldWidth;
-      FViewport.Height := OldHeight;
-      FViewport.FullSize := OldFullSize;
-    end;
+    Image := RenderViewportImage(FViewport, W, H);
+    if Image = nil then
+      Exit;
     {$ifndef WASI}
     SaveImage(Image, FileName);
     {$endif}
@@ -416,7 +437,6 @@ begin
     end;
   end;
   FreeAndNil(Image);
-  FreeAndNil(RenderTarget);
 end;
 
 function TPhotoMode.Press(const Event: TInputPressRelease): Boolean;

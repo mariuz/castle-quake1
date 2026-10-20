@@ -15,7 +15,7 @@ uses
 type
   TMenuAction = (
     maNone, maNewGame, maWarpMap, maPlayDemo, maPlayQc, maHostGame, maJoinGame, maToggleShadows,
-    maToggleLighting, maToggleCamera, maToggleSound, maQuit
+    maToggleLighting, maToggleCamera, maToggleSound, maQuit, maSaveGame, maLoadGame
   );
 
   TOnMenuActionEvent = procedure(const Action: TMenuAction; const Param: String) of object;
@@ -25,7 +25,14 @@ type
   private
     FSelectedIdx: Integer;
     FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smControls, smShowcase,
-      smBrowser, smBrowserMap);
+      smBrowser, smBrowserMap, smLoad, smSave);
+    { Load / Save Game: what each item does (load:<slot>, save:<slot>, back),
+      the thumbnail shown, a game running (Save Game offered) }
+    FSlotActions: TStringList;
+    FThumbnailUrl: String;
+    FInGame: Boolean;
+    FThumbnailFrame: TCastleUserInterface;
+    FThumbnail: TCastleImageControl;
     { Map browser: the list's sort and page, the map shown, what each item
       does (BrowserActions, parallel to FItems), a download to play when it
       is done, the state the items were built for }
@@ -56,6 +63,9 @@ type
     procedure BrowserAction(const Action: String);
     function BrowserState: String;
     procedure GoBack;
+    procedure BuildSlotItems;
+    procedure UpdateThumbnail;
+    procedure SetInGame(const Value: Boolean);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -66,12 +76,14 @@ type
     property OnMenuAction: TOnMenuActionEvent read FOnMenuAction write FOnMenuAction;
     property ShadowsEnabled: Boolean read FShadowsEnabled write FShadowsEnabled;
     property CameraModeName: String read FCameraModeName write FCameraModeName;
+    { A game is running: the main menu offers Save Game }
+    property InGame: Boolean read FInGame write SetInGame;
   end;
 
 implementation
 
 uses
-  StrUtils, QuakeRandomMap, QuakeCaptions, QuakeWorld;
+  StrUtils, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -80,6 +92,7 @@ begin
   FItems := TStringList.Create;
   FDemoUrls := TStringList.Create;
   FBrowserActions := TStringList.Create;
+  FSlotActions := TStringList.Create;
   FBrowserMap := -1;
   FPlayAfterInstall := -1;
   FSelectedIdx := 0;
@@ -93,6 +106,8 @@ begin
   FItemsGroup := FindRequiredComponent('ItemsGroup') as TCastleVerticalGroup;
   FShowcaseLabel := FindRequiredComponent('ShowcaseLabel') as TCastleLabel;
   FHintLabel := FindRequiredComponent('HintLabel') as TCastleLabel;
+  FThumbnailFrame := FindRequiredComponent('SaveThumbnailFrame') as TCastleUserInterface;
+  FThumbnail := FindRequiredComponent('SaveThumbnail') as TCastleImageControl;
   RebuildMenuItems;
   SyncDesign;
 end;
@@ -128,6 +143,7 @@ begin
       FItemLabels[I].Color := Vector4(0.75, 0.75, 0.75, 0.9);
     end;
   end;
+  UpdateThumbnail;
   FShowcaseLabel.Exists := FSubMenu = smShowcase;
   FItemsGroup.Exists := FSubMenu <> smShowcase;
   FHintLabel.Exists := FSubMenu <> smShowcase;
@@ -204,6 +220,7 @@ begin
   FItems.Free;
   FDemoUrls.Free;
   FBrowserActions.Free;
+  FSlotActions.Free;
   inherited Destroy;
 end;
 
@@ -222,6 +239,9 @@ begin
         FItems.Add('Multiplayer');
         FItems.Add('Map Warp');
         FItems.Add('Map Browser');
+        if FInGame then
+          FItems.Add('Save Game');
+        FItems.Add('Load Game');
         FItems.Add('Demos');
         FItems.Add('Options');
         FItems.Add('CGE Features Showcase');
@@ -348,8 +368,86 @@ begin
       end;
     smBrowser, smBrowserMap:
       BuildBrowserItems;
+    smLoad, smSave:
+      BuildSlotItems;
   end;
   FSelectedIdx := 0;
+end;
+
+{ Load Game lists the savegames, the newest first; Save Game the slots 1..8
+  with what each holds now }
+procedure TQuakeMenu.BuildSlotItems;
+
+  function Describe(const Info: TSaveGameInfo): String;
+  begin
+    Result := Format('%s  health %d  kills %d/%d  skill %d  %d:%.2d  %s', [Info.Map, Info.Health, Info.Kills,
+      Info.TotalKills, Info.Skill, Trunc(Info.LevelTime) div 60, Trunc(Info.LevelTime) mod 60, Info.Saved]);
+  end;
+
+var
+  Saves: TSaveGameInfoArray;
+  Info: TSaveGameInfo;
+  I: Integer;
+  Slot: String;
+begin
+  FSlotActions.Clear;
+  if FSubMenu = smLoad then
+  begin
+    Saves := ListSaveGames;
+    for I := 0 to High(Saves) do
+    begin
+      FItems.Add(Saves[I].Slot + ': ' + Describe(Saves[I]));
+      FSlotActions.Add('load:' + Saves[I].Slot);
+    end;
+    if Length(Saves) = 0 then
+    begin
+      FItems.Add('(no saved games yet)');
+      FSlotActions.Add('');
+    end;
+  end else
+    for I := 1 to 8 do
+    begin
+      Slot := IntToStr(I);
+      if ReadSaveGameInfo(SaveGameUrl(Slot), Info) then
+        FItems.Add('Slot ' + Slot + ': ' + Describe(Info))
+      else
+        FItems.Add('Slot ' + Slot + ': empty');
+      FSlotActions.Add('save:' + Slot);
+    end;
+  FItems.Add('Back to Main Menu');
+  FSlotActions.Add('back');
+end;
+
+procedure TQuakeMenu.SetInGame(const Value: Boolean);
+begin
+  FInGame := Value;
+  if FSubMenu = smMain then
+    RebuildMenuItems;
+end;
+
+{ The selected slot's thumbnail beside the list, loaded when the selection
+  changes }
+procedure TQuakeMenu.UpdateThumbnail;
+var
+  Url, Action: String;
+begin
+  Url := '';
+  if (FSubMenu in [smLoad, smSave]) and (FSelectedIdx >= 0) and (FSelectedIdx < FSlotActions.Count) then
+  begin
+    Action := FSlotActions[FSelectedIdx];
+    if (Pos('load:', Action) = 1) or (Pos('save:', Action) = 1) then
+      Url := SaveThumbnailUrl(Copy(Action, 6, MaxInt));
+    if (Url <> '') and (UriExists(Url) <> ueFile) then
+      Url := '';
+  end;
+  if Url <> FThumbnailUrl then
+  begin
+    FThumbnailUrl := Url;
+    FThumbnail.Url := '';
+    if Url <> '' then
+      FThumbnail.Url := Url;
+  end;
+  FThumbnailFrame.Exists := FThumbnailUrl <> '';
 end;
 
 const
@@ -525,7 +623,7 @@ end;
 
 procedure TQuakeMenu.ExecuteSelection;
 var
-  ItemText: String;
+  ItemText, Slot: String;
   N, Selected: Integer;
 begin
   if (FSelectedIdx < 0) or (FSelectedIdx >= FItems.Count) then
@@ -536,15 +634,41 @@ begin
 
   case FSubMenu of
     smMain:
-      case FSelectedIdx of
-        0: begin FSubMenu := smEpisodes; RebuildMenuItems; end;
-        1: begin FSubMenu := smMultiplayer; RebuildMenuItems; end;
-        2: begin FSubMenu := smMaps; RebuildMenuItems; end;
-        3: begin FSubMenu := smBrowser; RebuildMenuItems; end;
-        4: begin FSubMenu := smDemos; RebuildMenuItems; end;
-        5: begin FSubMenu := smOptions; RebuildMenuItems; end;
-        6: begin FSubMenu := smShowcase; RebuildMenuItems; end;
-        7: if Assigned(FOnMenuAction) then FOnMenuAction(maQuit, '');
+      begin
+        if ItemText = 'Single Player' then FSubMenu := smEpisodes
+        else if ItemText = 'Multiplayer' then FSubMenu := smMultiplayer
+        else if ItemText = 'Map Warp' then FSubMenu := smMaps
+        else if ItemText = 'Map Browser' then FSubMenu := smBrowser
+        else if ItemText = 'Save Game' then FSubMenu := smSave
+        else if ItemText = 'Load Game' then FSubMenu := smLoad
+        else if ItemText = 'Demos' then FSubMenu := smDemos
+        else if ItemText = 'Options' then FSubMenu := smOptions
+        else if ItemText = 'CGE Features Showcase' then FSubMenu := smShowcase
+        else
+        begin
+          if Assigned(FOnMenuAction) then
+            FOnMenuAction(maQuit, '');
+          Exit;
+        end;
+        RebuildMenuItems;
+      end;
+    smLoad, smSave:
+      if FSelectedIdx < FSlotActions.Count then
+      begin
+        Slot := FSlotActions[FSelectedIdx];
+        if Slot = 'back' then
+          GoBack
+        else if (Pos('load:', Slot) = 1) and Assigned(FOnMenuAction) then
+          FOnMenuAction(maLoadGame, Copy(Slot, 6, MaxInt))
+        else if (Pos('save:', Slot) = 1) and Assigned(FOnMenuAction) then
+        begin
+          FOnMenuAction(maSaveGame, Copy(Slot, 6, MaxInt));
+          { The slot shows what it holds now }
+          N := FSelectedIdx;
+          RebuildMenuItems;
+          FSelectedIdx := N;
+          FThumbnailUrl := '-';
+        end;
       end;
     smMultiplayer:
       begin
