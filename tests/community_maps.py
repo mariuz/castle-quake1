@@ -9,6 +9,8 @@ redistribution, so the zips are fetched by URL and checked by SHA-256):
     tofaz   Temple of Azathoth (BSP2, colored light, worldspawn fog)
     digs08  The Isolation (a large BSP29 map, 38614 faces, colored light)
     grim    The Grim Outpost (BSP2)
+    udob1_4 Drowning in Space, a map for Copper (the map browser installs
+            Copper with it and plays it with Copper's QuakeC)
 
 Run from the repository root after a release build:
 
@@ -209,6 +211,29 @@ def check_map(exe, out, mod, entry, budgets, update, results, measured):
                         % (where, row['ms_average'], b['ms_average'], limit)))
 
 
+def check_mod_map(exe, out, results):
+    """A map for a mod through the map browser: udob1_4 (Drowning in Space)
+    needs Copper, which the game downloads first from Quaddicted, mounts in
+    copper/ and plays with Copper's progs.dat in QuakeC mode"""
+    demo = ('W:0.5,CMD:maps_remove udob1_4,CMD:maps_remove copper_v1_15,CMD:maps_install udob1_4,W:60,'
+            'CMD:maps installed,CMD:maps_play udob1_4,W:3,S,Q')
+    code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'udob1_4'), '--demo', demo],
+                    os.path.join(out, 'udob1_4.log'))
+    results.append((code == 0 and 'Exception "' not in log, 'udob1_4: the run exits with 0 (got %s)' % code))
+    results.append(('Map "copper_v1_15" installed' in log and 'Map "udob1_4" installed' in log,
+                    'udob1_4: Copper and the map download with their SHA-256'))
+    results.append(('Mounted "udob1_4" (Drowning in Space) in copper' in log and
+                    'Playing "udob1_4" in QuakeC mode (copper)' in log, 'udob1_4: it plays in copper/ with QuakeC'))
+    progs = re.findall(r'Loaded "progs.dat": (\d+) statements', log)
+    results.append((bool(progs) and int(progs[-1]) > 30000, 'udob1_4: Copper\'s progs.dat runs (%s statements)'
+                    % (progs[-1] if progs else 0)))
+    results.append(('Level "udob1_4" spawned by the progs' in log and 'Saved screenshot' in log,
+                    'udob1_4: the level spawns and the view goes on'))
+    # Leave nothing in the config directory
+    run(exe, ['--autotest', 'e1m1', os.path.join(out, 'udob1_4_remove'), '--demo',
+              'W:0.5,CMD:maps_remove udob1_4,CMD:maps_remove copper_v1_15,Q'], os.path.join(out, 'udob1_4_remove.log'))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--exe', default=os.path.join(ROOT, 'castle-quake1' + ('.exe' if os.name == 'nt' else '')))
@@ -239,6 +264,11 @@ def main():
         check_map(args.exe, args.out, mod, entry, budgets, args.update, results, measured)
         for ok, text in results[start:]:
             print('  %s %s' % ('ok  ' if ok else 'FAIL', text), flush=True)
+    print('=== udob1_4 (needs Copper)', flush=True)
+    start = len(results)
+    check_mod_map(args.exe, args.out, results)
+    for ok, text in results[start:]:
+        print('  %s %s' % ('ok  ' if ok else 'FAIL', text), flush=True)
     with open(os.path.join(args.out, 'community.json'), 'w') as f:
         json.dump(measured, f, indent=1)
     if args.update:

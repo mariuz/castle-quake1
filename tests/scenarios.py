@@ -147,12 +147,34 @@ def prepare_mapbrowser(out_dir):
         digest = hashlib.sha256(f.read()).hexdigest()
     size = os.path.getsize(zip_path)
     url = 'http://127.0.0.1:%d/qtest.zip' % MAPBROWSER_PORT
+    # A mod (qmod: its pak0.pak in the zip root, mapped to qmod/) and a map
+    # for it (qmodmap, a folder mapped to qmod/maps/ that needs qmod)
+    pak_path = os.path.join(out_dir, 'qmod_pak0.pak')
+    bsp2convert.write_pak(pak_path, [('maps/qmod1.bsp', data)])
+    mod_zip = os.path.join(site, 'qmod.zip')
+    with zipfile.ZipFile(mod_zip, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.write(pak_path, 'pak0.pak')
+        z.writestr('qmod_readme.txt', 'A test mod for the map browser scenario\n')
+    map_zip = os.path.join(site, 'qmodmap.zip')
+    with zipfile.ZipFile(map_zip, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('qmodmap/qmodmap.bsp', data)
+    releases = {}
+    for name in ('qmod', 'qmodmap'):
+        with open(os.path.join(site, name + '.zip'), 'rb') as f:
+            releases[name] = (hashlib.sha256(f.read()).hexdigest(), str(f.tell()),
+                              'http://127.0.0.1:%d/%s.zip' % (MAPBROWSER_PORT, name))
     with open(os.path.join(out_dir, 'maps.txt'), 'w') as f:
         f.write('# test catalog\n')
         f.write('\t'.join(['qtest', digest, str(size), 'Test Release', 'Scenarios', '2026-10-19', '4.50',
                            'small', 'lit,singleplayer', 'qtest1,qtest2', 'qtest/>id1/maps/', url]) + '\n')
         f.write('\t'.join(['qbad', '0' * 64, str(size), 'Broken Download', 'Scenarios', '2026-10-18', '',
                            'small', 'singleplayer', 'qtest1', 'qtest/>id1/maps/', url]) + '\n')
+        f.write('\t'.join(['qmod', releases['qmod'][0], releases['qmod'][1], 'Test Mod', 'Scenarios',
+                           '2026-10-17', '', 'small', 'mod,singleplayer', 'qmod1', '>qmod/', releases['qmod'][2],
+                           'qmod', '', 'pak0.pak']) + '\n')
+        f.write('\t'.join(['qmodmap', releases['qmodmap'][0], releases['qmodmap'][1], 'Test Mod Map', 'Scenarios',
+                           '2026-10-16', '', 'small', 'mod,singleplayer', 'qmodmap', 'qmodmap/>qmod/maps/',
+                           releases['qmodmap'][2], 'qmod', 'qmod', '']) + '\n')
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -168,7 +190,7 @@ def prepare_mapbrowser(out_dir):
 def check_mapbrowser(logs):
     log = logs['browse']
     result = common_checks(logs, 'browse')
-    result.append(('Map catalog' in log and ': 2 maps' in log, 'the test catalog is read'))
+    result.append(('Map catalog' in log and ': 4 maps' in log, 'the test catalog is read'))
     result.append(('qtest: Test Release by Scenarios (2026) 4.5/5' in log, 'maps lists the catalog by rating'))
     result.append(('Map "qbad": SHA-256' in log and 'Map "qbad" installed' not in log,
                    'a download with the wrong SHA-256 is not installed'))
@@ -182,6 +204,18 @@ def check_mapbrowser(logs):
     result.append((len(v) == 3 and v[2]['map'] == 'qtest1', 'the menu walks to the map browser and plays it'))
     result.append(('Map "qtest" removed' in log and log.rstrip().count('[installed]') == 1,
                    'removing it leaves no installed map'))
+    mod = logs['mod']
+    result += common_checks(logs, 'mod')
+    result.append(('Downloading "qmod"' in mod and 'Map "qmod" installed' in mod and 'Map "qmodmap" installed' in mod
+                   and mod.index('Downloading "qmod"') < mod.index('Downloading "qmodmap"'),
+                   'installing a map downloads the mod it needs first'))
+    result.append(('Loaded PAK "qmod:pak0.pak"' in mod, 'the mod\'s pak inside its zip is mounted'))
+    result.append(('Mounted "qmod" (Test Mod) in qmod' in mod and 'Mounted "qmodmap" (Test Mod Map) in qmod' in mod,
+                   'the mod and the map are mounted in the mod\'s directory'))
+    result.append(('Playing "qmodmap" in QuakeC mode (qmod)' in mod and 'Loaded map "maps/qmodmap.bsp"' in mod,
+                   'the mod\'s map plays in QuakeC mode'))
+    result.append(('Saved screenshot' in mod and 'edicts' in mod.split('Playing "qmodmap"')[-1],
+                   'the QuakeC view goes on with the script'))
     return result
 
 
@@ -941,16 +975,21 @@ SCENARIOS = [
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
-    # with the virtual gamepad) and the release removed
+    # with the virtual gamepad) and the release removed; then a map that needs a mod
+    # downloads the mod first and plays in QuakeC mode
     Scenario('mapbrowser', [('browse', ['-mapcatalog', '{out}/maps.txt', '--autotest', 'e1m1', '{out}/browse',
                                         '--demo',
-                                        'W:0.5,CMD:maps_remove qtest,CMD:maps,CMD:maps_install qbad,W:2,'
+                                        'W:0.5,CMD:maps_remove qtest,CMD:maps_remove qmodmap,CMD:maps_remove qmod,'
+                                        'CMD:maps,CMD:maps_install qbad,W:2,'
                                         'CMD:maps_play qtest,CMD:maps_install qtest,W:3,CMD:maps installed,'
                                         'CMD:maps_play qtest,W:1.5,S,CMD:maps_play qtest qtest2,W:1.5,S,'
                                         'TD:4;0.97;0.95,W:0.3,TU:4,W:0.3,GB:down,W:0.3,GB:down,W:0.3,GB:down,'
                                         'W:0.3,GB:south,W:0.5,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.3,GB:down,'
                                         'W:0.3,GB:down,W:0.3,GB:down,W:0.3,GB:south,W:1.5,S,'
-                                        'CMD:maps_remove qtest,CMD:maps installed,Q'], 0)],
+                                        'CMD:maps_remove qtest,CMD:maps installed,Q'], 0),
+                            ('mod', ['-mapcatalog', '{out}/maps.txt', '--autotest', 'e1m1', '{out}/mod', '--demo',
+                                     'W:0.5,CMD:maps_remove qmodmap,CMD:maps_remove qmod,CMD:maps_install qmodmap,'
+                                     'W:4,CMD:maps installed,CMD:maps_play qmodmap,W:2,S,Q'], 40)],
              check_mapbrowser, [], prepare=prepare_mapbrowser),
     # Photo mode: E1M1 paused while the camera flies off, a depth of field
     # photo at twice the window size and a grayscale one at fov 60, the

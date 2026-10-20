@@ -4,23 +4,29 @@
 The maps come from Quaddicted's metadata (https://github.com/Quaddicted/
 quaddicted-data, one JSON per release, keyed by the zip's SHA-256) and the
 ratings from Quaddicted's last Quake Injector database (frozen in 2026, but
-the only place with the ratings). Only releases that install into id1 and
-need no mod are listed (maps, episodes, speedmaps and jams whose .bsp files
-land in id1/maps/), so the game can mount the zip on top of its paks.
+the only place with the ratings). Listed: releases that install into id1
+(maps, episodes, speedmaps and jams whose .bsp files land in id1/maps/),
+mods that install into one directory of their own, and maps that need one
+mod named by a dependency tag; the game mounts the zips on top of its paks.
 
     python3 tools/quaddicted_catalog.py                   # fetch both and write the list
     python3 tools/quaddicted_catalog.py --data DIR --xml FILE   # from local copies
 
 One line per release, tab separated:
 
-    id  sha256  bytes  title  author  date  rating  size  flags  startmaps  mapping  url
+    id  sha256  bytes  title  author  date  rating  size  flags  startmaps  mapping  url  gamedir  needs  paks
 
 id is the zip's name without .zip, rating Quaddicted's 0..5 (empty when not
 rated), size small / medium / large, flags a comma list (limits: needs a
 port with raised limits, lit, bsp2, singleplayer, deathmatch, coop),
 startmaps the maps to start (a comma list, the first one is the default),
 mapping how the zip's paths land in the game directory (from>to pairs
-separated by ';', to relative to the Quake directory: 'tofaz/>id1/maps/').
+separated by ';', to relative to the Quake directory: 'tofaz/>id1/maps/'),
+gamedir the Quake directory it plays in (id1, or a mod's: quoth, ad...),
+needs the ids of the mod releases it needs (installed and mounted first) and
+paks a mod's own pak files inside its zip (mounted after its loose files).
+Mods (Quoth, Arcane Dimensions, Copper...) are listed too: their maps play
+with their QuakeC (QuakeC mode).
 """
 
 import argparse
@@ -100,67 +106,167 @@ def load_ratings(xml_path):
     return ratings
 
 
+def landed(entry):
+    """[(zip path, where it lands)] of the release's files (skipped ones left out)"""
+    mapping = mapping_of(entry)
+    result = []
+    for p in entry.get('files', {}):
+        if p.endswith('/'):
+            continue
+        final = place(p, mapping)
+        if final is not None:
+            result.append((p, final))
+    return result
+
+
+def game_dir_of(files):
+    """The one Quake directory (id1, quoth, ad...) the files land in, or None"""
+    dirs = set(final.strip('/').split('/')[0].lower() for _, final in files if final.strip('/').count('/') >= 1 or
+               final.lower().endswith('.pak'))
+    return dirs.pop() if len(dirs) == 1 else None
+
+
+def mod_paks(files, game_dir):
+    """The zip paths of the paks a mod puts in its directory, pak0 first"""
+    paks = []
+    for path, final in files:
+        rest = final.strip('/')[len(game_dir) + 1:].lower()
+        if re.fullmatch(r'pak\d\.pak', rest):
+            paks.append((rest, path))
+    return [path for _, path in sorted(paks)]
+
+
+def nested_maps(entry, game_dir):
+    """Map names inside the release's paks (maps/x.bsp in a pak in the mod's directory)"""
+    names = []
+    mapping = mapping_of(entry)
+    for path, info in entry.get('files', {}).items():
+        final = place(path, mapping)
+        if final is None or not path.lower().endswith('.pak') or not isinstance(info, dict):
+            continue
+        for inner in info.get('files', {}):
+            if inner.lower().startswith('maps/') and inner.lower().endswith('.bsp'):
+                names.append(os.path.splitext(os.path.basename(inner))[0].lower())
+    return names
+
+
 def build(data_dir, ratings):
     lines = []
     skipped = {}
+    entries = {}
     for path in sorted(glob.glob(os.path.join(data_dir, 'json', 'by-sha256', '*', '*.json'))):
         with open(path, encoding='utf-8') as f:
             e = json.load(f)
+        filename = (tag_values(e.get('tags', []), 'filename') or [''])[0]
+        if filename.lower().endswith('.zip'):
+            entries[filename[:-4].lower()] = e
+
+    def mod_info(ident):
+        """(game dir, paks) of a mod release that installs into one directory other than id1"""
+        e = entries.get(ident)
+        if e is None:
+            return None
+        files = landed(e)
+        game_dir = game_dir_of(files)
+        if game_dir is None or game_dir == 'id1':
+            return None
+        if any(p.lower().endswith('progs.dat') for p, _ in files) or mod_paks(files, game_dir):
+            return game_dir, mod_paks(files, game_dir)
+        return None
+
+    # Releases other ones need are listed even without maps of their own
+    required = set()
+    for e in entries.values():
+        required.update(d.lower() for d in tag_values(e.get('tags', []), 'dependency'))
+
+    for ident in sorted(entries):
+        e = entries[ident]
         tags = e.get('tags', [])
-        kind = (tag_values(tags, 'type') or [''])[0]
+        kinds = tag_values(tags, 'type')
         filename = (tag_values(tags, 'filename') or [''])[0]
         reason = None
-        if kind not in TYPES:
-            reason = 'type ' + kind
-        elif not filename.lower().endswith('.zip'):
-            reason = 'not a zip'
-        elif any(t.startswith(DEPENDENCY_TAGS) for t in tags):
-            reason = 'needs a mod'
+        game_dir = 'id1'
+        needs = []
+        paks = []
+        files = landed(e)
+        if not set(kinds) & (TYPES | {'mod'}) and ident not in required:
+            reason = 'type ' + ','.join(kinds)
         elif tag_values(tags, 'game') not in ([], ['quake']):
             reason = 'another game'
         if reason is None:
-            mapping = mapping_of(e)
-            files = [p for p in e.get('files', {}) if not p.endswith('/')]
-            bsps = [p for p in files if p.lower().endswith('.bsp')]
-            placed = [place(p, mapping) for p in bsps]
-            if not bsps:
-                reason = 'no loose .bsp'
-            elif not all(in_id1(x) and x.lower().startswith('/id1/maps/') for x in placed):
-                reason = 'installs outside id1/maps'
-            elif any(p.lower().endswith('progs.dat') and in_id1(place(p, mapping)) for p in files):
-                reason = 'own progs.dat'
+            deps = [d.lower() for d in tag_values(tags, 'dependency')]
+            if not deps and tag_values(tags, 'depends'):
+                reason = 'a dependency not by name'
+            for d in deps:
+                info = mod_info(d)
+                if info is None:
+                    reason = 'needs %s' % ('a mission pack' if d in ('hipnotic', 'rogue') else 'an unknown release')
+                    break
+                if game_dir not in ('id1', info[0]):
+                    reason = 'needs two mods'
+                    break
+                game_dir = info[0]
+                needs.append(d)
+        if reason is None and not needs and ('mod' in kinds or ident in required):
+            info = mod_info(ident)
+            if info is None:
+                reason = 'a mod outside one directory'
+            else:
+                game_dir, paks = info
+        if reason is None:
+            if game_dir == 'id1':
+                if not all(final.lower().startswith('/id1/') for _, final in files):
+                    reason = 'installs outside id1'
+                elif any(p.lower().endswith('progs.dat') for p, _ in files):
+                    reason = 'own progs.dat'
+            elif not needs:
+                pass
+            elif any(not final.lower().startswith('/%s/' % game_dir) and not final.lower().startswith('/id1/maps/')
+                     for _, final in files):
+                reason = 'installs outside its mod'
+        if reason is None:
+            bsps = [final for _, final in files if final.lower().endswith('.bsp') and '/maps/' in final.lower()]
+            names = [os.path.splitext(os.path.basename(x))[0].lower() for x in bsps] + nested_maps(e, game_dir)
+            starts = [s.lower() for s in tag_values(tags, 'startmap') if s.lower() in names or paks]
+            if not starts:
+                starts = sorted(set(names))
+            if not starts and ident not in required:
+                reason = 'no maps'
         if reason:
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
-        names = [os.path.splitext(os.path.basename(x))[0].lower() for x in placed]
-        starts = [s.lower() for s in tag_values(tags, 'startmap') if s.lower() in names]
-        if not starts:
-            starts = sorted(names)
         flags = []
         if tag_values(tags, 'exceeds_quake_limits') == ['yes'] or tag_values(tags, 'exceedslimits'):
             flags.append('limits')
-        if any(p.lower().endswith('.lit') for p in files):
+        if any(p.lower().endswith('.lit') for p, _ in files):
             flags.append('lit')
         if any('bsp2' in t.lower() for t in tag_values(tags, 'bsp_format')):
             flags.append('bsp2')
+        if game_dir != 'id1':
+            flags.append('mod')
+        if not starts:
+            flags.append('hidden')
         for mode in tag_values(tags, 'game_mode'):
             if mode in ('singleplayer', 'deathmatch', 'coop') and mode not in flags:
                 flags.append(mode)
-        ident = filename[:-4]
-        rating = ratings.get(ident)
+        rating = ratings.get(filename[:-4])
         date = (tag_values(tags, 'release_date') or [''])[0]
         pairs = []
-        for key, target in sorted(mapping.items()):
+        for key, target in sorted(mapping_of(e).items()):
             if target is None or target == 'None':
                 continue
-            pairs.append('%s>%s' % (key.lstrip('/'), target.lstrip('/')))
-        title = clean((tag_values(tags, 'title') or [ident])[0])
+            target = target.lstrip('/')
+            # A map for a mod that installs into id1/maps goes to the mod's maps
+            if game_dir != 'id1' and target.lower().startswith('id1/'):
+                target = game_dir + target[3:]
+            pairs.append('%s>%s' % (key.lstrip('/'), target))
+        title = clean((tag_values(tags, 'title') or [filename[:-4]])[0])
         author = clean(', '.join(tag_values(tags, 'author')))
         url = e['urls'][0] if e.get('urls') else 'https://www.quaddicted.com/filebase/' + filename
-        fields = [ident, e['sha256'], str(e['bytes']), title, author, date,
+        fields = [filename[:-4], e['sha256'], str(e['bytes']), title, author, date,
                   '' if rating is None else '%.2f' % rating,
                   (tag_values(tags, 'map_size') or [''])[0], ','.join(flags), ','.join(starts),
-                  ';'.join(pairs), url]
+                  ';'.join(pairs), url, game_dir, ','.join(needs), ','.join(paks)]
         lines.append('\t'.join(f.replace('\t', ' ') for f in fields))
     return lines, skipped
 
@@ -185,7 +291,7 @@ def main():
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, 'w', encoding='utf-8', newline='\n') as f:
         f.write('# Quaddicted maps for the map browser: tools/quaddicted_catalog.py from %s\n' % DATA_REPO)
-        f.write('# id\tsha256\tbytes\ttitle\tauthor\tdate\trating\tsize\tflags\tstartmaps\tmapping\turl\n')
+        f.write('# id\tsha256\tbytes\ttitle\tauthor\tdate\trating\tsize\tflags\tstartmaps\tmapping\turl\tgamedir\tneeds\tpaks\n')
         for line in lines:
             f.write(line + '\n')
     print('%d maps written to %s' % (len(lines), args.out))

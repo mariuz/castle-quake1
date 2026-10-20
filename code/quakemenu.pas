@@ -552,7 +552,11 @@ begin
       Needs := Needs + IfThen(Needs <> '', ', ', '') + 'colored light';
     if Needs <> '' then
       Add('Uses ' + Needs, '');
-    if MapBrowser.Installed(FBrowserMap) then
+    if Length(M.Needs) > 0 then
+      Add('Needs ' + MapBrowser.NeedsText(FBrowserMap) + ' (QuakeC mode)', '')
+    else if MapBrowser.NeedsQuakeC(FBrowserMap) then
+      Add('A mod: plays in QuakeC mode', '');
+    if MapBrowser.Ready(FBrowserMap) then
     begin
       for I := 0 to Min(High(M.StartMaps), 5) do
         Add('Play: ' + M.StartMaps[I], 'play:' + M.StartMaps[I]);
@@ -560,6 +564,10 @@ begin
     end else
     if MapBrowser.DownloadingIndex = FBrowserMap then
       Add(Format('Downloading: %d%%', [Round(MapBrowser.Progress * 100)]), '')
+    else
+    if MapBrowser.BytesToInstall(FBrowserMap) > M.Bytes then
+      Add(Format('Download and play (%.0f MB with the mods)', [MapBrowser.BytesToInstall(FBrowserMap) / (1024 * 1024)],
+        DefaultFormatSettings), 'install')
     else
       Add('Download and play', 'install');
     Add('Back to the list', 'back');
@@ -618,7 +626,13 @@ begin
   begin
     Map := Copy(Action, 6, MaxInt);
     if MapBrowser.Mount(FBrowserMap) and Pak.FileExists('maps/' + Map + '.bsp') and Assigned(FOnMenuAction) then
-      FOnMenuAction(maWarpMap, 'maps/' + Map + '.bsp');
+    begin
+      { A mod's map plays with its QuakeC }
+      if MapBrowser.NeedsQuakeC(FBrowserMap) then
+        FOnMenuAction(maPlayQc, Map)
+      else
+        FOnMenuAction(maWarpMap, 'maps/' + Map + '.bsp');
+    end;
   end;
 end;
 
