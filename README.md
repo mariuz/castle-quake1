@@ -92,7 +92,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | **P** | Photo mode (wheel: field of view, Tab: effect, + -: size, Enter: photo) |
 | **~** | Developer console |
 | **Touch** | Move stick on the left (where the finger lands), drag on the right to look, FIRE / JUMP / USE / weapon / MENU buttons; on by themselves on touch screens and in the browser after the first touch (`-touch`, `?touch=1`), which also goes fullscreen in landscape; the HUD and menus scale with the phone's pixel density |
-| **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons; sensitivity, dead zone and inverted look in Options > Controls |
+| **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons, Start opens the menu, View is photo mode; the prompts use your pad's names (Xbox, PlayStation or Nintendo, from its name or Options > Controls) and a Nintendo pad confirms with A; sensitivity, dead zone, inverted look, button names and the confirm button in Options > Controls |
 
 Every key can be rebound in Options > Controls (saved in the user config).
 | **Escape** | Menu |

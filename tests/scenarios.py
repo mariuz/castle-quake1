@@ -259,6 +259,34 @@ def check_saves(logs):
     return result
 
 
+def pad_demo(name, confirm, back):
+    # Open the menu with Start, walk to the map browser, confirm, go back,
+    # close the menu with back, then a screenshot standing (not jumping)
+    return ','.join(['W:0.5,S,PN:' + name + ',GB:start,W:0.5'] + ['GB:down,W:0.3'] * 3 +
+                    ['GB:%s,W:0.5,GB:%s,W:0.5,GB:%s,W:0.6,S,Q' % (confirm, back, back)])
+
+
+def check_pads(logs):
+    result = []
+    for prefix, family, confirm, back in (('ps', 'PlayStation', 'Cross', 'Circle'), ('switch', 'Nintendo', 'A', 'B'),
+                                          ('xbox', 'Xbox', 'A', 'B')):
+        log = logs[prefix]
+        result += common_checks(logs, prefix)
+        result.append(('%s buttons, %s confirms, %s goes back' % (family, confirm, back) in log,
+                       '%s: the pad is told by its name' % prefix))
+        result.append(('Menu opened from the gamepad' in log, '%s: Start opens the menu' % prefix))
+        result.append(('Hint: D-pad to navigate, %s to select, %s to go back' % (confirm, back) in log,
+                       '%s: the menu names its buttons' % prefix))
+        result.append(('Map catalog' in log and '%s shows one, %s goes back' % (confirm, back) in log,
+                       '%s: %s confirms into the map browser' % (prefix, confirm)))
+        result.append(('Menu closed from the gamepad' in log, '%s: %s on the main page closes the menu' % (prefix, back)))
+        v = views(log)
+        result.append((len(v) == 2 and abs(v[1]['eye'][2] - v[0]['eye'][2]) < 1,
+                       '%s: closing with the jump button does not jump (eye height %s)' %
+                       (prefix, ' -> '.join('%.1f' % x['eye'][2] for x in v))))
+    return result
+
+
 def check_e1m1_finish(logs):
     v = views(logs['finish'])
     result = common_checks(logs, 'finish')
@@ -941,6 +969,16 @@ SCENARIOS = [
     Scenario('saves', [('menusave', ['--autotest', 'e1m1', '{out}/menusave', '--demo', SAVES_DEMO], 0),
                        ('startload', ['--autotest', 'load:8', '{out}/startload', '--demo', 'W:0.5,S,Q'], 12)],
              check_saves, []),
+    # Controller glyphs: a PlayStation, a Nintendo and an Xbox pad by name
+    # (the virtual pad), each walking the menu with its own confirm and back
+    # buttons (Nintendo's A is east) and closing it without jumping
+    Scenario('pads', [('ps', ['--autotest', 'e1m1', '{out}/ps', '--demo',
+                              pad_demo('Sony Interactive Entertainment Wireless Controller', 'south', 'east')], 0),
+                      ('switch', ['--autotest', 'e1m1', '{out}/switch', '--demo',
+                                  pad_demo('Nintendo Switch Pro Controller', 'east', 'south')], 0),
+                      ('xbox', ['--autotest', 'e1m1', '{out}/xbox', '--demo',
+                                pad_demo('Xbox Wireless Controller', 'south', 'east')], 0)],
+             check_pads, []),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

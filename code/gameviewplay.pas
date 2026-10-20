@@ -959,6 +959,11 @@ begin
       FWorld.StartRecording('castle-config:/' + Param + '.dem');
     Inc(FDemoIndex);
   end else
+  if Action = 'PN' then { The virtual gamepad's name (its button names follow) }
+  begin
+    SetVirtualPadName(Param);
+    Inc(FDemoIndex);
+  end else
   if Action = 'O' then { Save game to a slot }
   begin
     SaveGameSlot(Param);
@@ -1087,9 +1092,9 @@ begin
     if not FConsole.IsOpen and not FMenu.Exists then
     begin
       FPhoto.Update(SecondsPassed);
-      if GamepadJustPressed(gbEast) or GamepadJustPressed(gbView) then
+      if GamepadJustPressed(GamepadBackButton) or GamepadJustPressed(gbView) then
         SetPhotoMode(False)
-      else if GamepadJustPressed(gbSouth) then
+      else if GamepadJustPressed(GamepadConfirmButton) then
         FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix))
       else if GamepadJustPressed(gbNorth) then
       begin
@@ -1124,6 +1129,14 @@ begin
     if GamepadJustPressed(gbView) then
     begin
       SetPhotoMode(True);
+      Exit;
+    end;
+    { The menu button (Start, Options, +) opens the menu }
+    if GamepadJustPressed(gbMenu) then
+    begin
+      WritelnLog('GameViewPlay', 'Menu opened from the gamepad');
+      FMenu.Exists := True;
+      FNavigation.MouseLook := False;
       Exit;
     end;
     GamepadTurnCamera(FViewport.Camera, SecondsPassed);
@@ -1677,6 +1690,12 @@ begin
       end;
     maSaveGame:
       SaveGameSlot(Param);
+    maCloseMenu:
+      begin
+        WritelnLog('GameViewPlay', 'Menu closed from the gamepad');
+        FMenu.Exists := False;
+        FNavigation.MouseLook := not TouchControlsWanted;
+      end;
     maLoadGame:
       begin
         FMenu.Exists := False;

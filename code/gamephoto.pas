@@ -254,6 +254,10 @@ begin
   end;
   FLabel.Caption := Format('PHOTO MODE   fov %d (wheel, [ ])   %s (Tab)   photo %dx%d (+ -)   ' +
     'Enter: take a photo   R: reset   Esc: back', [Round(FFov), PhotoEffectCaptions[FEffect], W, H]);
+  if GamepadConnected then
+    FLabel.Caption := FLabel.Caption + LineEnding + Format('Gamepad: %s photo   %s effect   %s / %s field of view   ' +
+      '%s back', [GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(gbNorth),
+      GamepadButtonLabel(gbLeftBumper), GamepadButtonLabel(gbRightBumper), GamepadButtonLabel(GamepadBackButton)]);
 end;
 
 procedure TPhotoMode.Enter;
