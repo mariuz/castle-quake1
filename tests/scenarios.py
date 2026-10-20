@@ -364,6 +364,29 @@ def split_frames(out_dir):
     return result
 
 
+def check_language(logs):
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import lang_strings
+    result = common_checks(logs, 'de') + common_checks(logs, 'it')
+    de = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'de.po'))[1]
+    it = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'it.po'))[1]
+    pad = 'D-pad to navigate, %s to select, %s to go back'
+    log = logs['de']
+    result.append((re.search(r'Language: de \(Deutsch\), \d{3} texts', log) is not None,
+                   'de: -lang de loads the German texts'))
+    result.append(('Hint: ' + de[pad] % ('A', 'B') in log, 'de: the menu hint is German'))
+    browser = de['%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages']
+    result.append((re.search(re.escape('Hint: ' + browser.replace('%d', '\x00').replace('%s', '\x01'))
+                             .replace('\x00', r'\d+').replace('\x01', '[AB]'), log) is not None,
+                   'de: the map browser hint is German'))
+    log = logs['it']
+    result.append(('Language: en (English), 0 texts' in log, 'it: a test starts in English'))
+    result.append((re.search(r'Language: it \(Italiano\), \d{3} texts', log) is not None,
+                   'it: the console lang command switches to Italian'))
+    result.append(('Hint: ' + it[pad] % ('A', 'B') in log, 'it: the menu hint is Italian'))
+    return result
+
+
 def check_pads(logs):
     result = []
     for prefix, family, confirm, back in (('ps', 'PlayStation', 'Cross', 'Circle'), ('switch', 'Nintendo', 'A', 'B'),
@@ -1082,6 +1105,14 @@ SCENARIOS = [
                       ('xbox', ['--autotest', 'e1m1', '{out}/xbox', '--demo',
                                 pad_demo('Xbox Wireless Controller', 'south', 'east')], 0)],
              check_pads, []),
+    # Localization: German from the command line (the menu and the map
+    # browser hints), Italian from the console after an English start
+    Scenario('language', [('de', ['-lang', 'de', '--autotest', 'e1m1', '{out}/de', '--demo',
+                                  'W:0.5,PN:Xbox Wireless Controller,GB:start,W:0.5,S,GB:down,W:0.3,GB:down,W:0.3,'
+                                  'GB:down,W:0.3,GB:south,W:0.5,S,Q'], 0),
+                          ('it', ['--autotest', 'e1m1', '{out}/it', '--demo',
+                                  'W:0.5,CMD:lang it,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0)],
+             check_language, []),
     # Split-screen coop: a second local player on the listen server with the
     # (virtual) gamepad, side by side and one above the other; the stick
     # walks and turns only the second player, the keyboard script only the

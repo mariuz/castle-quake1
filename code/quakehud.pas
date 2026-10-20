@@ -55,6 +55,7 @@ type
     FContrastApplied: Boolean;
     FMessageTimer: Single;
     FCrosshairVisible: Boolean;
+    FLanguageVersion: Integer;
     FStatsVisible: Boolean;
     FContentsShift: TQuakeColorShift;
     FDamageShift: TQuakeColorShift;
@@ -131,7 +132,7 @@ implementation
 
 uses
   CastleGLImages,
-  QuakeBsp, QuakeSound, QuakePics, QuakeCaptions, GameInput;
+  QuakeBsp, QuakeSound, QuakePics, QuakeCaptions, GameInput, GameTranslate;
 
 const
   { Seconds to count each tally }
@@ -281,6 +282,12 @@ var
   Mins, Secs: Integer;
 begin
   FStats := Stats;
+  { The status bar's titles in the current language }
+  if FLanguageVersion <> LanguageVersion then
+  begin
+    FLanguageVersion := LanguageVersion;
+    TranslateDesign(Self);
+  end;
   if FIntermission then
     UpdateIntermission(SecondsPassed);
   FMessageLabel.Exists := not FIntermission;
@@ -356,7 +363,7 @@ begin
   begin
     Mins := Trunc(Stats.LevelTime) div 60;
     Secs := Trunc(Stats.LevelTime) mod 60;
-    FStatsLabel.Caption := Format('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d',
+    FStatsLabel.Caption := Format(Tr('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d'),
       [Stats.Kills, Stats.TotalKills, Stats.Secrets, Stats.TotalSecrets, Mins, Secs]);
     if HordeText <> '' then
       FStatsLabel.Caption := HordeText + '   ' + FStatsLabel.Caption;
@@ -604,13 +611,13 @@ begin
   if Complete <> nil then
     DrawPic(160 - Complete.Width / 2, 24, 'gfx/complete.lmp')
   else
-    DrawText(160, 30, 'COMPLETED', True);
+    DrawText(160, 30, Tr('COMPLETED'), True);
 
   if not DrawPic(0, 56, 'gfx/inter.lmp') then
   begin
-    DrawText(40, 64, 'Time');
-    DrawText(40, 104, 'Secrets');
-    DrawText(40, 144, 'Kills');
+    DrawText(40, 64, Tr('Time'));
+    DrawText(40, 104, Tr('Secrets'));
+    DrawText(40, 144, Tr('Kills'));
   end;
 
   { Time as minutes:seconds }
@@ -632,9 +639,9 @@ begin
   begin
     { Fire or jump continues: the gamepad's jump button by its name }
     if GamepadConnected then
-      DrawText(160, 184, 'Press fire or ' + GamepadButtonLabel(GamepadJump) + ' to continue', True)
+      DrawText(160, 184, Format(Tr('Press fire or %s to continue'), [GamepadButtonLabel(GamepadJump)]), True)
     else
-      DrawText(160, 184, 'Press fire to continue', True);
+      DrawText(160, 184, Tr('Press fire to continue'), True);
   end;
 end;
 

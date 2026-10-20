@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser;
+  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate;
 
 var
   Checks, Failures: Integer;
@@ -1324,6 +1324,114 @@ begin
   end;
 end;
 
+{ Localization: the .po reader, the menu item rule and every translation
+  against the template (every text, the same format specifiers) }
+procedure TestTranslate(const LangDir: String);
+const
+  Sample = '# a comment' + LineEnding +
+    'msgid ""' + LineEnding + 'msgstr ""' + LineEnding + '"Language: xx\n"' + LineEnding + LineEnding +
+    'msgid "Options"' + LineEnding + 'msgstr "Optionen"' + LineEnding + LineEnding +
+    'msgid "Say \"hi\""' + LineEnding + 'msgstr ""' + LineEnding + '"Sag \"hallo\""' + LineEnding + LineEnding +
+    'msgid "Untranslated"' + LineEnding + 'msgstr ""' + LineEnding;
+var
+  D, Pot, Po: TTranslationDictionary;
+  Header: TStringList;
+  Text, Id, Code: String;
+  L: TLanguageInfo;
+  Missing, Wrong: Integer;
+
+  function ReadFile(const Name: String): String;
+  var
+    F: TStringList;
+  begin
+    F := TStringList.Create;
+    try
+      F.LoadFromFile(Name);
+      Result := F.Text;
+    finally
+      F.Free;
+    end;
+  end;
+
+  function Specifiers(const S: String): String;
+  var
+    I: Integer;
+  begin
+    Result := '';
+    I := 1;
+    while I <= Length(S) do
+    begin
+      if S[I] = '%' then
+      begin
+        Inc(I);
+        while (I <= Length(S)) and (S[I] in ['0'..'9', '.', '-']) do
+          Inc(I);
+        if I <= Length(S) then
+          Result := Result + S[I];
+      end;
+      Inc(I);
+    end;
+  end;
+
+begin
+  StartTest('Translations');
+  D := TTranslationDictionary.Create;
+  Header := TStringList.Create;
+  try
+    Check(ParsePo(Sample, D, Header) = 2, 'two translated entries (the header and an empty one left out)');
+    Check(D.TryGetValue('Options', Text) and (Text = 'Optionen'), 'an entry');
+    Check(D.TryGetValue('Say "hi"', Text) and (Text = 'Sag "hallo"'), 'escaped quotes and a continued msgstr');
+    CheckEqualsStr('xx', Header.Values['Language'], 'the header');
+  finally
+    D.Free;
+    Header.Free;
+  end;
+
+  Pot := TTranslationDictionary.Create;
+  Po := TTranslationDictionary.Create;
+  try
+    { The template has no msgstr: read the msgids by giving each one }
+    Text := StringReplace(ReadFile(LangDir + 'castle-quake.pot'), 'msgstr ""', 'msgstr "x"', [rfReplaceAll]);
+    ParsePo(Text, Pot);
+    Check(Pot.Count > 200, Format('the template lists the texts (%d)', [Pot.Count]));
+    Text := ReadFile(LangDir + 'languages.txt');
+    for Code in ['de', 'es', 'fr', 'it'] do
+    begin
+      Check(Pos(Code + ' ', Text) > 0, Code + ' is in languages.txt');
+      Po.Clear;
+      ParsePo(ReadFile(LangDir + Code + '.po'), Po);
+      Missing := 0;
+      Wrong := 0;
+      for Id in Pot.Keys do
+        if not Po.ContainsKey(Id) then
+          Inc(Missing)
+        else if Specifiers(Po[Id]) <> Specifiers(Id) then
+          Inc(Wrong);
+      Check((Missing = 0) and (Wrong = 0) and (Po.Count = Pot.Count),
+        Format('%s.po translates all %d texts (%d missing, %d with other format specifiers, %d entries)',
+        [Code, Pot.Count, Missing, Wrong, Po.Count]));
+    end;
+
+    { The menu: whole items, "Label: value" and values in brackets }
+    UseTranslation('de', ReadFile(LangDir + 'de.po'));
+    CheckEqualsStr('de', CurrentLanguage, 'German in use');
+    Check(Tr('Options') <> 'Options', 'a menu item translated: ' + Tr('Options'));
+    CheckEqualsStr(Tr('Dynamic Shadows') + ': [' + Tr('ON') + ']', TrItem('Dynamic Shadows: [ON]'),
+      'a label and its value');
+    CheckEqualsStr(Tr('Field of View') + ': [90]', TrItem('Field of View: [90]'), 'a number stays');
+    CheckEqualsStr(Tr('Language') + ': [' + Tr('Auto') + ': Deutsch]', TrItem('Language: [Auto: Deutsch]'),
+      'a value inside brackets with a label');
+    CheckEqualsStr('maps/e1m1.bsp', TrItem('maps/e1m1.bsp'), 'a map name stays');
+    CheckEqualsStr('Not in the table', Tr('Not in the table'), 'an unknown text stays');
+    Check(Pos('%d', Tr('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d')) > 0, 'the stats line keeps its numbers');
+    UseTranslation('en', '');
+    CheckEqualsStr('Options', Tr('Options'), 'English again');
+  finally
+    Pot.Free;
+    Po.Free;
+  end;
+end;
+
 { Savegame listing: the info the Load Game menu shows, the newest first }
 procedure TestSaveList;
 var
@@ -1416,6 +1524,7 @@ begin
   TestRandomMap;
   TestCaptions;
   TestSaveList;
+  TestTranslate(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'lang') + PathDelim);
   TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +
     PathDelim + 'maps.txt'));
 

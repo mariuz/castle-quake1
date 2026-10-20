@@ -53,6 +53,10 @@ jobs:
           castle-engine compile --mode=debug --verbose
           ./quaketests ../data/paks
 
+      # The translation template follows the code and every .po covers it
+      - name: Check the translations
+        run: python3 tools/lang_strings.py --check
+
   scenarios:
     name: Gameplay scenarios
     runs-on: ubuntu-latest

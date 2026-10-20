@@ -1,0 +1,1029 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: es\n"
+"X-Language-Name: Español\n"
+
+#: code/gameinput.pas
+msgid "Move forward"
+msgstr "Avanzar"
+
+#: code/gameinput.pas
+msgid "Move backward"
+msgstr "Retroceder"
+
+#: code/gameinput.pas
+msgid "Strafe left"
+msgstr "Desplazarse a la izquierda"
+
+#: code/gameinput.pas
+msgid "Strafe right"
+msgstr "Desplazarse a la derecha"
+
+#: code/gameinput.pas
+msgid "Walk (slow)"
+msgstr "Caminar (lento)"
+
+#: code/gameinput.pas
+msgid "Jump"
+msgstr "Saltar"
+
+#: code/gameinput.pas
+msgid "Fire"
+msgstr "Disparar"
+
+#: code/gameinput.pas
+msgid "Use"
+msgstr "Usar"
+
+#: code/gameinput.pas
+msgid "Axe"
+msgstr "Hacha"
+
+#: code/gameinput.pas
+msgid "Shotgun"
+msgstr "Escopeta"
+
+#: code/gameinput.pas
+msgid "Super shotgun"
+msgstr "Superescopeta"
+
+#: code/gameinput.pas
+msgid "Nailgun"
+msgstr "Lanzaclavos"
+
+#: code/gameinput.pas
+msgid "Super nailgun"
+msgstr "Superlanzaclavos"
+
+#: code/gameinput.pas
+msgid "Grenade launcher"
+msgstr "Lanzagranadas"
+
+#: code/gameinput.pas
+msgid "Rocket launcher"
+msgstr "Lanzacohetes"
+
+#: code/gameinput.pas
+msgid "Thunderbolt"
+msgstr "Thunderbolt"
+
+#: code/gameinput.pas
+msgid "Next weapon"
+msgstr "Arma siguiente"
+
+#: code/gameinput.pas
+msgid "Previous weapon"
+msgstr "Arma anterior"
+
+#: code/gameinput.pas
+msgid "Quick save"
+msgstr "Guardado rápido"
+
+#: code/gameinput.pas
+msgid "Quick load"
+msgstr "Carga rápida"
+
+#: code/gameinput.pas
+msgid "Console"
+msgstr "Consola"
+
+#: code/gameinput.pas
+msgid "Camera view"
+msgstr "Vista de cámara"
+
+#: code/gameinput.pas
+msgid "Shadows"
+msgstr "Sombras"
+
+#: code/gameinput.pas
+msgid "Screenshot"
+msgstr "Captura de pantalla"
+
+#: code/gameinput.pas
+msgid "Photo mode"
+msgstr "Modo foto"
+
+#: code/gamephoto.pas
+msgid "Field of view %d"
+msgstr "Campo de visión %d"
+
+#: code/gamephoto.pas
+msgid "Photo size %dx"
+msgstr "Tamaño de foto %dx"
+
+#: code/gamephoto.pas
+msgid "PHOTO MODE   fov %d (wheel, [ ])   %s (Tab)   photo %dx%d (+ -)   Enter: take a photo   R: reset   Esc: back"
+msgstr "MODO FOTO   fov %d (rueda, [ ])   %s (Tab)   foto %dx%d (+ -)   Enter: tomar foto   R: reiniciar   Esc: volver"
+
+#: code/gamephoto.pas
+msgid "Gamepad: %s photo   %s effect   %s / %s field of view   %s back"
+msgstr "Mando: %s foto   %s efecto   %s / %s campo de visión   %s volver"
+
+#: code/gamephoto.pas
+msgid "Photo saved: %s (%dx%d)"
+msgstr "Foto guardada: %s (%dx%d)"
+
+#: code/gamephoto.pas
+msgid "No effect"
+msgstr "Sin efecto"
+
+#: code/gamephoto.pas
+msgid "Depth of field"
+msgstr "Profundidad de campo"
+
+#: code/gamephoto.pas
+msgid "Grayscale"
+msgstr "Escala de grises"
+
+#: code/gamephoto.pas
+msgid "Sepia"
+msgstr "Sepia"
+
+#: code/gamephoto.pas
+msgid "Vignette"
+msgstr "Viñeta"
+
+#: code/gamephoto.pas
+msgid "Ambient occlusion"
+msgstr "Oclusión ambiental"
+
+#: code/gameviewplay.pas
+msgid "Language: %s (%s); lang <code> changes it:%s, auto"
+msgstr "Idioma: %s (%s); lang <code> lo cambia:%s, auto"
+
+#: code/gameviewplay.pas
+msgid "Commands:"
+msgstr "Comandos:"
+
+#: code/gameviewplay.pas
+msgid "  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)"
+msgstr "  map <name>     - Cargar mapa (p. ej. start, e1m1, lq_e0m1)"
+
+#: code/gameviewplay.pas
+msgid "  skill <0..3>   - Skill for the next map"
+msgstr "  skill <0..3>   - Dificultad del siguiente mapa"
+
+#: code/gameviewplay.pas
+msgid "  record <name>  - Record a demo to <name>.dem, stop ends it"
+msgstr "  record <name>  - Grabar una demo en <name>.dem, stop la termina"
+
+#: code/gameviewplay.pas
+msgid "  save [slot]    - Save the game (F6 = quick)"
+msgstr "  save [slot]    - Guardar la partida (F6 = rápido)"
+
+#: code/gameviewplay.pas
+msgid "  load [slot]    - Load a saved game (F9 = quick)"
+msgstr "  load [slot]    - Cargar una partida guardada (F9 = rápido)"
+
+#: code/gameviewplay.pas
+msgid "  god            - God mode"
+msgstr "  god            - Modo dios"
+
+#: code/gameviewplay.pas
+msgid "  give all       - Give all weapons, ammo, keys"
+msgstr "  give all       - Dar todas las armas, munición y llaves"
+
+#: code/gameviewplay.pas
+msgid "  shadows <0|1>  - Toggle dynamic shadows"
+msgstr "  shadows <0|1>  - Activar o desactivar las sombras dinámicas"
+
+#: code/gameviewplay.pas
+msgid "  wateralpha <0..1> - Opacity of water, slime and lava"
+msgstr "  wateralpha <0..1> - Opacidad del agua, el limo y la lava"
+
+#: code/gameviewplay.pas
+msgid "  fog <density> [r g b] - Fog for this level (0 off)"
+msgstr "  fog <density> [r g b] - Niebla de este nivel (0 la quita)"
+
+#: code/gameviewplay.pas
+msgid "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility"
+msgstr "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accesibilidad"
+
+#: code/gameviewplay.pas
+msgid "  horde [0|1]    - Waves of monsters on this map; killall - every monster dies"
+msgstr "  horde [0|1]    - Oleadas de monstruos en este mapa; killall - mueren todos los monstruos"
+
+#: code/gameviewplay.pas
+msgid "  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it"
+msgstr "  speedrun [0|1], ghost [0|1], ghost_reset - Cronómetro, competir con la mejor partida, olvidarla"
+
+#: code/gameviewplay.pas
+msgid "  saves          - List the saved games (the Load Game menu)"
+msgstr "  saves          - Lista las partidas guardadas (el menú Cargar partida)"
+
+#: code/gameviewplay.pas
+msgid "  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,"
+msgstr "  photo [0|1] (P) - Modo foto: el juego se pausa, la cámara vuela; photo_fov <deg>,"
+
+#: code/gameviewplay.pas
+msgid "    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot"
+msgstr "    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot"
+
+#: code/gameviewplay.pas
+msgid "  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,"
+msgstr "  maps [rating|newest|name|installed] [text] - Mapas de Quaddicted; maps_install <id>,"
+
+#: code/gameviewplay.pas
+msgid "    maps_play <id> [map], maps_remove <id> - download, play and remove one"
+msgstr "    maps_play <id> [map], maps_remove <id> - descargar, jugar y quitar uno"
+
+#: code/gameviewplay.pas
+msgid "  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)"
+msgstr "  sky <name> - Skybox gfx/env/<name> para este nivel (- el cielo en movimiento)"
+
+#: code/gameviewplay.pas
+msgid "  fov <degrees>  - Field of view at 4:3 (wider screens see more)"
+msgstr "  fov <degrees>  - Campo de visión en 4:3 (las pantallas más anchas ven más)"
+
+#: code/gameviewplay.pas
+msgid "  gamma <0.4..1.5> - Brightness, lower is brighter"
+msgstr "  gamma <0.4..1.5> - Brillo, menor es más brillante"
+
+#: code/gameviewplay.pas
+msgid "  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon"
+msgstr "  cl_bob <0..0.1> - Balanceo de la vista (0 sin él), r_drawviewmodel <0|1> - el arma"
+
+#: code/gameviewplay.pas
+msgid "  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting"
+msgstr "  lightmaps <0|1> - Iluminación del mundo con lightmaps de Quake o PBR dinámica"
+
+#: code/gameviewplay.pas
+msgid "  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off"
+msgstr "  debug <modes>  - Superposición: triggers, monsters, movers, leaf, all, off"
+
+#: code/gameviewplay.pas
+msgid "  fps            - Show the frame rate in the stats line"
+msgstr "  fps            - Mostrar los fotogramas por segundo en la línea de estadísticas"
+
+#: code/gameviewplay.pas
+msgid "  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see"
+msgstr "  novis <0|1>    - 1 dibuja todo el mundo, 0 solo lo que ve el PVS"
+
+#: code/gameviewplay.pas
+msgid "  lang <code|auto> - Language of the menu, the HUD and this help"
+msgstr "  lang <code|auto> - Idioma del menú, el HUD y esta ayuda"
+
+#: code/gameviewplay.pas
+msgid "  quit           - Exit game"
+msgstr "  quit           - Salir del juego"
+
+#: code/gameviewplay.pas
+msgid "Unknown command: "
+msgstr "Comando desconocido: "
+
+#: code/quakecaptions.pas
+msgid "behind"
+msgstr "detrás"
+
+#: code/quakecaptions.pas
+msgid "Soldier shouts"
+msgstr "El soldado grita"
+
+#: code/quakecaptions.pas
+msgid "Soldier fires"
+msgstr "El soldado dispara"
+
+#: code/quakecaptions.pas
+msgid "Soldier dies"
+msgstr "El soldado muere"
+
+#: code/quakecaptions.pas
+msgid "Dog growls"
+msgstr "El perro gruñe"
+
+#: code/quakecaptions.pas
+msgid "Dog bites"
+msgstr "El perro muerde"
+
+#: code/quakecaptions.pas
+msgid "Ogre wakes"
+msgstr "El Ogre despierta"
+
+#: code/quakecaptions.pas
+msgid "Chainsaw"
+msgstr "Motosierra"
+
+#: code/quakecaptions.pas
+msgid "Ogre drags its chainsaw"
+msgstr "El Ogre arrastra su motosierra"
+
+#: code/quakecaptions.pas
+msgid "Knight shouts"
+msgstr "El caballero grita"
+
+#: code/quakecaptions.pas
+msgid "Sword swing"
+msgstr "Golpe de espada"
+
+#: code/quakecaptions.pas
+msgid "Death knight roars"
+msgstr "El caballero de la muerte ruge"
+
+#: code/quakecaptions.pas
+msgid "Fireballs"
+msgstr "Bolas de fuego"
+
+#: code/quakecaptions.pas
+msgid "Sword slash"
+msgstr "Tajo de espada"
+
+#: code/quakecaptions.pas
+msgid "Scrag shrieks"
+msgstr "El Scrag chilla"
+
+#: code/quakecaptions.pas
+msgid "Scrag spits"
+msgstr "El Scrag escupe"
+
+#: code/quakecaptions.pas
+msgid "Fiend roars"
+msgstr "El Fiend ruge"
+
+#: code/quakecaptions.pas
+msgid "Fiend leaps"
+msgstr "El Fiend salta"
+
+#: code/quakecaptions.pas
+msgid "Shambler roars"
+msgstr "El Shambler ruge"
+
+#: code/quakecaptions.pas
+msgid "Shambler swipes"
+msgstr "El Shambler da un zarpazo"
+
+#: code/quakecaptions.pas
+msgid "Lightning charging"
+msgstr "Rayo cargándose"
+
+#: code/quakecaptions.pas
+msgid "Zombie moans"
+msgstr "El zombi gime"
+
+#: code/quakecaptions.pas
+msgid "Zombie throws flesh"
+msgstr "El zombi lanza carne"
+
+#: code/quakecaptions.pas
+msgid "Enforcer shouts"
+msgstr "El Enforcer grita"
+
+#: code/quakecaptions.pas
+msgid "Laser fire"
+msgstr "Disparo láser"
+
+#: code/quakecaptions.pas
+msgid "Vore wails"
+msgstr "El Vore aúlla"
+
+#: code/quakecaptions.pas
+msgid "Vore attacks"
+msgstr "El Vore ataca"
+
+#: code/quakecaptions.pas
+msgid "Spawn gurgles"
+msgstr "El Spawn borbotea"
+
+#: code/quakecaptions.pas
+msgid "Spawn jumps"
+msgstr "El Spawn salta"
+
+#: code/quakecaptions.pas
+msgid "Rotfish bites"
+msgstr "El pez podrido muerde"
+
+#: code/quakecaptions.pas
+msgid "Chthon rises"
+msgstr "Chthon emerge"
+
+#: code/quakecaptions.pas
+msgid "Chthon throws lava"
+msgstr "Chthon lanza lava"
+
+#: code/quakecaptions.pas
+msgid "Shub-Niggurath"
+msgstr "Shub-Niggurath"
+
+#: code/quakecaptions.pas
+msgid "Door moves"
+msgstr "La puerta se mueve"
+
+#: code/quakecaptions.pas
+msgid "Platform moves"
+msgstr "La plataforma se mueve"
+
+#: code/quakecaptions.pas
+msgid "Button"
+msgstr "Botón"
+
+#: code/quakecaptions.pas
+msgid "Secret found"
+msgstr "Secreto encontrado"
+
+#: code/quakecaptions.pas
+msgid "Something happened"
+msgstr "Algo ha ocurrido"
+
+#: code/quakecaptions.pas
+msgid "Teleport"
+msgstr "Teletransporte"
+
+#: code/quakecaptions.pas
+msgid "Rune"
+msgstr "Runa"
+
+#: code/quakecaptions.pas
+msgid "Key"
+msgstr "Llave"
+
+#: code/quakecaptions.pas
+msgid "Power hum"
+msgstr "Zumbido de energía"
+
+#: code/quakecaptions.pas
+msgid "Thunder"
+msgstr "Trueno"
+
+#: code/quakecaptions.pas
+msgid "Explosion"
+msgstr "Explosión"
+
+#: code/quakecaptions.pas
+msgid "Grenade launched"
+msgstr "Granada lanzada"
+
+#: code/quakecaptions.pas
+msgid "Rocket launched"
+msgstr "Cohete lanzado"
+
+#: code/quakecaptions.pas
+msgid "Nails"
+msgstr "Clavos"
+
+#: code/quakecaptions.pas
+msgid "Lightning"
+msgstr "Rayo"
+
+#: code/quakecaptions.pas
+msgid "Telefrag"
+msgstr "Telefrag"
+
+#: code/quakecaptions.pas
+msgid "Health"
+msgstr "Salud"
+
+#: code/quakecaptions.pas
+msgid "Megahealth"
+msgstr "Megasalud"
+
+#: code/quakecaptions.pas
+msgid "Armor"
+msgstr "Armadura"
+
+#: code/quakecaptions.pas
+msgid "Weapon"
+msgstr "Arma"
+
+#: code/quakecaptions.pas
+msgid "Ammo"
+msgstr "Munición"
+
+#: code/quakecaptions.pas
+msgid "Quad Damage"
+msgstr "Daño cuádruple"
+
+#: code/quakecaptions.pas
+msgid "Pentagram of Protection"
+msgstr "Pentagrama de protección"
+
+#: code/quakecaptions.pas
+msgid "Ring of Shadows"
+msgstr "Anillo de las sombras"
+
+#: code/quakecaptions.pas
+msgid "Biosuit"
+msgstr "Biotraje"
+
+#: code/quakecaptions.pas
+msgid "Biosuit wearing off"
+msgstr "El biotraje se agota"
+
+#: code/quakecaptions.pas
+msgid "Item respawns"
+msgstr "Reaparece un objeto"
+
+#: code/quakecaptions.pas
+msgid "Drowning"
+msgstr "Ahogándose"
+
+#: code/quakeconsole.pas
+msgid "Type \"help\" for a list of available commands."
+msgstr "Escribe \"help\" para ver la lista de comandos disponibles."
+
+#: code/quakehud.pas
+msgid "KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d"
+msgstr "MUERTES: %d/%d   SECRETOS: %d/%d   TIEMPO: %02d:%02d"
+
+#: code/quakehud.pas
+msgid "COMPLETED"
+msgstr "COMPLETADO"
+
+#: code/quakehud.pas
+msgid "Time"
+msgstr "Tiempo"
+
+#: code/quakehud.pas
+msgid "Secrets"
+msgstr "Secretos"
+
+#: code/quakehud.pas
+msgid "Kills"
+msgstr "Muertes"
+
+#: code/quakehud.pas
+msgid "Press fire or %s to continue"
+msgstr "Pulsa disparar o %s para continuar"
+
+#: code/quakehud.pas
+msgid "Press fire to continue"
+msgstr "Pulsa disparar para continuar"
+
+#: code/quakemenu.pas
+msgid "Press a key, mouse button or wheel for \"%s\" (Escape keeps it)"
+msgstr "Pulsa una tecla, un botón del ratón o la rueda para \"%s\" (Escape lo mantiene)"
+
+#: code/quakemenu.pas
+msgid "Enter rebinds; the gamepad: left stick moves, right stick turns, %s jumps, %s uses, %s / %s fires, D-pad changes weapons, %s photo mode, %s menu"
+msgstr "Enter reasigna; el mando: stick izquierdo mueve, stick derecho gira, %s salta, %s usa, %s / %s dispara, la cruceta cambia de arma, %s modo foto, %s menú"
+
+#: code/quakemenu.pas
+msgid "%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages"
+msgstr "%d mapas de Quaddicted: %s muestra uno, %s vuelve, izquierda / derecha pasan las páginas"
+
+#: code/quakemenu.pas
+msgid "%d maps from Quaddicted: Enter shows one, Escape goes back"
+msgstr "%d mapas de Quaddicted: Enter muestra uno, Escape vuelve"
+
+#: code/quakemenu.pas
+msgid "D-pad to navigate, %s to select, %s to go back"
+msgstr "Cruceta para navegar, %s para elegir, %s para volver"
+
+#: code/quakemenu.pas
+msgid "Single Player"
+msgstr "Un jugador"
+
+#: code/quakemenu.pas
+msgid "Multiplayer"
+msgstr "Multijugador"
+
+#: code/quakemenu.pas
+msgid "Map Warp"
+msgstr "Ir a un mapa"
+
+#: code/quakemenu.pas
+msgid "Map Browser"
+msgstr "Explorador de mapas"
+
+#: code/quakemenu.pas
+msgid "Save Game"
+msgstr "Guardar partida"
+
+#: code/quakemenu.pas
+msgid "Load Game"
+msgstr "Cargar partida"
+
+#: code/quakemenu.pas
+msgid "Demos"
+msgstr "Demos"
+
+#: code/quakemenu.pas
+msgid "Options"
+msgstr "Opciones"
+
+#: code/quakemenu.pas
+msgid "CGE Features Showcase"
+msgstr "Muestra de funciones de CGE"
+
+#: code/quakemenu.pas
+msgid "Quit"
+msgstr "Salir"
+
+#: code/quakemenu.pas
+msgid "Quake"
+msgstr "Quake"
+
+#: code/quakemenu.pas
+msgid "Episode Hub"
+msgstr "Selección de episodio"
+
+#: code/quakemenu.pas
+msgid "LibreQuake"
+msgstr "LibreQuake"
+
+#: code/quakemenu.pas
+msgid "Random Map"
+msgstr "Mapa aleatorio"
+
+#: code/quakemenu.pas
+msgid "a new level from a seed"
+msgstr "un nivel nuevo a partir de una semilla"
+
+#: code/quakemenu.pas
+msgid "Horde Mode"
+msgstr "Modo horda"
+
+#: code/quakemenu.pas
+msgid "waves of monsters on E1M1"
+msgstr "oleadas de monstruos en E1M1"
+
+#: code/quakemenu.pas
+msgid "a random map"
+msgstr "un mapa aleatorio"
+
+#: code/quakemenu.pas
+msgid "QuakeC Mode"
+msgstr "Modo QuakeC"
+
+#: code/quakemenu.pas
+msgid "progs.dat runs the game"
+msgstr "progs.dat dirige el juego"
+
+#: code/quakemenu.pas
+msgid "Back to Main Menu"
+msgstr "Volver al menú principal"
+
+#: code/quakemenu.pas
+msgid "Host Deathmatch"
+msgstr "Crear deathmatch"
+
+#: code/quakemenu.pas
+msgid "Host Coop"
+msgstr "Crear cooperativo"
+
+#: code/quakemenu.pas
+msgid "Split-Screen Coop"
+msgstr "Cooperativo a pantalla dividida"
+
+#: code/quakemenu.pas
+msgid "e1m1 (gamepad for player 2)"
+msgstr "e1m1 (mando para el jugador 2)"
+
+#: code/quakemenu.pas
+msgid "Deathmatch vs 3 bots"
+msgstr "Deathmatch contra 3 bots"
+
+#: code/quakemenu.pas
+msgid "Join"
+msgstr "Unirse"
+
+#: code/quakemenu.pas
+msgid "Random map"
+msgstr "Mapa aleatorio"
+
+#: code/quakemenu.pas
+msgid "new seed"
+msgstr "nueva semilla"
+
+#: code/quakemenu.pas
+msgid "recorded"
+msgstr "grabada"
+
+#: code/quakemenu.pas
+msgid "Dynamic Shadows"
+msgstr "Sombras dinámicas"
+
+#: code/quakemenu.pas
+msgid "ON"
+msgstr "SÍ"
+
+#: code/quakemenu.pas
+msgid "OFF"
+msgstr "NO"
+
+#: code/quakemenu.pas
+msgid "World Lighting"
+msgstr "Iluminación del mundo"
+
+#: code/quakemenu.pas
+msgid "Quake Lightmaps"
+msgstr "Lightmaps de Quake"
+
+#: code/quakemenu.pas
+msgid "Dynamic PBR"
+msgstr "PBR dinámica"
+
+#: code/quakemenu.pas
+msgid "Camera View"
+msgstr "Vista de cámara"
+
+#: code/quakemenu.pas
+msgid "Sound Effects"
+msgstr "Efectos de sonido"
+
+#: code/quakemenu.pas
+msgid "Field of View"
+msgstr "Campo de visión"
+
+#: code/quakemenu.pas
+msgid "Brightness (gamma)"
+msgstr "Brillo (gamma)"
+
+#: code/quakemenu.pas
+msgid "View Bob"
+msgstr "Balanceo de la vista"
+
+#: code/quakemenu.pas
+msgid "Show Weapon"
+msgstr "Mostrar arma"
+
+#: code/quakemenu.pas
+msgid "Captions"
+msgstr "Subtítulos"
+
+#: code/quakemenu.pas
+msgid "High Contrast HUD"
+msgstr "HUD de alto contraste"
+
+#: code/quakemenu.pas
+msgid "Reduced Flashes"
+msgstr "Destellos reducidos"
+
+#: code/quakemenu.pas
+msgid "Speedrun Timer"
+msgstr "Cronómetro de speedrun"
+
+#: code/quakemenu.pas
+msgid "Ghost of the Best Run"
+msgstr "Fantasma de la mejor partida"
+
+#: code/quakemenu.pas
+msgid "Language"
+msgstr "Idioma"
+
+#: code/quakemenu.pas
+msgid "Controls"
+msgstr "Controles"
+
+#: code/quakemenu.pas
+msgid "Gamepad"
+msgstr "Mando"
+
+#: code/quakemenu.pas
+msgid "Gamepad look sensitivity"
+msgstr "Sensibilidad de vista del mando"
+
+#: code/quakemenu.pas
+msgid "Gamepad dead zone"
+msgstr "Zona muerta del mando"
+
+#: code/quakemenu.pas
+msgid "Gamepad invert look"
+msgstr "Invertir vista del mando"
+
+#: code/quakemenu.pas
+msgid "Gamepad button names"
+msgstr "Nombres de botones del mando"
+
+#: code/quakemenu.pas
+msgid "Gamepad confirm button"
+msgstr "Botón de confirmar del mando"
+
+#: code/quakemenu.pas
+msgid "Reset to defaults"
+msgstr "Restablecer valores"
+
+#: code/quakemenu.pas
+msgid "Back"
+msgstr "Volver"
+
+#: code/quakemenu.pas
+msgid "(no saved games yet)"
+msgstr "(aún no hay partidas guardadas)"
+
+#: data/ui/hud.castle-user-interface
+msgid "ARMOR"
+msgstr "ARMADURA"
+
+#: data/ui/hud.castle-user-interface
+msgid "HEALTH"
+msgstr "SALUD"
+
+#: data/ui/hud.castle-user-interface
+msgid "AMMO"
+msgstr "MUNICIÓN"
+
+#: data/ui/menu.castle-user-interface
+msgid "CASTLE QUAKE"
+msgstr "CASTLE QUAKE"
+
+#: data/ui/menu.castle-user-interface
+msgid "Castle Game Engine Quake Showcase"
+msgstr "Muestra de Quake con Castle Game Engine"
+
+#: data/ui/menu.castle-user-interface
+msgid "Engine Features Used:"
+msgstr "Funciones del motor usadas:"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Full 3D X3D Scene Graphs (TIndexedTriangleSetNode, TShapeNode)"
+msgstr "- Grafos de escena X3D en 3D completos (TIndexedTriangleSetNode, TShapeNode)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Quake lightmaps blended in a GLSL effect, or dynamic PBR lighting with shadow maps"
+msgstr "- Lightmaps de Quake mezclados en un efecto GLSL, o iluminación PBR dinámica con mapas de sombras"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Quake 1 Alias MDL 3D Model Loading and Mesh Animation"
+msgstr "- Carga de modelos 3D Alias MDL de Quake 1 y animación de mallas"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Positional 3D Spatial Audio via OpenAL (TCastleSoundSource)"
+msgstr "- Audio espacial 3D posicional con OpenAL (TCastleSoundSource)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Custom URL Protocols (\"quakepak:\", \"quaketex:\") with Streaming Cache"
+msgstr "- Protocolos URL propios (\"quakepak:\", \"quaketex:\") con caché de streaming"
+
+#: data/ui/menu.castle-user-interface
+msgid "- First/Third Person & Free-Fly Navigation (TCastleWalkNavigation)"
+msgstr "- Navegación en primera/tercera persona y vuelo libre (TCastleWalkNavigation)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Interactive Submodels (doors, elevators, buttons) via TCastleTransform"
+msgstr "- Submodelos interactivos (puertas, ascensores, botones) con TCastleTransform"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Particle Systems (impact sparks, blood splatters, explosions)"
+msgstr "- Sistemas de partículas (chispas de impacto, salpicaduras de sangre, explosiones)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- A QuakeC VM, multiplayer over UDP, demos, savegames"
+msgstr "- Una VM de QuakeC, multijugador por UDP, demos, partidas guardadas"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Named components and behaviors for the engine's inspector (F8)"
+msgstr "- Componentes y comportamientos con nombre para el inspector del motor (F8)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- This menu, the HUD and the console are editor designs (data/ui)"
+msgstr "- Este menú, el HUD y la consola son diseños del editor (data/ui)"
+
+#: data/ui/menu.castle-user-interface
+msgid "[ Press Enter / Esc to Return ]"
+msgstr "[ Pulsa Enter / Esc para volver ]"
+
+#: data/ui/menu.castle-user-interface
+msgid "Use Arrow Keys to Navigate, Enter to Select, Esc to Back"
+msgstr "Flechas para navegar, Enter para elegir, Esc para volver"
+
+#: data/ui/photo.castle-user-interface
+msgid "PHOTO MODE"
+msgstr "MODO FOTO"
+
+#: data/ui/touch.castle-user-interface
+msgid "FIRE"
+msgstr "DISPARO"
+
+#: data/ui/touch.castle-user-interface
+msgid "JUMP"
+msgstr "SALTO"
+
+#: data/ui/touch.castle-user-interface
+msgid "USE"
+msgstr "USAR"
+
+#: data/ui/touch.castle-user-interface
+msgid "MENU"
+msgstr "MENÚ"
+
+#: tools/lang_strings.py
+msgid "Auto"
+msgstr "Automático"
+
+#: tools/lang_strings.py
+msgid "First-Person"
+msgstr "Primera persona"
+
+#: tools/lang_strings.py
+msgid "Third-Person"
+msgstr "Tercera persona"
+
+#: tools/lang_strings.py
+msgid "Free-Fly"
+msgstr "Vuelo libre"
+
+#: tools/lang_strings.py
+msgid "South"
+msgstr "Sur"
+
+#: tools/lang_strings.py
+msgid "East"
+msgstr "Este"
+
+#: tools/lang_strings.py
+msgid "empty"
+msgstr "vacío"
+
+#: code/quakemenu.pas
+msgid "Welcome to Castle Quake: "
+msgstr "Bienvenido a Castle Quake: "
+
+#: code/quakemenu.pas
+msgid "Sort: [%s]  page %d of %d"
+msgstr "Orden: [%s]  página %d de %d"
+
+#: code/quakemenu.pas
+msgid "(no maps installed yet)"
+msgstr "(aún no hay mapas instalados)"
+
+#: code/quakemenu.pas
+msgid "Next page"
+msgstr "Página siguiente"
+
+#: code/quakemenu.pas
+msgid "Previous page"
+msgstr "Página anterior"
+
+#: code/quakemenu.pas
+msgid "by %s, released %s"
+msgstr "de %s, publicado %s"
+
+#: code/quakemenu.pas
+msgid "Rating %.1f / 5, %s, %.1f MB"
+msgstr "Valoración %.1f / 5, %s, %.1f MB"
+
+#: code/quakemenu.pas
+msgid "Not rated, %s, %.1f MB"
+msgstr "Sin valorar, %s, %.1f MB"
+
+#: code/quakemenu.pas
+msgid "raised engine limits"
+msgstr "límites del motor ampliados"
+
+#: code/quakemenu.pas
+msgid "colored light"
+msgstr "luz de color"
+
+#: code/quakemenu.pas
+msgid "Uses %s"
+msgstr "Usa %s"
+
+#: code/quakemenu.pas
+msgid "Needs %s (QuakeC mode)"
+msgstr "Necesita %s (modo QuakeC)"
+
+#: code/quakemenu.pas
+msgid "A mod: plays in QuakeC mode"
+msgstr "Un mod: se juega en modo QuakeC"
+
+#: code/quakemenu.pas
+msgid "Remove"
+msgstr "Eliminar"
+
+#: code/quakemenu.pas
+msgid "Downloading: %d%%"
+msgstr "Descargando: %d%%"
+
+#: code/quakemenu.pas
+msgid "Download and play (%.0f MB with the mods)"
+msgstr "Descargar y jugar (%.0f MB con los mods)"
+
+#: code/quakemenu.pas
+msgid "Download and play"
+msgstr "Descargar y jugar"
+
+#: code/quakemenu.pas
+msgid "Back to the list"
+msgstr "Volver a la lista"
+
+#: code/quakemenu.pas
+msgid "Rating"
+msgstr "Valoración"
+
+#: code/quakemenu.pas
+msgid "Newest"
+msgstr "Más recientes"
+
+#: code/quakemenu.pas
+msgid "Name"
+msgstr "Nombre"
+
+#: code/quakemenu.pas
+msgid "Installed"
+msgstr "Instalados"
+
+#: code/quakemenu.pas
+msgid "Play"
+msgstr "Jugar"
+
+#: code/quakemenu.pas
+msgid "small"
+msgstr "pequeño"
+
+#: code/quakemenu.pas
+msgid "medium"
+msgstr "mediano"
+
+#: code/quakemenu.pas
+msgid "large"
+msgstr "grande"
