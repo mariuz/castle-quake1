@@ -185,6 +185,53 @@ def check_mapbrowser(logs):
     return result
 
 
+DEMO_SHOT_RE = re.compile(r'Saved screenshot to ".*?" \(signon \d+, health -?\d+, ammo \d+, frags -?\d+, '
+                          r'time ([\d.]+)\)')
+PHOTO_RE = re.compile(r'Photo saved to "(.*?)": (\d+)x(\d+), fov (\d+), (\w+)')
+
+
+def check_photo(logs):
+    result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
+    log = logs['play']
+    result.append(('Photo mode on' in log and 'Photo mode off' in log, 'photo mode goes on and off'))
+    times = [float(t) for t in re.findall(r'Photo: Level time ([\d.]+)', log)]
+    result.append((len(times) == 2 and times[0] == times[1],
+                   'the game stands still in photo mode (level time %s)' % ' -> '.join('%.2f' % t for t in times)))
+    photos = PHOTO_RE.findall(log)
+    result.append((len(photos) == 2 and photos[0][1:] == ('3200', '1800', '90', 'dof'),
+                   'a depth of field photo at twice the window size (%s)' % (' '.join(photos[0][1:]) if photos else '-')))
+    result.append((len(photos) == 2 and photos[1][1:] == ('1600', '900', '60', 'gray'),
+                   'a grayscale photo at the window size with its own field of view (%s)' %
+                   (' '.join(photos[1][1:]) if len(photos) > 1 else '-')))
+    v = views(log)
+    result.append((len(v) == 3 and v[1]['eye'] != v[0]['eye'], 'the camera flies away from the player'))
+    result.append((len(v) == 3 and v[2]['eye'] == v[0]['eye'], 'leaving puts the camera back on the player'))
+    d = logs['pdemo']
+    shots = [float(t) for t in DEMO_SHOT_RE.findall(d)]
+    result.append((len(shots) == 3 and shots[0] == shots[1] and shots[2] > shots[1],
+                   'the demo waits in photo mode and goes on after (time %s)' % ' -> '.join('%.1f' % t for t in shots)))
+    demo_photos = PHOTO_RE.findall(d)
+    result.append((len(demo_photos) == 1 and demo_photos[0][4] == 'vignette', 'a photo from demo playback'))
+    return result
+
+
+def frames_photo(out_dir):
+    result = []
+    for name, size in (('play_photo_1.png', (3200, 1800)), ('play_photo_2.png', (1600, 900)),
+                       ('pdemo_photo_1.png', (3200, 1800))):
+        path = os.path.join(out_dir, name)
+        ok = os.path.exists(path) and Image.open(path).size == size
+        result.append((ok, '%s is %dx%d' % (name, size[0], size[1])))
+    path = os.path.join(out_dir, 'play_photo_2.png')
+    if os.path.exists(path):
+        im = Image.open(path).convert('RGB').resize((160, 90))
+        spread = max(max(px) - min(px) for px in im.getdata())
+        bright = sum(sum(px) for px in im.getdata()) / (160 * 90 * 3)
+        result.append((spread <= 3 and bright > 10, 'the grayscale photo is gray and not black '
+                       '(channel spread %d, brightness %.1f)' % (spread, bright)))
+    return result
+
+
 def check_e1m1_finish(logs):
     v = views(logs['finish'])
     result = common_checks(logs, 'finish')
@@ -820,8 +867,10 @@ SCENARIOS = [
                                     'W:0.3,Y,V:0.5;0;0,W:3,S,W:9,V:0;0;0,G:1312;-230;-544,W:1.5,S,Q'], 20)],
              check_speedrun, []),
     # Bots: a deathmatch host on E1M1 with three bots (navigation built from
-    # the map, items, fights, frags) and a network client joining them
-    Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,S,Q',
+    # the map, items, fights, frags) and a network client joining them; the
+    # idle host is their target and may be dead at the end, so it takes no
+    # screenshot
+    Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
                                  '-port', '26320'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
                                    'W:6,S,Q'], 5)],
@@ -840,6 +889,17 @@ SCENARIOS = [
                                         'W:0.3,GB:down,W:0.3,GB:down,W:0.3,GB:south,W:1.5,S,'
                                         'CMD:maps_remove qtest,CMD:maps installed,Q'], 0)],
              check_mapbrowser, [], prepare=prepare_mapbrowser),
+    # Photo mode: E1M1 paused while the camera flies off, a depth of field
+    # photo at twice the window size and a grayscale one at fov 60, the
+    # camera back on the player after; a demo waits in photo mode
+    Scenario('photo', [('play', ['--autotest', 'e1m1', '{out}/play', '--demo',
+                                 'W:0.5,Y,S,CMD:photo 1,M:-60,T:25,P:-10,W:2,S,CMD:photo_effect dof,'
+                                 'CMD:photo_shot,CMD:photo_effect gray,CMD:photo_fov 60,CMD:photo_scale 1,'
+                                 'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,Q'], 0),
+                       ('pdemo', ['--autotest', 'demo1.dem', '{out}/pdemo', '--demo',
+                                  'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
+                                  'CMD:photo 0,W:1,S,Q'], 0)],
+             check_photo, [], frame_checks=frames_photo),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

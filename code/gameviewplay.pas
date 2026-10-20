@@ -14,7 +14,7 @@ uses
   GameInput, GameVideo, GameTouch, QuakeCaptions, CastleConfig,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
-  QuakePhysics, QuakeSaveGame, QuakeDebug, QuakeMapBrowser;
+  QuakePhysics, QuakeSaveGame, QuakeDebug, QuakeMapBrowser, GamePhoto;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -50,6 +50,7 @@ type
     FBobTime: Single;
     FDemoTimer: Single;
     FUnderwaterEffect: TScreenEffectNode;
+    FPhoto: TPhotoMode;
     FUnderwaterTime: TSFFloat;
     FWarpTime: Single;
     FDeathTimer: Single;
@@ -97,6 +98,8 @@ type
     procedure LoadGameSlot(const Slot: String);
     procedure ReportHorde;
     procedure MapBrowserCommand(const Cmd, Args: String);
+    procedure SetPhotoMode(const On: Boolean);
+    function PhotoPrefix: String;
     procedure SetCameraMode(const Mode: TCameraMode);
 
     property World: TQuakeWorld read FWorld;
@@ -297,6 +300,10 @@ begin
     InsertFront(FTouch);
   end;
 
+  { Photo mode's help line, above the touch controls }
+  if FPhoto = nil then
+    FPhoto := TPhotoMode.Create(Self, FViewport, Self, FNavigation);
+
   { Create developer console }
   if FConsole = nil then
   begin
@@ -459,6 +466,38 @@ begin
   finally
     Words.Free;
   end;
+end;
+
+{ Photo mode: the world stops (Update skips it), the HUD, the weapon and
+  the touch controls hide, the camera flies; leaving puts the camera back }
+procedure TViewPlay.SetPhotoMode(const On: Boolean);
+begin
+  if (FWorld = nil) or (On = FPhoto.Active) then
+    Exit;
+  WritelnLog('Photo', 'Level time %.2f', [FWorld.Stats.LevelTime]);
+  if On then
+  begin
+    FPhoto.Enter;
+    FHud.Exists := False;
+    if FWorld.WeaponTransform <> nil then
+      FWorld.WeaponTransform.Exists := False;
+    FTouch.UpdateShown(False);
+  end else
+  begin
+    FPhoto.Leave;
+    FHud.Exists := True;
+    FNavigation.MouseLook := not TouchControlsWanted;
+  end;
+end;
+
+{ Where photos go: next to the autotest screenshots, else the working
+  directory like the screenshots }
+function TViewPlay.PhotoPrefix: String;
+begin
+  if FAutoTestPrefix <> '' then
+    Result := FAutoTestPrefix
+  else
+    Result := 'castle-quake';
 end;
 
 procedure TViewPlay.ReportHorde;
@@ -724,7 +763,9 @@ begin
   begin
     Val := StrToFloatDef(Param, 50.0);
     FViewport.Camera.Translation := FViewport.Camera.Translation + FViewport.Camera.Direction * Val;
-    FWorld.SetPlayerEyePosition(FViewport.Camera.Translation);
+    { In photo mode only the camera flies }
+    if not FPhoto.Active then
+      FWorld.SetPlayerEyePosition(FViewport.Camera.Translation);
     Inc(FDemoIndex);
   end else
   if Action = 'G' then { Teleport the player's eyes to x;y;z (CGE coordinates) }
@@ -940,6 +981,8 @@ var
 begin
   inherited Update(SecondsPassed, HandleInput);
   ApplyVideoSettings(FViewport);
+  if FPhoto <> nil then
+    FPhoto.ApplyView;
   if FShowFps then
     FHud.FpsText := 'FPS: ' + Container.Fps.ToString
   else
@@ -956,6 +999,35 @@ begin
   if FDemoCommands.Count > 0 then
     RunDemoStep(SecondsPassed);
 
+  { Photo mode: nothing moves but the camera; the gamepad's B or View
+    leaves, A takes a photo, Y changes the effect, the bumpers the field of
+    view }
+  if FPhoto.Active then
+  begin
+    FTouch.UpdateShown(False);
+    UpdateGamepad;
+    if not FConsole.IsOpen and not FMenu.Exists then
+    begin
+      FPhoto.Update(SecondsPassed);
+      if GamepadJustPressed(gbEast) or GamepadJustPressed(gbView) then
+        SetPhotoMode(False)
+      else if GamepadJustPressed(gbSouth) then
+        FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix))
+      else if GamepadJustPressed(gbNorth) then
+      begin
+        if FPhoto.Effect = High(TPhotoEffect) then
+          FPhoto.Effect := Low(TPhotoEffect)
+        else
+          FPhoto.Effect := Succ(FPhoto.Effect);
+      end else
+      if GamepadJustPressed(gbLeftBumper) then
+        FPhoto.Fov := FPhoto.Fov - 5
+      else if GamepadJustPressed(gbRightBumper) then
+        FPhoto.Fov := FPhoto.Fov + 5;
+    end;
+    Exit;
+  end;
+
   { The touch controls while playing; their menu button opens the menu }
   FTouch.UpdateShown(not FConsole.IsOpen and not FMenu.Exists and (FWorld <> nil));
   { No mouse look on a touch screen (a web page turns touch on at the first touch) }
@@ -971,6 +1043,11 @@ begin
   UpdateGamepad;
   if not FConsole.IsOpen and not FMenu.Exists and (FWorld <> nil) then
   begin
+    if GamepadJustPressed(gbView) then
+    begin
+      SetPhotoMode(True);
+      Exit;
+    end;
     GamepadTurnCamera(FViewport.Camera, SecondsPassed);
     if GamepadJustPressed(GamepadUse) then
       FWorld.ActivateUse(FViewport.Camera.Translation, FViewport.Camera.Direction, FHud);
@@ -1126,6 +1203,24 @@ begin
   if BindingEvent(qbConsole, Event) or (Event.KeyString = '~') or (Event.KeyString = '`') then
   begin
     FConsole.Toggle;
+    Exit(True);
+  end;
+
+  { Photo mode takes the keys: Escape or the photo binding leaves, Enter or
+    the screenshot binding takes a photo }
+  if FPhoto.Active then
+  begin
+    if Event.IsKey(keyEscape) or BindingEvent(qbPhotoMode, Event) then
+      SetPhotoMode(False)
+    else if Event.IsKey(keyEnter) or BindingEvent(qbScreenshot, Event) then
+      FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix))
+    else
+      Exit(FPhoto.Press(Event));
+    Exit(True);
+  end;
+  if BindingEvent(qbPhotoMode, Event) then
+  begin
+    SetPhotoMode(True);
     Exit(True);
   end;
 
@@ -1404,6 +1499,18 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
+  if Cmd = 'photo' then
+  begin
+    { photo [0|1]: photo mode (toggles without an argument) }
+    if Args <> '' then
+      SetPhotoMode((Args = '1') or (Args = 'on'))
+    else
+      SetPhotoMode(not FPhoto.Active);
+    FConsole.Print('Photo mode: ' + BoolToStr(FPhoto.Active, 'on', 'off'));
+  end else
+  if (Cmd = 'photo_fov') or (Cmd = 'photo_effect') or (Cmd = 'photo_scale') or (Cmd = 'photo_shot') then
+    FConsole.Print(FPhoto.Command(Cmd, Args, PhotoPrefix))
+  else
   if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') then
     MapBrowserCommand(Cmd, Args)
   else
@@ -1450,6 +1557,8 @@ begin
     FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
     FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
     FConsole.Print('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it');
+    FConsole.Print('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,');
+    FConsole.Print('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot');
     FConsole.Print('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,');
     FConsole.Print('    maps_play <id> [map], maps_remove <id> - download, play and remove one');
     FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');

@@ -18,7 +18,7 @@ uses
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
   CastleCameras,
-  GameInput, GameVideo, GameTouch,
+  GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
@@ -55,6 +55,7 @@ type
     FSubmodelUsed: array of Boolean;
     FSubmodelOrigin: array of TVector3;   { Quake origin of the shown submodels }
     FWeaponTransform: TCastleTransform;
+    FPhoto: TPhotoMode;
     FWeapon: TDemoVisual;
     FSoundPool: array[0..31] of TCastleTransform;
     FSoundPoolNext: Integer;
@@ -116,6 +117,8 @@ type
     procedure UpdateHudStats(const SecondsPassed: Single);
     procedure RunScript(const SecondsPassed: Single);
     procedure CaptureScreenshot;
+    procedure SetPhotoMode(const On: Boolean);
+    function PhotoPrefix: String;
     procedure Leave;
     procedure SetViewAngles(const Yaw, Pitch: Single);
     procedure UpdateNetwork(const SecondsPassed: Single);
@@ -257,6 +260,9 @@ begin
     FTouch := TQuakeTouchControls.Create(Self);
     InsertFront(FTouch);
   end;
+  if FPhoto = nil then
+    FPhoto := TPhotoMode.Create(Self, FViewport, Self, FNavigation);
+  SetPhotoMode(False);
   FHud.StopIntermission;
   FHud.CrosshairVisible := NetMode;
   FNavigation.Exists := NetMode;
@@ -1170,6 +1176,40 @@ begin
   FHud.Update(SecondsPassed, S);
 end;
 
+{ Photo mode in demo playback (not in a network game, which goes on): the
+  demo stops, the HUD and the weapon hide, the camera flies }
+procedure TViewDemo.SetPhotoMode(const On: Boolean);
+begin
+  if On and NetMode then
+    Exit;
+  if On = FPhoto.Active then
+    Exit;
+  if On then
+  begin
+    FNavigation.Exists := True;
+    FPhoto.Enter;
+    FHud.Exists := False;
+    if FWeaponTransform <> nil then
+      FWeaponTransform.Exists := False;
+  end else
+  begin
+    FPhoto.Leave;
+    FHud.Exists := True;
+    if FWeaponTransform <> nil then
+      FWeaponTransform.Exists := True;
+    FNavigation.Exists := NetMode;
+    FNavigation.MouseLook := NetMode and (AutoTestPrefix = '');
+  end;
+end;
+
+function TViewDemo.PhotoPrefix: String;
+begin
+  if AutoTestPrefix <> '' then
+    Result := AutoTestPrefix
+  else
+    Result := 'castle-quake';
+end;
+
 procedure TViewDemo.CaptureScreenshot;
 var
   OutPath: String;
@@ -1261,6 +1301,22 @@ begin
     if Action = 'J' then
       FScriptJump := 0.1
     else
+    if Action = 'CMD' then
+    begin
+      { Photo mode's console commands: photo [0|1], photo_fov, photo_effect,
+        photo_scale, photo_shot }
+      P := Pos(' ', Param);
+      if P = 0 then
+        P := Length(Param) + 1;
+      if Copy(Param, 1, P - 1) = 'photo' then
+        SetPhotoMode(Trim(Copy(Param, P + 1, MaxInt)) <> '0')
+      else
+        FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
+    end else
+    if (Action = 'M') and FPhoto.Active then
+      FViewport.Camera.Translation := FViewport.Camera.Translation +
+        FViewport.Camera.Direction * StrToFloatDef(Param, 50)
+    else
     if Action = 'Q' then
     begin
       Application.Terminate;
@@ -1290,9 +1346,23 @@ var
 begin
   inherited Update(SecondsPassed, HandleInput);
   ApplyVideoSettings(FViewport);
+  FPhoto.ApplyView;
 
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
+
+  { Photo mode: the demo waits; B or View leaves, A takes a photo }
+  if FPhoto.Active then
+  begin
+    FTouch.UpdateShown(False);
+    UpdateGamepad;
+    FPhoto.Update(SecondsPassed);
+    if GamepadJustPressed(gbEast) or GamepadJustPressed(gbView) then
+      SetPhotoMode(False)
+    else if GamepadJustPressed(gbSouth) then
+      FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix));
+    Exit;
+  end;
   if NetMode then
     UpdateNetwork(SecondsPassed);
 
@@ -1456,6 +1526,23 @@ begin
       Exit(True);
     end;
     Exit;
+  end;
+  { Photo mode: P (the photo binding) in a demo; Escape or P leaves it,
+    Enter or the screenshot binding takes a photo }
+  if FPhoto.Active then
+  begin
+    if Event.IsKey(keyEscape) or BindingEvent(qbPhotoMode, Event) then
+      SetPhotoMode(False)
+    else if Event.IsKey(keyEnter) or BindingEvent(qbScreenshot, Event) then
+      FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix))
+    else
+      Exit(FPhoto.Press(Event));
+    Exit(True);
+  end;
+  if BindingEvent(qbPhotoMode, Event) then
+  begin
+    SetPhotoMode(True);
+    Exit(True);
   end;
   if Event.IsKey(keyEscape) or Event.IsKey(keyEnter) or Event.IsKey(keySpace) then
   begin

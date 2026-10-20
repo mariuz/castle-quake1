@@ -48,6 +48,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
 - Random maps: `-randommap [seed]` (or Single Player > Random Map, `?randommap=new` in the browser) builds a level in memory, rooms and corridors compiled into a real BSP with collision hulls, colored lightmaps, monsters getting harder toward the exit, weapons, ammo and health; the exit leads to the next seed, so the levels never end. The same seed is the same map everywhere, so a network game only needs its name (`-host random42`).
 - Horde mode: `-horde` (or Single Player > Horde Mode) turns any map, a random one too, into waves of monsters that teleport in out of sight, stronger every wave, with a score and the best score per map.
+- Photo mode: P pauses the game (or a demo), hides the HUD and flies the camera; change the field of view and add depth of field, grayscale, sepia, a vignette or ambient occlusion, then save a photo up to four times the window size.
 - Speedrun timer and ghost racing: finish a level and your best run comes back as a translucent ghost to race, with splits at checkpoints and at the end (`-speedrun`, Options or the console's `speedrun` / `ghost`).
 - Map browser: Main Menu > Map Browser lists 1200 community maps from [Quaddicted](https://www.quaddicted.com/) with their ratings, downloads one (checked by SHA-256) and plays it; installed maps can be removed again. Also from the console: `maps`, `maps_install <id>`, `maps_play <id>`, `maps_remove <id>`.
 - Accessibility: captions for the sounds that matter (monsters waking and attacking, doors, lifts, secrets, pickups) with a hint of where they came from, a high contrast HUD and reduced damage and pickup flashes, in Options or the console (`captions`, `hud_contrast`, `reduced_flashes`).
@@ -67,7 +68,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
 - Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
 - Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `speedrun`, `ghost`, `ghost_reset`, `maps`, `maps_install`, `maps_play`, `maps_remove`, `fps`, `novis <0|1>`, `help`.
+- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `speedrun`, `ghost`, `ghost_reset`, `maps`, `maps_install`, `maps_play`, `maps_remove`, `photo`, `photo_fov`, `photo_effect`, `photo_scale`, `photo_shot`, `fps`, `novis <0|1>`, `help`.
 - A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
 
 ---
@@ -88,6 +89,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | **F6 / F9** | Quicksave / quickload |
 | **F8** | Engine inspector (component tree, live properties) |
 | **F12** | Screenshot |
+| **P** | Photo mode (wheel: field of view, Tab: effect, + -: size, Enter: photo) |
 | **~** | Developer console |
 | **Touch** | Move stick on the left (where the finger lands), drag on the right to look, FIRE / JUMP / USE / weapon / MENU buttons; on by themselves on touch screens and in the browser after the first touch (`-touch`, `?touch=1`), which also goes fullscreen in landscape; the HUD and menus scale with the phone's pixel density |
 | **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons; sensitivity, dead zone and inverted look in Options > Controls |
