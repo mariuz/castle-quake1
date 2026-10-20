@@ -74,13 +74,16 @@ type
 
     { Add a PAK archive from file or castle-data URL. Returns true if successful. }
     function AddFile(const AUrlOrFilename: String; const Original: Boolean = False): Boolean;
+    { Add a PAK archive already in memory (the pak owns Stream from now
+      on, also on failure): a mod's pak inside its zip }
+    function AddPakStream(const Name: String; const Stream: TMemoryStream; const Original: Boolean = False): Boolean;
 
     { Add a .pk3 (zip) archive from a file or URL: stored and deflated
       entries. Returns true if successful. }
     function AddPk3(const AUrlOrFilename: String): Boolean;
     { The same with the zip's paths moved by Mapping (MapArchivePath): a
       map browser zip whose files land in id1/maps/ }
-    function AddPk3(const AUrlOrFilename, Mapping: String): Boolean;
+    function AddPk3(const AUrlOrFilename, Mapping: String; const GameDir: String = 'id1'): Boolean;
 
     { Add the loose files under a directory (maps/x.bsp, progs/y.mdl...),
       searched below the archives added after it. Returns the file count. }
@@ -131,8 +134,10 @@ type
 { Where a zip path lands in the game: Mapping is "from>to" pairs separated
   by ';' (from a zip path prefix, to a Quake directory path like
   'id1/maps/'), the longest matching prefix wins; True with the path in
-  the paks (relative to id1) when it lands in id1 }
-function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String): Boolean;
+  the paks (relative to its directory) when it lands in id1 or GameDir (a
+  mod's: quoth, ad...) }
+function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String;
+  const GameDir: String = 'id1'): Boolean;
 
 var
   Pak: TQuakePak;
@@ -300,7 +305,24 @@ begin
       Exit;
     end;
   end;
+  Result := AddPakStream(AUrlOrFilename, MemStream, Original);
+end;
 
+function TQuakePak.AddPakStream(const Name: String; const Stream: TMemoryStream; const Original: Boolean): Boolean;
+var
+  AUrlOrFilename: String;
+  MemStream: TMemoryStream;
+  Header: TPakHeader;
+  RawEntry: TPakRawEntry;
+  Count, I: Integer;
+  EntryName: String;
+  Entry: TQuakePakEntry;
+  PakIdx: Integer;
+begin
+  Result := False;
+  AUrlOrFilename := Name;
+  MemStream := Stream;
+  MemStream.Position := 0;
   if MemStream.Size < SizeOf(TPakHeader) then
   begin
     WritelnWarning('QuakePak', 'PAK "%s" is too small (%d bytes)', [AUrlOrFilename, MemStream.Size]);
@@ -394,7 +416,7 @@ type
     NameLength, ExtraLength: Word;
   end;
 
-function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String): Boolean;
+function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String; const GameDir: String): Boolean;
 var
   Pairs: TStringList;
   I, Sep, BestLen: Integer;
@@ -432,9 +454,13 @@ begin
   if (BestTarget <> '') and (BestTarget[Length(BestTarget)] <> '/') and (Final <> '') then
     BestTarget := BestTarget + '/';
   Final := BestTarget + Final;
-  if Copy(Final, 1, 4) <> 'id1/' then
+  if Copy(Final, 1, 4) = 'id1/' then
+    PakPath := Copy(Final, 5, MaxInt)
+  else
+  if (GameDir <> '') and (Copy(Final, 1, Length(GameDir) + 1) = LowerCase(GameDir) + '/') then
+    PakPath := Copy(Final, Length(GameDir) + 2, MaxInt)
+  else
     Exit;
-  PakPath := Copy(Final, 5, MaxInt);
   Result := PakPath <> '';
 end;
 
@@ -443,7 +469,7 @@ begin
   Result := AddPk3(AUrlOrFilename, '');
 end;
 
-function TQuakePak.AddPk3(const AUrlOrFilename, Mapping: String): Boolean;
+function TQuakePak.AddPk3(const AUrlOrFilename, Mapping, GameDir: String): Boolean;
 var
   InStream: TStream;
   MemStream: TMemoryStream;
@@ -520,7 +546,7 @@ begin
     if Mapping <> '' then
     begin
       { Only what lands in id1, at its place there }
-      if not MapArchivePath(Mapping, Name, Mapped) then
+      if not MapArchivePath(Mapping, Name, Mapped, GameDir) then
         Continue;
       Name := Mapped;
     end;

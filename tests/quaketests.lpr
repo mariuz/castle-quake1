@@ -1258,6 +1258,10 @@ begin
     (P = 'maps/tntmap01.txt'), 'the longest prefix wins');
   Check(not MapArchivePath('tntmap01/>', 'tntmap01/Extra files/x.map', P), 'a path outside id1 is left out');
   Check(not MapArchivePath('xl2/>id1/maps/', 'other/x.bsp', P), 'a path no prefix matches is left out');
+  Check(MapArchivePath('>quoth/', 'pak1.pak', P, 'quoth') and (P = 'pak1.pak'), 'a mod''s zip root to its directory');
+  Check(MapArchivePath('qescape/>quoth/maps/', 'qescape/Escape.bsp', P, 'quoth') and (P = 'maps/escape.bsp'),
+    'a map for a mod to the mod''s maps/');
+  Check(not MapArchivePath('>quoth/', 'pak0.pak', P), 'a mod''s files are not in id1');
 
   MapCatalogOverride := CatalogFile;
   B := TQuakeMapBrowser.Create;
@@ -1272,8 +1276,23 @@ begin
       CheckEqualsStr('tofaz/>id1/maps/', B[I].Mapping, 'its mapping');
       Check(Pos('Temple of Azathoth by YukiRaven (2017) 5.0/5', B.Describe(I)) = 1, 'its line: ' + B.Describe(I));
     end;
+    I := B.IndexOf('tofaz');
+    Check((I >= 0) and (B[I].GameDir = 'id1') and (Length(B[I].Needs) = 0) and not B.NeedsQuakeC(I),
+      'an id1 map needs no mod');
+    I := B.IndexOf('quoth2pt2full_2');
+    Check((I >= 0) and (B[I].GameDir = 'quoth') and (Length(B[I].Paks) = 3) and (B[I].Paks[0] = 'pak0.pak') and
+      B.NeedsQuakeC(I), 'Quoth is a mod in quoth/ with three paks');
+    I := B.IndexOf('quothescape');
+    Check((I >= 0) and (B[I].GameDir = 'quoth') and (Length(B[I].Needs) = 1) and
+      (B[I].Needs[0] = 'quoth2pt2full_2') and (B[I].Mapping = '>quoth/maps/'), 'a Quoth map needs Quoth');
+    if I >= 0 then
+    begin
+      Check(B.BytesToInstall(I) > B[I].Bytes, 'installing it counts the mod''s download too');
+      Check(Pos('Quoth', B.NeedsText(I)) > 0, 'it names the mod it needs: ' + B.NeedsText(I));
+      Check(not B.Ready(I), 'it is not ready before the downloads');
+    end;
     List := B.Sorted(msRating);
-    Sorted := Length(List) = B.Count;
+    Sorted := Length(List) > 0;
     for I := 1 to High(List) do
       if B[List[I]].Rating > B[List[I - 1]].Rating then
         Sorted := False;

@@ -19,6 +19,10 @@ type
     { Quaddicted's 0..5, -1 when not rated }
     Rating: Single;
     StartMaps: array of String;
+    { The Quake directory it plays in (id1, or a mod's: quoth, ad...), the
+      ids of the mod releases it needs, a mod's own paks in its zip }
+    GameDir: String;
+    Needs, Paks: array of String;
   end;
 
   TMapSort = (msRating, msNewest, msName, msInstalled);
@@ -29,8 +33,13 @@ type
     FMounted: TStringList;
     FDownload: TCastleDownload;
     FDownloadIndex: Integer;
+    { Releases waiting to be downloaded after the current one (a map's mods
+      first) }
+    FQueue: array of Integer;
     FStatus: String;
     FCatalogUrl: String;
+    procedure StartDownload(const I: Integer);
+    procedure AddWithNeeds(const I: Integer; var Order: specialize TArray<Integer>);
     procedure ParseLine(const Line: String);
     procedure FinishDownload;
     function GetMap(const I: Integer): TCatalogMap;
@@ -43,16 +52,26 @@ type
     function Count: Integer;
     function IndexOf(const Id: String): Integer;
     function Installed(const I: Integer): Boolean;
+    { Installed with every mod it needs }
+    function Ready(const I: Integer): Boolean;
+    { It plays with a mod's QuakeC (QuakeC mode), not the built-in game }
+    function NeedsQuakeC(const I: Integer): Boolean;
+    { The bytes still to download for it and its mods }
+    function BytesToInstall(const I: Integer): Int64;
+    { The titles of the mods it needs, ', ' between }
+    function NeedsText(const I: Integer): String;
     function ZipUrl(const I: Integer): String;
-    { Starts the download (one at a time); False with Status saying why }
+    { Downloads it and the mods it needs that are not installed yet (one
+      after the other); False with Status saying why }
     function Install(const I: Integer): Boolean;
     function Downloading: Boolean;
     function DownloadingIndex: Integer;
     { The download's progress 0..1 }
     function Progress: Single;
     procedure Remove(const I: Integer);
-    { Mounts the installed zip on top of the paks (once); False when it is
-      not installed or not a zip }
+    { Mounts the mods it needs, then its zip, on top of the paks (once each;
+      a mod's own paks after its loose files) and sets QuakePak.GameDir to
+      its directory; False when something is not installed or not a zip }
     function Mount(const I: Integer): Boolean;
     { Indexes of the maps sorted (msInstalled: only the installed ones,
       by name), the ones whose title, author or id contain Filter }
@@ -214,6 +233,7 @@ var
   F, Starts: specialize TArray<String>;
   M: TCatalogMap;
   I: Integer;
+  Part: String;
 begin
   if (Line = '') or (Line[1] = '#') then
     Exit;
@@ -239,7 +259,25 @@ begin
     end;
   M.Mapping := F[10];
   M.Url := F[11];
-  if (M.Id = '') or (Length(M.StartMaps) = 0) then
+  M.GameDir := 'id1';
+  if (Length(F) > 12) and (F[12] <> '') then
+    M.GameDir := LowerCase(F[12]);
+  if Length(F) > 13 then
+    for Part in SplitTabs(F[13], ',') do
+      if Part <> '' then
+      begin
+        SetLength(M.Needs, Length(M.Needs) + 1);
+        M.Needs[High(M.Needs)] := LowerCase(Part);
+      end;
+  if Length(F) > 14 then
+    for Part in SplitTabs(F[14], ',') do
+      if Part <> '' then
+      begin
+        SetLength(M.Paks, Length(M.Paks) + 1);
+        M.Paks[High(M.Paks)] := Part;
+      end;
+  { A release without start maps is only there for the ones that need it }
+  if (M.Id = '') or ((Length(M.StartMaps) = 0) and (Pos('hidden', M.Flags) = 0)) then
     Exit;
   SetLength(FMaps, Length(FMaps) + 1);
   FMaps[High(FMaps)] := M;
@@ -317,6 +355,69 @@ begin
   Result := (I >= 0) and (I < Length(FMaps)) and (UriExists(ZipUrl(I)) = ueFile);
 end;
 
+function TQuakeMapBrowser.Ready(const I: Integer): Boolean;
+var
+  N: String;
+begin
+  Result := Installed(I);
+  if Result then
+    for N in FMaps[I].Needs do
+      if not Ready(IndexOf(N)) then
+        Exit(False);
+end;
+
+function TQuakeMapBrowser.NeedsQuakeC(const I: Integer): Boolean;
+begin
+  Result := FMaps[I].GameDir <> 'id1';
+end;
+
+procedure TQuakeMapBrowser.AddWithNeeds(const I: Integer; var Order: specialize TArray<Integer>);
+var
+  N: String;
+  J: Integer;
+begin
+  if I < 0 then
+    Exit;
+  for J in Order do
+    if J = I then
+      Exit;
+  for N in FMaps[I].Needs do
+    AddWithNeeds(IndexOf(N), Order);
+  SetLength(Order, Length(Order) + 1);
+  Order[High(Order)] := I;
+end;
+
+function TQuakeMapBrowser.BytesToInstall(const I: Integer): Int64;
+var
+  Order: specialize TArray<Integer>;
+  J: Integer;
+begin
+  Result := 0;
+  Order := nil;
+  AddWithNeeds(I, Order);
+  for J in Order do
+    if not Installed(J) then
+      Result := Result + FMaps[J].Bytes;
+end;
+
+function TQuakeMapBrowser.NeedsText(const I: Integer): String;
+var
+  N: String;
+  J: Integer;
+begin
+  Result := '';
+  for N in FMaps[I].Needs do
+  begin
+    J := IndexOf(N);
+    if Result <> '' then
+      Result := Result + ', ';
+    if J >= 0 then
+      Result := Result + FMaps[J].Title
+    else
+      Result := Result + N;
+  end;
+end;
+
 function TQuakeMapBrowser.Downloading: Boolean;
 begin
   Result := FDownload <> nil;
@@ -345,6 +446,9 @@ begin
 end;
 
 function TQuakeMapBrowser.Install(const I: Integer): Boolean;
+var
+  Order: specialize TArray<Integer>;
+  J: Integer;
 begin
   Result := False;
   if (I < 0) or (I >= Length(FMaps)) then
@@ -361,6 +465,29 @@ begin
     FStatus := 'Already downloading ' + FMaps[FDownloadIndex].Title;
     Exit;
   end;
+  { The mods it needs first, the ones already installed left out }
+  Order := nil;
+  AddWithNeeds(I, Order);
+  FQueue := nil;
+  for J in Order do
+    if not Installed(J) then
+    begin
+      SetLength(FQueue, Length(FQueue) + 1);
+      FQueue[High(FQueue)] := J;
+    end;
+  if Length(FQueue) = 0 then
+  begin
+    FStatus := FMaps[I].Title + ' is installed';
+    Exit(True);
+  end;
+  J := FQueue[0];
+  Delete(FQueue, 0, 1);
+  StartDownload(J);
+  Result := True;
+end;
+
+procedure TQuakeMapBrowser.StartDownload(const I: Integer);
+begin
   FDownloadIndex := I;
   FDownload := TCastleDownload.Create(nil);
   FDownload.Url := FMaps[I].Url;
@@ -368,7 +495,6 @@ begin
   FDownload.Start;
   FStatus := 'Downloading ' + FMaps[I].Title;
   WritelnLog('MapBrowser', 'Downloading "%s" from %s (%d bytes)', [FMaps[I].Id, FMaps[I].Url, FMaps[I].Bytes]);
-  Result := True;
 end;
 
 procedure TQuakeMapBrowser.FinishDownload;
@@ -382,6 +508,7 @@ begin
   try
     if FDownload.Status = dsError then
     begin
+      FQueue := nil;
       FStatus := 'Download of ' + M.Title + ' failed: ' + FDownload.ErrorMessage;
       WritelnWarning('MapBrowser', 'Download of "%s" failed: %s', [M.Id, FDownload.ErrorMessage]);
       Exit;
@@ -393,6 +520,7 @@ begin
       Digest := Sha256Hex(Data.Memory, Data.Size);
       if Digest <> M.Sha256 then
       begin
+        FQueue := nil;
         FStatus := M.Title + ': the download does not match its SHA-256, not installed';
         WritelnWarning('MapBrowser', 'Map "%s": SHA-256 %s does not match %s, not installed',
           [M.Id, Digest, M.Sha256]);
@@ -425,11 +553,28 @@ begin
 end;
 
 procedure TQuakeMapBrowser.Update;
+var
+  J: Integer;
 begin
   if (FDownload <> nil) and (FDownload.Status <> dsDownloading) then
-    FinishDownload
-  else if FDownload <> nil then
-    FStatus := Format('Downloading %s: %d%%', [FMaps[FDownloadIndex].Title, Round(Progress * 100)]);
+  begin
+    FinishDownload;
+    { The next one of the queue (a map after its mods) }
+    if (FDownload = nil) and (Length(FQueue) > 0) then
+    begin
+      J := FQueue[0];
+      Delete(FQueue, 0, 1);
+      StartDownload(J);
+    end;
+  end else
+  if FDownload <> nil then
+  begin
+    if Length(FQueue) > 0 then
+      FStatus := Format('Downloading %s: %d%% (%d more to come)', [FMaps[FDownloadIndex].Title,
+        Round(Progress * 100), Length(FQueue)])
+    else
+      FStatus := Format('Downloading %s: %d%%', [FMaps[FDownloadIndex].Title, Round(Progress * 100)]);
+  end;
 end;
 
 procedure TQuakeMapBrowser.Remove(const I: Integer);
@@ -448,19 +593,38 @@ begin
 end;
 
 function TQuakeMapBrowser.Mount(const I: Integer): Boolean;
+var
+  N, P, Inner: String;
+  Data: TMemoryStream;
+  M: TCatalogMap;
 begin
   Result := False;
-  if not Installed(I) then
+  if not Ready(I) then
     Exit;
-  if FMounted.IndexOf(FMaps[I].Id) >= 0 then
+  M := FMaps[I];
+  if FMounted.IndexOf(M.Id) >= 0 then
     Exit(True);
-  Result := Pak.AddPk3(ZipUrl(I), FMaps[I].Mapping);
-  if Result then
-  begin
-    FMounted.Add(FMaps[I].Id);
-    WritelnLog('MapBrowser', 'Mounted "%s" (%s), start maps: %s',
-      [FMaps[I].Id, FMaps[I].Title, String.Join(', ', FMaps[I].StartMaps)]);
-  end;
+  { Its mods first, so its own files come above theirs }
+  for N in M.Needs do
+    if not Mount(IndexOf(N)) then
+      Exit;
+  if not Pak.AddPk3(ZipUrl(I), M.Mapping, M.GameDir) then
+    Exit;
+  { A mod's paks inside its zip (pak0 first), above its loose files like
+    in a game directory }
+  for P in M.Paks do
+    if MapArchivePath(M.Mapping, P, Inner, M.GameDir) and Pak.FileExists(Inner) then
+    begin
+      Data := Pak.GetStream(Inner);
+      if Data <> nil then
+        Pak.AddPakStream(M.Id + ':' + Inner, Data);
+    end;
+  if M.GameDir <> 'id1' then
+    QuakePak.GameDir := M.GameDir;
+  FMounted.Add(M.Id);
+  WritelnLog('MapBrowser', 'Mounted "%s" (%s) in %s, start maps: %s', [M.Id, M.Title, M.GameDir,
+    String.Join(', ', M.StartMaps)]);
+  Result := True;
 end;
 
 function TQuakeMapBrowser.Describe(const I: Integer): String;
@@ -514,6 +678,8 @@ begin
   for I := 0 to High(FMaps) do
   begin
     if (Sort = msInstalled) and not Installed(I) then
+      Continue;
+    if (Pos('hidden', FMaps[I].Flags) > 0) and (Sort <> msInstalled) then
       Continue;
     if (F <> '') and (Pos(F, LowerCase(FMaps[I].Title + ' ' + FMaps[I].Author + ' ' + FMaps[I].Id)) = 0) then
       Continue;

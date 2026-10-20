@@ -102,6 +102,7 @@ type
     procedure LoadGameSlot(const Slot: String);
     procedure ReportHorde;
     procedure MapBrowserCommand(const Cmd, Args: String);
+    procedure PlayInQuakeC(const Map: String; const KeepScript: Boolean);
     procedure SetPhotoMode(const On: Boolean);
     procedure SaveThumbnail(const Slot: String);
     procedure ListSavesCommand;
@@ -125,6 +126,8 @@ var
   ViewPlay: TViewPlay;
 
 implementation
+
+uses GameViewQc;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -482,12 +485,40 @@ begin
         Exit;
       end;
       FConsole.Close;
-      FWorld.NewGame;
-      LoadLevel('maps/' + Line + '.bsp');
+      if MapBrowser.NeedsQuakeC(Index) then
+        PlayInQuakeC(Line, True)
+      else
+      begin
+        FWorld.NewGame;
+        LoadLevel('maps/' + Line + '.bsp');
+      end;
     end;
   finally
     Words.Free;
   end;
+end;
+
+{ A mod's map plays with its progs.dat (now on top of the paks) in the
+  QuakeC view; an autotest goes on there with the rest of its script }
+procedure TViewPlay.PlayInQuakeC(const Map: String; const KeepScript: Boolean);
+var
+  I: Integer;
+  Rest: String;
+begin
+  Rest := '';
+  if KeepScript then
+    for I := FDemoIndex + 1 to FDemoCommands.Count - 1 do
+    begin
+      if Rest <> '' then
+        Rest := Rest + ',';
+      Rest := Rest + FDemoCommands[I];
+    end;
+  WritelnLog('GameViewPlay', 'Playing "%s" in QuakeC mode (%s)', [Map, QuakePak.GameDir]);
+  FDemoCommands.Clear;
+  ViewQc.MapName := Map;
+  ViewQc.AutoTestPrefix := FAutoTestPrefix;
+  ViewQc.AutoTestScript := Rest;
+  Container.View := ViewQc;
 end;
 
 { Photo mode: the world stops (Update skips it), the HUD, the weapon and
@@ -1690,6 +1721,8 @@ begin
       end;
     maSaveGame:
       SaveGameSlot(Param);
+    maPlayQc:
+      PlayInQuakeC(Param, False);
     maCloseMenu:
       begin
         WritelnLog('GameViewPlay', 'Menu closed from the gamepad');
