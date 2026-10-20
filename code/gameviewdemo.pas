@@ -1357,9 +1357,9 @@ begin
     FTouch.UpdateShown(False);
     UpdateGamepad;
     FPhoto.Update(SecondsPassed);
-    if GamepadJustPressed(gbEast) or GamepadJustPressed(gbView) then
+    if GamepadJustPressed(GamepadBackButton) or GamepadJustPressed(gbView) then
       SetPhotoMode(False)
-    else if GamepadJustPressed(gbSouth) then
+    else if GamepadJustPressed(GamepadConfirmButton) then
       FPhoto.TakePhoto(FPhoto.NextPhotoName(PhotoPrefix));
     Exit;
   end;

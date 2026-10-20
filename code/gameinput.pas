@@ -36,6 +36,20 @@ const
   GamepadPitchSpeed = 90.0;
   DefaultGamepadDeadZone = 0.2;
 
+type
+  { Whose button names a pad has: told from the controller's name (the
+    engine calls every desktop pad an Xbox one), or set in Options }
+  TPadFamily = (pfXbox, pfPlayStation, pfNintendo);
+  TPadLayout = (plAuto, plXbox, plPlayStation, plNintendo);
+  { Which face button confirms in the menus: Nintendo's A is on the east,
+    the others' A / Cross on the south }
+  TPadConfirm = (pcAuto, pcSouth, pcEast);
+
+const
+  PadFamilyNames: array[TPadFamily] of String = ('Xbox', 'PlayStation', 'Nintendo');
+  PadLayoutNames: array[TPadLayout] of String = ('Auto', 'Xbox', 'PlayStation', 'Nintendo');
+  PadConfirmNames: array[TPadConfirm] of String = ('Auto', 'South', 'East');
+
 var
   Bindings: array[TQuakeBinding] of TInputShortcut;
   { The same shortcuts as a list (owns them), for the config file; they are
@@ -47,6 +61,9 @@ var
   GamepadSensitivity: Single = 1.0;
   GamepadDeadZone: Single = DefaultGamepadDeadZone;
   GamepadInvertLook: Boolean = False;
+  { Saved under gamepad/layout and gamepad/confirm }
+  GamepadLayout: TPadLayout = plAuto;
+  GamepadConfirm: TPadConfirm = pcAuto;
   { The touch controls (GameTouch) add to the game controller: the move
     stick's deflection (-1..1, y forward), the look drag since the last
     turn (fractions of the screen height) and the on-screen buttons, held
@@ -88,6 +105,26 @@ function GamepadConnected: Boolean;
 { The first controller's name, 'none' without one }
 function GamepadName: String;
 procedure SaveGamepadSettings;
+{ The family a controller name belongs to: Xbox for Xbox and Microsoft,
+  PlayStation for Sony,
+  DualShock, DualSense and "Wireless Controller", Nintendo for Nintendo,
+  Switch, Pro Controller and Joy-Con, Xbox otherwise }
+function PadFamilyOfName(const Name: String): TPadFamily;
+{ The family whose names the prompts use: GamepadLayout, or the first
+  controller's (Xbox without one) }
+function GamepadFamily: TPadFamily;
+{ A button's name on a family's pads (by position: gbSouth is A, Cross or
+  B), or on the connected one }
+function PadButtonLabel(const Family: TPadFamily; const Button: TGameControllerButton): String;
+function GamepadButtonLabel(const Button: TGameControllerButton): String;
+{ The right trigger's name (an axis, not a button): RT, R2 or ZR }
+function GamepadTriggerLabel: String;
+{ The menus' confirm and back buttons (GamepadConfirm, Auto: east on a
+  Nintendo pad) }
+function GamepadConfirmButton: TGameControllerButton;
+function GamepadBackButton: TGameControllerButton;
+{ Headless tests: the virtual controller's name (its family follows) }
+procedure SetVirtualPadName(const Name: String);
 { The stick value after the dead zone (rescaled so the edge stays 1) }
 function ApplyDeadZone(const V: Single): Single;
 
@@ -136,6 +173,89 @@ begin
   GamepadSensitivity := EnsureRange(UserConfig.GetFloat('gamepad/sensitivity', 1.0), 0.25, 4.0);
   GamepadDeadZone := EnsureRange(UserConfig.GetFloat('gamepad/dead_zone', DefaultGamepadDeadZone), 0.0, 0.6);
   GamepadInvertLook := UserConfig.GetValue('gamepad/invert_look', False);
+  GamepadLayout := TPadLayout(EnsureRange(UserConfig.GetValue('gamepad/layout', 0), 0, Ord(High(TPadLayout))));
+  GamepadConfirm := TPadConfirm(EnsureRange(UserConfig.GetValue('gamepad/confirm', 0), 0, Ord(High(TPadConfirm))));
+end;
+
+function PadFamilyOfName(const Name: String): TPadFamily;
+var
+  N: String;
+begin
+  N := LowerCase(Name);
+  { "Xbox Wireless Controller" before the DualShock 4's "Wireless Controller" }
+  if (Pos('xbox', N) > 0) or (Pos('x-box', N) > 0) or (Pos('microsoft', N) > 0) then
+    Result := pfXbox
+  else
+  if (Pos('sony', N) > 0) or (Pos('playstation', N) > 0) or (Pos('dualshock', N) > 0) or
+     (Pos('dualsense', N) > 0) or (Pos('ps3', N) > 0) or (Pos('ps4', N) > 0) or (Pos('ps5', N) > 0) or
+     (Pos('wireless controller', N) > 0) then
+    Result := pfPlayStation
+  else
+  if (Pos('nintendo', N) > 0) or (Pos('switch', N) > 0) or (Pos('pro controller', N) > 0) or
+     (Pos('joy-con', N) > 0) or (Pos('joycon', N) > 0) then
+    Result := pfNintendo
+  else
+    Result := pfXbox;
+end;
+
+function GamepadFamily: TPadFamily;
+begin
+  case GamepadLayout of
+    plXbox: Result := pfXbox;
+    plPlayStation: Result := pfPlayStation;
+    plNintendo: Result := pfNintendo;
+    else
+      if FirstController <> nil then
+        Result := PadFamilyOfName(FirstController.Name)
+      else
+        Result := pfXbox;
+  end;
+end;
+
+function PadButtonLabel(const Family: TPadFamily; const Button: TGameControllerButton): String;
+const
+  Xbox: array[TGameControllerButton] of String = ('Y', 'B', 'A', 'X', 'LB', 'RB', 'Left Stick', 'Right Stick',
+    'D-pad Up', 'D-pad Right', 'D-pad Down', 'D-pad Left', 'View', 'Menu', 'Guide', 'Share');
+  PlayStation: array[TGameControllerButton] of String = ('Triangle', 'Circle', 'Cross', 'Square', 'L1', 'R1',
+    'L3', 'R3', 'D-pad Up', 'D-pad Right', 'D-pad Down', 'D-pad Left', 'Create', 'Options', 'PS', 'Mute');
+  Nintendo: array[TGameControllerButton] of String = ('X', 'A', 'B', 'Y', 'L', 'R', 'Left Stick', 'Right Stick',
+    'D-pad Up', 'D-pad Right', 'D-pad Down', 'D-pad Left', '-', '+', 'Home', 'Capture');
+begin
+  case Family of
+    pfPlayStation: Result := PlayStation[Button];
+    pfNintendo: Result := Nintendo[Button];
+    else Result := Xbox[Button];
+  end;
+end;
+
+function GamepadButtonLabel(const Button: TGameControllerButton): String;
+begin
+  Result := PadButtonLabel(GamepadFamily, Button);
+end;
+
+function GamepadTriggerLabel: String;
+begin
+  case GamepadFamily of
+    pfPlayStation: Result := 'R2';
+    pfNintendo: Result := 'ZR';
+    else Result := 'RT';
+  end;
+end;
+
+function GamepadConfirmButton: TGameControllerButton;
+begin
+  if (GamepadConfirm = pcEast) or ((GamepadConfirm = pcAuto) and (GamepadFamily = pfNintendo)) then
+    Result := gbEast
+  else
+    Result := gbSouth;
+end;
+
+function GamepadBackButton: TGameControllerButton;
+begin
+  if GamepadConfirmButton = gbEast then
+    Result := gbSouth
+  else
+    Result := gbEast;
 end;
 
 procedure SaveGamepadSettings;
@@ -149,6 +269,8 @@ begin
     UserConfig.SetDeleteFloat('gamepad/sensitivity', GamepadSensitivity, 1.0);
     UserConfig.SetDeleteFloat('gamepad/dead_zone', GamepadDeadZone, DeadZoneDefault);
     UserConfig.SetDeleteValue('gamepad/invert_look', GamepadInvertLook, False);
+    UserConfig.SetDeleteValue('gamepad/layout', Ord(GamepadLayout), 0);
+    UserConfig.SetDeleteValue('gamepad/confirm', Ord(GamepadConfirm), 0);
     UserConfig.Save;
   except
     on E: Exception do
@@ -176,6 +298,15 @@ procedure UseVirtualGamepad;
 begin
   ExplicitBackend;
   WritelnLog('GameInput', 'Virtual game controller for the demo script');
+end;
+
+procedure SetVirtualPadName(const Name: String);
+begin
+  ExplicitBackend;
+  if Controllers.Count > 0 then
+    Controllers[0].InternalBackend.Name := Name;
+  WritelnLog('GameInput', 'Gamepad "%s": %s buttons, %s confirms, %s goes back', [Name,
+    PadFamilyNames[GamepadFamily], GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(GamepadBackButton)]);
 end;
 
 procedure SetVirtualSticks(const Left, Right: TVector2);

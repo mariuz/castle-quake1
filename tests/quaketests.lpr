@@ -859,6 +859,37 @@ begin
   ViewBob := DefaultViewBob;
 end;
 
+{ Controller glyphs: the pad family from the controller's name, the button
+  names by position and the menus' confirm button }
+procedure TestPadGlyphs;
+begin
+  StartTest('Pad glyphs');
+  Check(PadFamilyOfName('Xbox Wireless Controller') = pfXbox, 'an Xbox pad');
+  Check(PadFamilyOfName('Microsoft X-Box 360 pad') = pfXbox, 'an Xbox 360 pad');
+  Check(PadFamilyOfName('Sony Interactive Entertainment Wireless Controller') = pfPlayStation, 'a DualShock 4');
+  Check(PadFamilyOfName('Wireless Controller') = pfPlayStation, 'a DualShock 4 by its short name');
+  Check(PadFamilyOfName('DualSense Wireless Controller') = pfPlayStation, 'a DualSense');
+  Check(PadFamilyOfName('Nintendo Switch Pro Controller') = pfNintendo, 'a Switch Pro Controller');
+  Check(PadFamilyOfName('Joy-Con (L/R)') = pfNintendo, 'Joy-Cons');
+  Check(PadFamilyOfName('Logitech Gamepad F310') = pfXbox, 'an unknown pad has Xbox names');
+  CheckEqualsStr('A', PadButtonLabel(pfXbox, gbSouth), 'Xbox south is A');
+  CheckEqualsStr('Cross', PadButtonLabel(pfPlayStation, gbSouth), 'PlayStation south is Cross');
+  CheckEqualsStr('B', PadButtonLabel(pfNintendo, gbSouth), 'Nintendo south is B');
+  CheckEqualsStr('A', PadButtonLabel(pfNintendo, gbEast), 'Nintendo east is A');
+  CheckEqualsStr('Triangle', PadButtonLabel(pfPlayStation, gbNorth), 'PlayStation north is Triangle');
+  CheckEqualsStr('R1', PadButtonLabel(pfPlayStation, gbRightBumper), 'PlayStation right bumper is R1');
+  CheckEqualsStr('+', PadButtonLabel(pfNintendo, gbMenu), 'Nintendo menu is +');
+  GamepadConfirm := pcAuto;
+  GamepadLayout := plNintendo;
+  Check((GamepadConfirmButton = gbEast) and (GamepadBackButton = gbSouth), 'Nintendo confirms with A on the east');
+  GamepadLayout := plPlayStation;
+  Check((GamepadConfirmButton = gbSouth) and (GamepadBackButton = gbEast), 'PlayStation confirms with Cross');
+  GamepadConfirm := pcEast;
+  Check(GamepadConfirmButton = gbEast, 'the confirm option swaps it');
+  GamepadConfirm := pcAuto;
+  GamepadLayout := plAuto;
+end;
+
 procedure TestGamepad;
 var
   Camera: TCastleCamera;
@@ -1342,6 +1373,7 @@ begin
   TestWebSocket;
   TestSoundFiles;
   TestGamepad;
+  TestPadGlyphs;
   TestVideo;
   TestRandomMap;
   TestCaptions;

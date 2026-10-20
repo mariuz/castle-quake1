@@ -15,7 +15,7 @@ uses
 type
   TMenuAction = (
     maNone, maNewGame, maWarpMap, maPlayDemo, maPlayQc, maHostGame, maJoinGame, maToggleShadows,
-    maToggleLighting, maToggleCamera, maToggleSound, maQuit, maSaveGame, maLoadGame
+    maToggleLighting, maToggleCamera, maToggleSound, maQuit, maSaveGame, maLoadGame, maCloseMenu
   );
 
   TOnMenuActionEvent = procedure(const Action: TMenuAction; const Param: String) of object;
@@ -31,6 +31,7 @@ type
     FSlotActions: TStringList;
     FThumbnailUrl: String;
     FInGame: Boolean;
+    FLoggedHint: String;
     FThumbnailFrame: TCastleUserInterface;
     FThumbnail: TCastleImageControl;
     { Map browser: the list's sort and page, the map shown, what each item
@@ -83,7 +84,7 @@ type
 implementation
 
 uses
-  StrUtils, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame;
+  StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -154,16 +155,31 @@ begin
       '" (Escape keeps it)'
   else
   if FSubMenu = smControls then
-    FHintLabel.Caption := 'Enter rebinds; the gamepad: left stick moves, right stick turns, A jumps, ' +
-      'X uses, RB / right trigger fires, D-pad changes weapons'
+    FHintLabel.Caption := Format('Enter rebinds; the gamepad: left stick moves, right stick turns, %s jumps, ' +
+      '%s uses, %s / %s fires, D-pad changes weapons, %s photo mode, %s menu', [GamepadButtonLabel(GamepadJump),
+      GamepadButtonLabel(GamepadUse), GamepadButtonLabel(GamepadFire), GamepadTriggerLabel,
+      GamepadButtonLabel(gbView), GamepadButtonLabel(gbMenu)])
   else
   if (FSubMenu in [smBrowser, smBrowserMap]) and (MapBrowser.Status <> '') then
     FHintLabel.Caption := MapBrowser.Status
   else
+  if (FSubMenu in [smBrowser, smBrowserMap]) and GamepadConnected then
+    FHintLabel.Caption := Format('%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages',
+      [MapBrowser.Count, GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(GamepadBackButton)])
+  else
   if FSubMenu in [smBrowser, smBrowserMap] then
     FHintLabel.Caption := Format('%d maps from Quaddicted: Enter shows one, Escape goes back', [MapBrowser.Count])
   else
+  if GamepadConnected then
+    FHintLabel.Caption := Format('D-pad to navigate, %s to select, %s to go back', [
+      GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(GamepadBackButton)])
+  else
     FHintLabel.Caption := FDefaultHint;
+  if FHintLabel.Caption <> FLoggedHint then
+  begin
+    FLoggedHint := FHintLabel.Caption;
+    WritelnLog('Menu', 'Hint: ' + FLoggedHint);
+  end;
 end;
 
 procedure TQuakeMenu.Update(const SecondsPassed: Single; var HandleInput: Boolean);
@@ -185,9 +201,18 @@ begin
       FSelectedIdx := (FSelectedIdx + 1) mod FItems.Count;
       Sounds.Play('sound/misc/menu1.wav');
     end;
-    if GamepadJustPressed(gbSouth) then
+    if GamepadJustPressed(GamepadConfirmButton) then
       ExecuteSelection;
-    if GamepadJustPressed(gbEast) and (FSubMenu <> smMain) then
+    { Map browser: the D-pad's left / right turn the pages }
+    if (FSubMenu = smBrowser) and GamepadJustPressed(gbDPadRight) and (FBrowserActions.IndexOf('next') >= 0) then
+      BrowserAction('next');
+    if (FSubMenu = smBrowser) and GamepadJustPressed(gbDPadLeft) and (FBrowserActions.IndexOf('prev') >= 0) then
+      BrowserAction('prev');
+    { The menu button, or back on the main page, closes the menu in a game }
+    if (GamepadJustPressed(gbMenu) or (GamepadJustPressed(GamepadBackButton) and (FSubMenu = smMain))) and
+       FInGame and Assigned(FOnMenuAction) then
+      FOnMenuAction(maCloseMenu, '');
+    if GamepadJustPressed(GamepadBackButton) and (FSubMenu <> smMain) then
     begin
       GoBack;
       Sounds.Play('sound/misc/menu3.wav');
@@ -352,13 +377,19 @@ begin
       begin
         for B := Low(TQuakeBinding) to High(TQuakeBinding) do
           FItems.Add(BindingCaptions[B] + ': ' + BindingDescription(B));
-        FItems.Add('Gamepad: ' + GamepadName);
+        FItems.Add('Gamepad: ' + GamepadName + ' (' + PadFamilyNames[GamepadFamily] + ' buttons)');
         FItems.Add(Format('Gamepad look sensitivity: %.2fx', [GamepadSensitivity]));
         FItems.Add(Format('Gamepad dead zone: %.2f', [GamepadDeadZone]));
         if GamepadInvertLook then
           FItems.Add('Gamepad invert look: [ON]')
         else
           FItems.Add('Gamepad invert look: [OFF]');
+        if GamepadLayout = plAuto then
+          FItems.Add('Gamepad button names: [Auto: ' + PadFamilyNames[GamepadFamily] + ']')
+        else
+          FItems.Add('Gamepad button names: [' + PadLayoutNames[GamepadLayout] + ']');
+        FItems.Add('Gamepad confirm button: [' + PadConfirmNames[GamepadConfirm] + ': ' +
+          GamepadButtonLabel(GamepadConfirmButton) + ']');
         FItems.Add('Reset to defaults');
         FItems.Add('Back');
       end;
@@ -828,10 +859,26 @@ begin
         else
         if FSelectedIdx = N + 4 then
         begin
+          if GamepadLayout = High(TPadLayout) then
+            GamepadLayout := Low(TPadLayout)
+          else
+            GamepadLayout := Succ(GamepadLayout);
+        end else
+        if FSelectedIdx = N + 5 then
+        begin
+          if GamepadConfirm = High(TPadConfirm) then
+            GamepadConfirm := Low(TPadConfirm)
+          else
+            GamepadConfirm := Succ(GamepadConfirm);
+        end else
+        if FSelectedIdx = N + 6 then
+        begin
           ResetBindings;
           GamepadSensitivity := 1.0;
           GamepadDeadZone := DefaultGamepadDeadZone;
           GamepadInvertLook := False;
+          GamepadLayout := plAuto;
+          GamepadConfirm := pcAuto;
         end else
         begin
           FSubMenu := smOptions;
@@ -839,7 +886,7 @@ begin
           FSelectedIdx := 13;
           Exit;
         end;
-        if (FSelectedIdx > N) and (FSelectedIdx <= N + 4) then
+        if (FSelectedIdx > N) and (FSelectedIdx <= N + 6) then
           SaveGamepadSettings;
         RebuildMenuItems;
         FSelectedIdx := Selected;

@@ -131,7 +131,7 @@ implementation
 
 uses
   CastleGLImages,
-  QuakeBsp, QuakeSound, QuakePics, QuakeCaptions;
+  QuakeBsp, QuakeSound, QuakePics, QuakeCaptions, GameInput;
 
 const
   { Seconds to count each tally }
@@ -629,7 +629,13 @@ begin
   DrawNumber(240, 144, FInterTotalKills, 3);
 
   if FInterReady and (FInterStage > 2) then
-    DrawText(160, 184, 'Press fire to continue', True);
+  begin
+    { Fire or jump continues: the gamepad's jump button by its name }
+    if GamepadConnected then
+      DrawText(160, 184, 'Press fire or ' + GamepadButtonLabel(GamepadJump) + ' to continue', True)
+    else
+      DrawText(160, 184, 'Press fire to continue', True);
+  end;
 end;
 
 end.
