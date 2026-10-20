@@ -28,6 +28,7 @@ type
 
   TQuakeTouchControls = class(TCastleUserInterface)
   private
+    FLanguageVersion: Integer;
     type
       TTouchRole = (trMove, trLook, trButton);
       TTouchPoint = record
@@ -94,7 +95,7 @@ function TouchControlsWanted: Boolean;
 implementation
 
 uses
-  GameInput {$if defined(WASI)}, Job.JS, CastleInternalJobWeb{$endif};
+  GameInput, GameTranslate {$if defined(WASI)}, Job.JS, CastleInternalJobWeb{$endif};
 
 const
   { The design is made for a 900 pixel high window }
@@ -385,6 +386,11 @@ begin
     TouchSeen := True;
   {$endif}
   Shown := Playing and TouchControlsWanted;
+  if Shown and (FLanguageVersion <> LanguageVersion) then
+  begin
+    FLanguageVersion := LanguageVersion;
+    TranslateDesign(Self);
+  end;
   if Shown <> Exists then
   begin
     Exists := Shown;

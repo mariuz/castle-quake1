@@ -88,7 +88,7 @@ implementation
 
 uses
   CastleLog, CastleGLImages, CastleGLUtils, CastleUtils, CastleTransform,
-  GameInput, GameVideo, GameTouch;
+  GameInput, GameVideo, GameTouch, GameTranslate;
 
 const
   FlySpeed = 320;
@@ -219,19 +219,19 @@ procedure TPhotoMode.SetEffect(const Value: TPhotoEffect);
 begin
   FEffect := Value;
   ApplyEffect;
-  ShowStatus(PhotoEffectCaptions[FEffect]);
+  ShowStatus(Tr(PhotoEffectCaptions[FEffect]));
 end;
 
 procedure TPhotoMode.SetFov(const Value: Single);
 begin
   FFov := EnsureRange(Value, 10, 150);
-  ShowStatus(Format('Field of view %d', [Round(FFov)]));
+  ShowStatus(Format(Tr('Field of view %d'), [Round(FFov)]));
 end;
 
 procedure TPhotoMode.SetScale(const Value: Integer);
 begin
   FScale := EnsureRange(Value, 1, 4);
-  ShowStatus(Format('Photo size %dx', [FScale]));
+  ShowStatus(Format(Tr('Photo size %dx'), [FScale]));
 end;
 
 procedure TPhotoMode.ShowStatus(const S: String);
@@ -252,11 +252,11 @@ begin
     W := FViewport.Container.PixelsWidth * FScale;
     H := FViewport.Container.PixelsHeight * FScale;
   end;
-  FLabel.Caption := Format('PHOTO MODE   fov %d (wheel, [ ])   %s (Tab)   photo %dx%d (+ -)   ' +
-    'Enter: take a photo   R: reset   Esc: back', [Round(FFov), PhotoEffectCaptions[FEffect], W, H]);
+  FLabel.Caption := Format(Tr('PHOTO MODE   fov %d (wheel, [ ])   %s (Tab)   photo %dx%d (+ -)   ' +
+    'Enter: take a photo   R: reset   Esc: back'), [Round(FFov), Tr(PhotoEffectCaptions[FEffect]), W, H]);
   if GamepadConnected then
-    FLabel.Caption := FLabel.Caption + LineEnding + Format('Gamepad: %s photo   %s effect   %s / %s field of view   ' +
-      '%s back', [GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(gbNorth),
+    FLabel.Caption := FLabel.Caption + LineEnding + Format(Tr('Gamepad: %s photo   %s effect   %s / %s field of view   ' +
+      '%s back'), [GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(gbNorth),
       GamepadButtonLabel(gbLeftBumper), GamepadButtonLabel(gbRightBumper), GamepadButtonLabel(GamepadBackButton)]);
 end;
 
@@ -432,7 +432,7 @@ begin
     Result := FileName;
     WritelnLog('Photo', 'Photo saved to "%s": %dx%d, fov %d, %s, camera %s', [FileName, W, H, Round(FFov),
       PhotoEffectNames[FEffect], FViewport.Camera.Translation.ToString]);
-    ShowStatus(Format('Photo saved: %s (%dx%d)', [ExtractFileName(FileName), W, H]));
+    ShowStatus(Format(Tr('Photo saved: %s (%dx%d)'), [ExtractFileName(FileName), W, H]));
   except
     on E: Exception do
     begin

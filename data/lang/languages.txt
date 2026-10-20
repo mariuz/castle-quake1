@@ -1,0 +1,5 @@
+# The translations: "<code> <name>", the file is <code>.po (English is built in)
+de Deutsch
+es Español
+fr Français
+it Italiano

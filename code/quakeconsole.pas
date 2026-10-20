@@ -8,7 +8,7 @@ interface
 uses
   SysUtils, Classes, Math,
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
-  CastleRectangles, CastleGLUtils, CastleWindow, CastleComponentSerialize;
+  CastleRectangles, CastleGLUtils, CastleWindow, CastleComponentSerialize, GameTranslate;
 
 type
   TConsoleCommandEvent = procedure(const Cmd, Args: String) of object;
@@ -66,7 +66,7 @@ begin
   FPanel.HeightFraction := FHeightFraction;
 
   Print('Castle Quake Developer Console');
-  Print('Type "help" for a list of available commands.');
+  Print(Tr('Type "help" for a list of available commands.'));
 end;
 
 destructor TQuakeConsole.Destroy;

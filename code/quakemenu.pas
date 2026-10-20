@@ -46,6 +46,7 @@ type
     FBindWaiting: Boolean; { Controls: the next key / button goes to FBindTarget }
     FBindTarget: TQuakeBinding;
     FDefaultHint: String;
+    FLanguageVersion: Integer;
     FDemoUrls: TStringList;
     FItems: TStringList;
     FOnMenuAction: TOnMenuActionEvent;
@@ -84,6 +85,7 @@ type
 implementation
 
 uses
+  GameTranslate,
   StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
@@ -107,17 +109,33 @@ begin
   FItemsGroup := FindRequiredComponent('ItemsGroup') as TCastleVerticalGroup;
   FShowcaseLabel := FindRequiredComponent('ShowcaseLabel') as TCastleLabel;
   FHintLabel := FindRequiredComponent('HintLabel') as TCastleLabel;
+  { The design's hint in English (shown translated) }
+  FDefaultHint := FHintLabel.Caption;
+  FHintLabel.Alignment := hpMiddle;
   FThumbnailFrame := FindRequiredComponent('SaveThumbnailFrame') as TCastleUserInterface;
   FThumbnail := FindRequiredComponent('SaveThumbnail') as TCastleImageControl;
   RebuildMenuItems;
   SyncDesign;
 end;
 
+const
+  { The item group's top above the middle in the design, and how much
+    higher a page too long for it starts }
+  DesignItemsTop = 100;
+  LongPageRaise = 70;
+
 procedure TQuakeMenu.SyncDesign;
 var
   I: Integer;
   L: TCastleLabel;
+  Avail, RowHeight: Single;
 begin
+  { The design's own texts in the current language }
+  if FLanguageVersion <> LanguageVersion then
+  begin
+    FLanguageVersion := LanguageVersion;
+    TranslateDesign(Self);
+  end;
   { One label per item in the vertical group, the selected one marked }
   while Length(FItemLabels) > FItems.Count do
   begin
@@ -132,15 +150,36 @@ begin
     SetLength(FItemLabels, Length(FItemLabels) + 1);
     FItemLabels[High(FItemLabels)] := L;
   end;
+  { A long page (or longer translations) shrinks to fit between the
+    group's top and the hint line }
+  Avail := EffectiveHeight / 2 + DesignItemsTop - 80;
+  RowHeight := 34;
+  if (FItems.Count > 0) and (FItems.Count * RowHeight > Avail) then
+  begin
+    { Up to the subtitle, then smaller rows }
+    Avail := Avail + LongPageRaise;
+    RowHeight := Max(14, Avail / FItems.Count);
+    FItemsGroup.Translation := Vector2(0, DesignItemsTop + LongPageRaise);
+  end else
+    FItemsGroup.Translation := Vector2(0, DesignItemsTop);
+  if RowHeight >= 34 then
+    FItemsGroup.Spacing := 12
+  else
+    FItemsGroup.Spacing := Max(2, RowHeight * 0.2);
   for I := 0 to FItems.Count - 1 do
   begin
+    { 0 is the design's own size }
+    if RowHeight >= 34 then
+      FItemLabels[I].FontSize := 0
+    else
+      FItemLabels[I].FontSize := (RowHeight - FItemsGroup.Spacing) / 1.2;
     if I = FSelectedIdx then
     begin
-      FItemLabels[I].Caption := '> ' + FItems[I] + ' <';
+      FItemLabels[I].Caption := '> ' + TrItem(FItems[I]) + ' <';
       FItemLabels[I].Color := Vector4(1.0, 0.85, 0.15, 1.0);
     end else
     begin
-      FItemLabels[I].Caption := FItems[I];
+      FItemLabels[I].Caption := TrItem(FItems[I]);
       FItemLabels[I].Color := Vector4(0.75, 0.75, 0.75, 0.9);
     end;
   end;
@@ -151,12 +190,12 @@ begin
   if FDefaultHint = '' then
     FDefaultHint := FHintLabel.Caption;
   if FBindWaiting then
-    FHintLabel.Caption := 'Press a key, mouse button or wheel for "' + BindingCaptions[FBindTarget] +
-      '" (Escape keeps it)'
+    FHintLabel.Caption := Format(Tr('Press a key, mouse button or wheel for "%s" (Escape keeps it)'),
+      [Tr(BindingCaptions[FBindTarget])])
   else
   if FSubMenu = smControls then
-    FHintLabel.Caption := Format('Enter rebinds; the gamepad: left stick moves, right stick turns, %s jumps, ' +
-      '%s uses, %s / %s fires, D-pad changes weapons, %s photo mode, %s menu', [GamepadButtonLabel(GamepadJump),
+    FHintLabel.Caption := Format(Tr('Enter rebinds; the gamepad: left stick moves, right stick turns, %s jumps, ' +
+      '%s uses, %s / %s fires, D-pad changes weapons, %s photo mode, %s menu'), [GamepadButtonLabel(GamepadJump),
       GamepadButtonLabel(GamepadUse), GamepadButtonLabel(GamepadFire), GamepadTriggerLabel,
       GamepadButtonLabel(gbView), GamepadButtonLabel(gbMenu)])
   else
@@ -164,17 +203,19 @@ begin
     FHintLabel.Caption := MapBrowser.Status
   else
   if (FSubMenu in [smBrowser, smBrowserMap]) and GamepadConnected then
-    FHintLabel.Caption := Format('%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages',
+    FHintLabel.Caption := Format(Tr('%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages'),
       [MapBrowser.Count, GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(GamepadBackButton)])
   else
   if FSubMenu in [smBrowser, smBrowserMap] then
-    FHintLabel.Caption := Format('%d maps from Quaddicted: Enter shows one, Escape goes back', [MapBrowser.Count])
+    FHintLabel.Caption := Format(Tr('%d maps from Quaddicted: Enter shows one, Escape goes back'), [MapBrowser.Count])
   else
   if GamepadConnected then
-    FHintLabel.Caption := Format('D-pad to navigate, %s to select, %s to go back', [
+    FHintLabel.Caption := Format(Tr('D-pad to navigate, %s to select, %s to go back'), [
       GamepadButtonLabel(GamepadConfirmButton), GamepadButtonLabel(GamepadBackButton)])
   else
-    FHintLabel.Caption := FDefaultHint;
+    FHintLabel.Caption := Tr(FDefaultHint);
+  { A long hint (and translations are longer) wraps instead of leaving the window }
+  FHintLabel.MaxWidth := Max(200, EffectiveWidth - 60);
   if FHintLabel.Caption <> FLoggedHint then
   begin
     FLoggedHint := FHintLabel.Caption;
@@ -371,6 +412,10 @@ begin
         FItems.Add('Reduced Flashes: [' + BoolToStr(ReducedFlashes, 'ON', 'OFF') + ']');
         FItems.Add('Speedrun Timer: [' + BoolToStr(SpeedrunTimer, 'ON', 'OFF') + ']');
         FItems.Add('Ghost of the Best Run: [' + BoolToStr(GhostRacing, 'ON', 'OFF') + ']');
+        if LanguageSetting = '' then
+          FItems.Add('Language: [Auto: ' + CurrentLanguageName + ']')
+        else
+          FItems.Add('Language: [' + LanguageName(LanguageSetting) + ']');
         FItems.Add('Controls');
         FItems.Add('Back to Main Menu');
       end;
@@ -518,7 +563,7 @@ begin
     List := MapBrowser.Sorted(FBrowserSort);
     Pages := Max(1, (Length(List) + BrowserPageSize - 1) div BrowserPageSize);
     FBrowserPage := EnsureRange(FBrowserPage, 0, Pages - 1);
-    Add(Format('Sort: [%s]  page %d of %d', [SortNames[FBrowserSort], FBrowserPage + 1, Pages]), 'sort');
+    Add(Format(Tr('Sort: [%s]  page %d of %d'), [Tr(SortNames[FBrowserSort]), FBrowserPage + 1, Pages]), 'sort');
     for J := FBrowserPage * BrowserPageSize to Min(Length(List), (FBrowserPage + 1) * BrowserPageSize) - 1 do
     begin
       I := List[J];
@@ -528,50 +573,50 @@ begin
         Add(MapBrowser.Describe(I), 'map:' + IntToStr(I));
     end;
     if Length(List) = 0 then
-      Add('(no maps installed yet)', '');
+      Add(Tr('(no maps installed yet)'), '');
     if FBrowserPage + 1 < Pages then
-      Add('Next page', 'next');
+      Add(Tr('Next page'), 'next');
     if FBrowserPage > 0 then
-      Add('Previous page', 'prev');
+      Add(Tr('Previous page'), 'prev');
     Add('Back to Main Menu', 'back');
   end else
   begin
     M := MapBrowser[FBrowserMap];
     Add(M.Title, '');
-    Add('by ' + M.Author + ', released ' + M.Date, '');
+    Add(Format(Tr('by %s, released %s'), [M.Author, M.Date]), '');
     if M.Rating >= 0 then
-      Add(Format('Rating %.1f / 5, %s, %.1f MB', [M.Rating, M.Size, M.Bytes / (1024 * 1024)],
+      Add(Format(Tr('Rating %.1f / 5, %s, %.1f MB'), [M.Rating, Tr(M.Size), M.Bytes / (1024 * 1024)],
         DefaultFormatSettings), '')
     else
-      Add(Format('Not rated, %s, %.1f MB', [M.Size, M.Bytes / (1024 * 1024)], DefaultFormatSettings), '');
+      Add(Format(Tr('Not rated, %s, %.1f MB'), [Tr(M.Size), M.Bytes / (1024 * 1024)], DefaultFormatSettings), '');
     Needs := '';
     if Pos('limits', M.Flags) > 0 then
-      Needs := 'raised engine limits';
+      Needs := Tr('raised engine limits');
     if Pos('bsp2', M.Flags) > 0 then
       Needs := Needs + IfThen(Needs <> '', ', ', '') + 'BSP2';
     if Pos('lit', M.Flags) > 0 then
-      Needs := Needs + IfThen(Needs <> '', ', ', '') + 'colored light';
+      Needs := Needs + IfThen(Needs <> '', ', ', '') + Tr('colored light');
     if Needs <> '' then
-      Add('Uses ' + Needs, '');
+      Add(Format(Tr('Uses %s'), [Needs]), '');
     if Length(M.Needs) > 0 then
-      Add('Needs ' + MapBrowser.NeedsText(FBrowserMap) + ' (QuakeC mode)', '')
+      Add(Format(Tr('Needs %s (QuakeC mode)'), [MapBrowser.NeedsText(FBrowserMap)]), '')
     else if MapBrowser.NeedsQuakeC(FBrowserMap) then
-      Add('A mod: plays in QuakeC mode', '');
+      Add(Tr('A mod: plays in QuakeC mode'), '');
     if MapBrowser.Ready(FBrowserMap) then
     begin
       for I := 0 to Min(High(M.StartMaps), 5) do
         Add('Play: ' + M.StartMaps[I], 'play:' + M.StartMaps[I]);
-      Add('Remove', 'remove');
+      Add(Tr('Remove'), 'remove');
     end else
     if MapBrowser.DownloadingIndex = FBrowserMap then
-      Add(Format('Downloading: %d%%', [Round(MapBrowser.Progress * 100)]), '')
+      Add(Format(Tr('Downloading: %d%%'), [Round(MapBrowser.Progress * 100)]), '')
     else
     if MapBrowser.BytesToInstall(FBrowserMap) > M.Bytes then
-      Add(Format('Download and play (%.0f MB with the mods)', [MapBrowser.BytesToInstall(FBrowserMap) / (1024 * 1024)],
+      Add(Format(Tr('Download and play (%.0f MB with the mods)'), [MapBrowser.BytesToInstall(FBrowserMap) / (1024 * 1024)],
         DefaultFormatSettings), 'install')
     else
-      Add('Download and play', 'install');
-    Add('Back to the list', 'back');
+      Add(Tr('Download and play'), 'install');
+    Add(Tr('Back to the list'), 'back');
   end;
   FBrowserBuiltFor := BrowserState;
 end;
@@ -842,10 +887,18 @@ begin
           end;
         13:
           begin
+            { Auto (the system's), English, then the translations }
+            SetLanguage(NextLanguageSetting(LanguageSetting));
+            SaveLanguageSettings;
+            RebuildMenuItems;
+            FSelectedIdx := 13;
+          end;
+        14:
+          begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        14:
+        15:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;

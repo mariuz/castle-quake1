@@ -127,7 +127,7 @@ var
 
 implementation
 
-uses GameViewQc;
+uses GameViewQc, GameTranslate;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -395,7 +395,7 @@ begin
     if FWorld.HordeActive then
       FHud.ShowMessage('HORDE MODE: ' + FMapName + LineEnding + 'Survive the waves', 4.0)
     else
-      FHud.ShowMessage('Welcome to Castle Quake: ' + FMapName, 4.0);
+      FHud.ShowMessage(Tr('Welcome to Castle Quake: ') + FMapName, 4.0);
   end else
     FHud.ShowMessage('Failed to load level: ' + FMapName, 5.0);
 end;
@@ -1439,7 +1439,8 @@ procedure TViewPlay.HandleConsoleCommand(const Cmd, Args: String);
 var
   Parts: TStringArray;
   FogColor: TVector3;
-  SkyName: String;
+  SkyName, LangList: String;
+  Lang: TLanguageInfo;
 begin
   if (Cmd = 'map') or (Cmd = 'warp') then
   begin
@@ -1666,38 +1667,56 @@ begin
   begin
     RequestQuit;
   end else
+  if Cmd = 'lang' then
+  begin
+    { lang <code>: the menu, HUD and help in another language (saved) }
+    if Args <> '' then
+    begin
+      if Args = 'auto' then
+        SetLanguage('')
+      else
+        SetLanguage(Args);
+      SaveLanguageSettings;
+    end;
+    LangList := '';
+    for Lang in Languages do
+      LangList := LangList + ' ' + Lang.Code;
+    FConsole.Print(Format(Tr('Language: %s (%s); lang <code> changes it:%s, auto'),
+      [CurrentLanguage, CurrentLanguageName, LangList]));
+  end else
   if Cmd = 'help' then
   begin
-    FConsole.Print('Commands:');
-    FConsole.Print('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)');
-    FConsole.Print('  skill <0..3>   - Skill for the next map');
-    FConsole.Print('  record <name>  - Record a demo to <name>.dem, stop ends it');
-    FConsole.Print('  save [slot]    - Save the game (F6 = quick)');
-    FConsole.Print('  load [slot]    - Load a saved game (F9 = quick)');
-    FConsole.Print('  god            - God mode');
-    FConsole.Print('  give all       - Give all weapons, ammo, keys');
-    FConsole.Print('  shadows <0|1>  - Toggle dynamic shadows');
-    FConsole.Print('  wateralpha <0..1> - Opacity of water, slime and lava');
-    FConsole.Print('  fog <density> [r g b] - Fog for this level (0 off)');
-    FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
-    FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
-    FConsole.Print('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it');
-    FConsole.Print('  saves          - List the saved games (the Load Game menu)');
-    FConsole.Print('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,');
-    FConsole.Print('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot');
-    FConsole.Print('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,');
-    FConsole.Print('    maps_play <id> [map], maps_remove <id> - download, play and remove one');
-    FConsole.Print('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)');
-    FConsole.Print('  fov <degrees>  - Field of view at 4:3 (wider screens see more)');
-    FConsole.Print('  gamma <0.4..1.5> - Brightness, lower is brighter');
-    FConsole.Print('  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon');
-    FConsole.Print('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting');
-    FConsole.Print('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off');
-    FConsole.Print('  fps            - Show the frame rate in the stats line');
-    FConsole.Print('  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see');
-    FConsole.Print('  quit           - Exit game');
+    FConsole.Print(Tr('Commands:'));
+    FConsole.Print(Tr('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)'));
+    FConsole.Print(Tr('  skill <0..3>   - Skill for the next map'));
+    FConsole.Print(Tr('  record <name>  - Record a demo to <name>.dem, stop ends it'));
+    FConsole.Print(Tr('  save [slot]    - Save the game (F6 = quick)'));
+    FConsole.Print(Tr('  load [slot]    - Load a saved game (F9 = quick)'));
+    FConsole.Print(Tr('  god            - God mode'));
+    FConsole.Print(Tr('  give all       - Give all weapons, ammo, keys'));
+    FConsole.Print(Tr('  shadows <0|1>  - Toggle dynamic shadows'));
+    FConsole.Print(Tr('  wateralpha <0..1> - Opacity of water, slime and lava'));
+    FConsole.Print(Tr('  fog <density> [r g b] - Fog for this level (0 off)'));
+    FConsole.Print(Tr('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility'));
+    FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
+    FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
+    FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
+    FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
+    FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));
+    FConsole.Print(Tr('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,'));
+    FConsole.Print(Tr('    maps_play <id> [map], maps_remove <id> - download, play and remove one'));
+    FConsole.Print(Tr('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)'));
+    FConsole.Print(Tr('  fov <degrees>  - Field of view at 4:3 (wider screens see more)'));
+    FConsole.Print(Tr('  gamma <0.4..1.5> - Brightness, lower is brighter'));
+    FConsole.Print(Tr('  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon'));
+    FConsole.Print(Tr('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting'));
+    FConsole.Print(Tr('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off'));
+    FConsole.Print(Tr('  fps            - Show the frame rate in the stats line'));
+    FConsole.Print(Tr('  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see'));
+    FConsole.Print(Tr('  lang <code|auto> - Language of the menu, the HUD and this help'));
+    FConsole.Print(Tr('  quit           - Exit game'));
   end else
-    FConsole.Print('Unknown command: ' + Cmd);
+    FConsole.Print(Tr('Unknown command: ') + Cmd);
 end;
 
 procedure TViewPlay.HandleMenuAction(const Action: TMenuAction; const Param: String);

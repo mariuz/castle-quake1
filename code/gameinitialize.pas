@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, QuakeWebStorage, QuakeWebSocketClient,
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, QuakeWebStorage, QuakeWebSocketClient,
   QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
@@ -44,6 +44,8 @@ var
   CmdCoop: Boolean;
   { -splitscreen [stacked]: host with a second local player (coop) }
   CmdSplit, CmdSplitStacked: Boolean;
+  { -lang <code>: the language for this run (not saved) }
+  CmdLang: String;
   CmdSkill: Integer;
   CmdExportMap, CmdExportUrl: String;
 
@@ -350,6 +352,11 @@ begin
     if (Parameters[I] = '-coop') or (Parameters[I] = '--coop') then
       CmdCoop := True
     else
+    if ((Parameters[I] = '-lang') or (Parameters[I] = '--lang')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdLang := Parameters[I + 1];
+      Inc(I);
+    end else
     if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
     begin
       CmdSplit := True;
@@ -573,6 +580,9 @@ begin
     TouchControlsMode := tcOff;
   if PageParameter('fullscreen') = '0' then
     TouchFullscreen := False;
+  { ?lang=<code>: the language of this visit }
+  if PageParameter('lang') <> '' then
+    CmdLang := PageParameter('lang');
   if PageParameter('autotest') <> '' then
   begin
     AutoTestMap := PageParameter('autotest');
@@ -595,6 +605,17 @@ begin
     VideoSettingsVolatile := True
   else
     LoadVideoSettings;
+  { The language: -lang for this run, English in headless tests (the
+    reference screenshots and the logged texts), else the saved choice }
+  if (CmdLang <> '') or (AutoTestMap <> '') then
+  begin
+    LanguageVolatile := True;
+    if CmdLang <> '' then
+      SetLanguage(CmdLang)
+    else
+      SetLanguage('en');
+  end else
+    LoadLanguageSettings;
   if CmdSpeedrun then
     SpeedrunTimer := True;
   if CmdGhost then

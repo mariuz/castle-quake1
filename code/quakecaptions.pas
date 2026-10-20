@@ -86,7 +86,7 @@ var
 implementation
 
 uses
-  CastleLog, QuakeSound;
+  CastleLog, QuakeSound, GameTranslate;
 
 type
   TCaptionEntry = record
@@ -336,17 +336,19 @@ end;
 function TQuakeCaptions.Text: String;
 var
   I: Integer;
-  Line: String;
+  Line, T: String;
 begin
   Result := '';
   for I := 0 to High(FItems) do
   begin
+    { Shown in the current language (logged in English) }
+    T := Tr(FItems[I].Text);
     case FItems[I].Direction of
-      cdLeft: Line := '< ' + FItems[I].Text;
-      cdRight: Line := FItems[I].Text + ' >';
-      cdAhead: Line := '^ ' + FItems[I].Text + ' ^';
-      cdBehind: Line := '[behind] ' + FItems[I].Text;
-      else Line := FItems[I].Text;
+      cdLeft: Line := '< ' + T;
+      cdRight: Line := T + ' >';
+      cdAhead: Line := '^ ' + T + ' ^';
+      cdBehind: Line := '[' + Tr('behind') + '] ' + T;
+      else Line := T;
     end;
     if Result <> '' then
       Result := Result + LineEnding;
