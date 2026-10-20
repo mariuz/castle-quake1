@@ -102,6 +102,14 @@ begin
         ViewDemo.HostCoop := Pos('coop:', Param) = 1;
         ViewDemo.HostSkill := 1;
         ViewDemo.HostBots := 0;
+        { split:<map>: split-screen coop, a second player with the gamepad }
+        ViewDemo.SplitScreen := Pos('split:', Param) = 1;
+        ViewDemo.SplitStacked := False;
+        if ViewDemo.SplitScreen then
+        begin
+          ViewDemo.HostCoop := True;
+          ViewDemo.HostMap := Copy(Param, 7, MaxInt);
+        end else
         if ViewDemo.HostCoop then
           ViewDemo.HostMap := Copy(Param, 6, MaxInt)
         else if Pos('bots:', Param) = 1 then
@@ -121,6 +129,7 @@ begin
         ViewDemo.HostMap := '';
         ViewDemo.NetHost := Param;
         ViewDemo.NetPort := 0;
+        ViewDemo.SplitScreen := False;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';
         Container.View := ViewDemo;

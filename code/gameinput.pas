@@ -88,19 +88,25 @@ function BindingDescription(const B: TQuakeBinding): String;
 
 { The binding is held: its key or mouse button, or the gamepad button
   (or trigger) that stands for it }
-function BindingHeld(const B: TQuakeBinding; const Container: TCastleContainer): Boolean;
+function BindingHeld(const B: TQuakeBinding; const Container: TCastleContainer;
+  const Player: Integer = 0): Boolean;
 { A press event is this binding }
 function BindingEvent(const B: TQuakeBinding; const Event: TInputPressRelease): Boolean;
 { The gamepad button is down now }
-function GamepadButtonDown(const Button: TGameControllerButton): Boolean;
+function GamepadButtonDown(const Button: TGameControllerButton; const Player: Integer = 0): Boolean;
 { A gamepad button went down since the last UpdateGamepad }
-function GamepadJustPressed(const Button: TGameControllerButton): Boolean;
+function GamepadJustPressed(const Button: TGameControllerButton; const Player: Integer = 0): Boolean;
 { The left stick as movement fractions (-1..1): forward and side }
-procedure GamepadMove(out Forward, Side: Single);
+procedure GamepadMove(out Forward, Side: Single; const Player: Integer = 0);
 { Turn the camera with the right stick (call every frame when playing) }
-procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single);
+procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single; const Player: Integer = 0);
 { Refresh the just-pressed state of the gamepad buttons; once per frame }
-procedure UpdateGamepad;
+procedure UpdateGamepad(const Player: Integer = 0);
+{ Split-screen players: the Player argument of the helpers above is 0 for
+  the one player (the first pad, the touch controls), 1 for the keyboard
+  and mouse player (the first pad only when two are connected, and the
+  touch controls) and 2 for the gamepad player (the last pad, no keyboard) }
+function PlayerController(const Player: Integer): TGameController;
 function GamepadConnected: Boolean;
 { The first controller's name, 'none' without one }
 function GamepadName: String;
@@ -144,7 +150,7 @@ uses
   CastleInternalGameControllersExplicit;
 
 var
-  WasPressed, JustPressed: array[TGameControllerButton] of Boolean;
+  WasPressed, JustPressed: array[0..2, TGameControllerButton] of Boolean;
   ConfigLoaded: Boolean;
 
 function FirstController: TGameController;
@@ -153,6 +159,25 @@ begin
     Result := Controllers[0]
   else
     Result := nil;
+end;
+
+function PlayerController(const Player: Integer): TGameController;
+begin
+  Result := nil;
+  case Player of
+    1: if Controllers.Count >= 2 then
+         Result := Controllers[0];
+    2: if Controllers.Count >= 1 then
+         Result := Controllers[Controllers.Count - 1];
+    else
+      Result := FirstController;
+  end;
+end;
+
+{ The touch controls belong to the one player, or the keyboard player }
+function HasTouch(const Player: Integer): Boolean;
+begin
+  Result := Player <> 2;
 end;
 
 function GamepadConnected: Boolean;
@@ -487,18 +512,19 @@ begin
   end;
 end;
 
-function BindingHeld(const B: TQuakeBinding; const Container: TCastleContainer): Boolean;
+function BindingHeld(const B: TQuakeBinding; const Container: TCastleContainer;
+  const Player: Integer): Boolean;
 var
   C: TGameController;
   Button: TGameControllerButton;
 begin
-  Result := (Bindings[B] <> nil) and (Container <> nil) and Bindings[B].IsPressed(Container);
+  Result := (Player <> 2) and (Bindings[B] <> nil) and (Container <> nil) and Bindings[B].IsPressed(Container);
   if Result then
     Exit;
-  if GamepadButtonFor(B, Button) then
+  if GamepadButtonFor(B, Button) and HasTouch(Player) then
     if TouchButtons[Button] then
       Exit(True);
-  C := FirstController;
+  C := PlayerController(Player);
   if C = nil then
     Exit;
   if GamepadButtonFor(B, Button) and C.Pressed[Button] then
@@ -513,30 +539,32 @@ begin
   Result := (Bindings[B] <> nil) and Bindings[B].IsEvent(Event);
 end;
 
-procedure UpdateGamepad;
+procedure UpdateGamepad(const Player: Integer);
 var
-  C: TGameController;
   Button: TGameControllerButton;
   Down: Boolean;
+  P: Integer;
 begin
-  C := FirstController;
-
+  P := EnsureRange(Player, 0, 2);
   for Button := Low(TGameControllerButton) to High(TGameControllerButton) do
   begin
-    Down := ((C <> nil) and C.Pressed[Button]) or TouchButtons[Button];
-    JustPressed[Button] := Down and not WasPressed[Button];
-    WasPressed[Button] := Down;
+    Down := GamepadButtonDown(Button, P);
+    JustPressed[P, Button] := Down and not WasPressed[P, Button];
+    WasPressed[P, Button] := Down;
   end;
 end;
 
-function GamepadButtonDown(const Button: TGameControllerButton): Boolean;
+function GamepadButtonDown(const Button: TGameControllerButton; const Player: Integer): Boolean;
+var
+  C: TGameController;
 begin
-  Result := ((FirstController <> nil) and FirstController.Pressed[Button]) or TouchButtons[Button];
+  C := PlayerController(Player);
+  Result := ((C <> nil) and C.Pressed[Button]) or (HasTouch(Player) and TouchButtons[Button]);
 end;
 
-function GamepadJustPressed(const Button: TGameControllerButton): Boolean;
+function GamepadJustPressed(const Button: TGameControllerButton; const Player: Integer): Boolean;
 begin
-  Result := JustPressed[Button];
+  Result := JustPressed[EnsureRange(Player, 0, 2), Button];
 end;
 
 function ApplyDeadZone(const V: Single): Single;
@@ -547,15 +575,20 @@ begin
     Result := Sign(V) * Min(1.0, (Abs(V) - GamepadDeadZone) / (1 - GamepadDeadZone));
 end;
 
-procedure GamepadMove(out Forward, Side: Single);
+procedure GamepadMove(out Forward, Side: Single; const Player: Integer);
 var
   C: TGameController;
   Stick: TVector2;
 begin
   { The touch stick has no dead zone of its own (GameTouch keeps a small one) }
-  Forward := TouchMove.Y;
-  Side := TouchMove.X;
-  C := FirstController;
+  Forward := 0;
+  Side := 0;
+  if HasTouch(Player) then
+  begin
+    Forward := TouchMove.Y;
+    Side := TouchMove.X;
+  end;
+  C := PlayerController(Player);
   if C <> nil then
   begin
     Stick := C.AxisLeft;
@@ -566,7 +599,7 @@ begin
   Side := EnsureRange(Side, -1, 1);
 end;
 
-procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single);
+procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Single; const Player: Integer);
 var
   C: TGameController;
   Stick: TVector2;
@@ -577,7 +610,7 @@ begin
     Exit;
   Yaw := 0;
   Pitch := 0;
-  C := FirstController;
+  C := PlayerController(Player);
   if C <> nil then
   begin
     Stick := C.AxisRight;
@@ -587,9 +620,12 @@ begin
       Pitch := -Pitch;
   end;
   { The touch look drag: turned once, like a mouse move }
-  Yaw := Yaw - TouchLookDelta.X * TouchLookDegrees;
-  Pitch := Pitch + TouchLookDelta.Y * TouchLookDegrees;
-  TouchLookDelta := TVector2.Zero;
+  if HasTouch(Player) then
+  begin
+    Yaw := Yaw - TouchLookDelta.X * TouchLookDegrees;
+    Pitch := Pitch + TouchLookDelta.Y * TouchLookDegrees;
+    TouchLookDelta := TVector2.Zero;
+  end;
   if (Yaw = 0) and (Pitch = 0) then
     Exit;
   Dir := Camera.Direction;

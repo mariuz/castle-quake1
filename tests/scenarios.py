@@ -300,6 +300,70 @@ def pad_demo(name, confirm, back):
                     ['GB:%s,W:0.5,GB:%s,W:0.5,GB:%s,W:0.6,S,Q' % (confirm, back, back)])
 
 
+def dist(a, b):
+    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+SPLIT_RE = re.compile(r'Player 2: view entity (\d+) at (\S+) (\S+) (\S+), yaw (-?\d+), health (-?\d+), '
+                      r'ammo (\d+), weapon \d+, signon \d+, viewports (\d+)x(\d+) and (\d+)x(\d+)')
+
+
+def check_split(logs):
+    result = common_checks(logs, 'sides') + common_checks(logs, 'stacked')
+    for prefix in ('sides', 'stacked'):
+        log = logs[prefix]
+        result.append(('Split-screen: player 2 joins' in log, '%s: the second player joins the listen server' % prefix))
+    log = logs['sides']
+    p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
+    p2 = SPLIT_RE.findall(log)
+    result.append((len(p1) == 2 and len(p2) == 2, 'sides: both players are logged at each screenshot'))
+    if len(p1) == 2 and len(p2) == 2:
+        a = [tuple(float(x) for x in m[1:4]) for m in p2]
+        result.append((p2[0][0] != '1' and dist(a[0], p1[0]) > 32, 'two player entities at different spawn spots'))
+        result.append((dist(a[0], a[1]) > 200, 'the gamepad walks the second player (%.0f units)' % dist(a[0], a[1])))
+        result.append((dist(p1[0], p1[1]) < 8, 'the first player stays (%.0f units)' % dist(p1[0], p1[1])))
+        result.append((p2[0][4] != p2[1][4], 'the right stick turns the second player (yaw %s -> %s)'
+                       % (p2[0][4], p2[1][4])))
+        w1, h1, w2, h2 = (int(x) for x in p2[0][7:11])
+        result.append((w1 == w2 and h1 == h2 and w1 * 2 > h1, 'side by side: two views of %dx%d' % (w1, h1)))
+    log = logs['stacked']
+    p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
+    p2 = SPLIT_RE.findall(log)
+    result.append((len(p1) == 2 and len(p2) == 2, 'stacked: both players are logged at each screenshot'))
+    if len(p1) == 2 and len(p2) == 2:
+        a = [tuple(float(x) for x in m[1:4]) for m in p2]
+        result.append((dist(p1[0], p1[1]) > 100 and dist(a[0], a[1]) < 8,
+                       'the keyboard walks only the first player (%.0f and %.0f units)'
+                       % (dist(p1[0], p1[1]), dist(a[0], a[1]))))
+        result.append((int(p2[1][6]) < int(p2[0][6]), 'the trigger fires the second player\'s weapon (ammo %s -> %s)'
+                       % (p2[0][6], p2[1][6])))
+        shots = re.findall(r'\(signon \d+, health -?\d+, ammo (\d+)', log)
+        result.append((len(shots) == 2 and shots[0] == shots[1], 'the first player does not fire'))
+        w1, h1, w2, h2 = (int(x) for x in p2[0][7:11])
+        result.append((w1 == w2 and h1 == h2 and w1 > h1 * 2, 'one above the other: two views of %dx%d' % (w1, h1)))
+    return result
+
+
+def split_frames(out_dir):
+    """The two halves of a screenshot show different views once player 2 walked off"""
+    from PIL import Image, ImageChops, ImageStat
+    result = []
+    for name, box in (('sides_2.png', 'lr'), ('stacked_2.png', 'tb')):
+        path = os.path.join(out_dir, name)
+        if not os.path.exists(path):
+            result.append((False, '%s exists' % name))
+            continue
+        img = Image.open(path).convert('RGB')
+        w, h = img.size
+        if box == 'lr':
+            a, b = img.crop((0, 0, w // 2, h)), img.crop((w - w // 2, 0, w, h))
+        else:
+            a, b = img.crop((0, 0, w, h // 2)), img.crop((0, h - h // 2, w, h))
+        diff = sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
+        result.append((diff > 8, '%s: the two views differ (mean difference %.1f)' % (name, diff)))
+    return result
+
+
 def check_pads(logs):
     result = []
     for prefix, family, confirm, back in (('ps', 'PlayStation', 'Cross', 'Circle'), ('switch', 'Nintendo', 'A', 'B'),
@@ -1018,6 +1082,17 @@ SCENARIOS = [
                       ('xbox', ['--autotest', 'e1m1', '{out}/xbox', '--demo',
                                 pad_demo('Xbox Wireless Controller', 'south', 'east')], 0)],
              check_pads, []),
+    # Split-screen coop: a second local player on the listen server with the
+    # (virtual) gamepad, side by side and one above the other; the stick
+    # walks and turns only the second player, the keyboard script only the
+    # first, the trigger fires the second player's weapon
+    Scenario('splitscreen', [('sides', ['-splitscreen', '--autotest', 'host:e1m1', '{out}/sides', '--demo',
+                                        'W:4,S,GL:0;1,W:2,GL:0;0,GR:1;0,W:0.5,GR:0;0,W:0.5,S,Q',
+                                        '-port', '26360'], 0),
+                             ('stacked', ['-splitscreen', 'stacked', '--autotest', 'host:e1m1', '{out}/stacked',
+                                          '--demo', 'W:4,S,V:1;0;0,W:1,V:0;0;0,GT:1,W:0.6,GT:0,W:0.5,S,Q',
+                                          '-port', '26361'], 0)],
+             check_split, [], frame_checks=split_frames),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times

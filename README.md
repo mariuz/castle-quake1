@@ -60,6 +60,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 
 **Multiplayer**
 - Deathmatch and coop over UDP: the host runs the QuakeC rules, NetQuake protocol 15 messages stream the game to every player, the client is the demo player with input. Host from the menu or with `-host`, join with `-connect`.
+- Split-screen coop: `-host e1m1 -splitscreen` (or Multiplayer > Split-Screen Coop) plays a coop game with two players on one machine, side by side (`-splitscreen stacked`: one above the other): the keyboard and mouse for the first player, a gamepad for the second.
 - Deathmatch bots: `-host e1m1 -bots 3` (or Multiplayer > Deathmatch vs 3 bots) adds bots that find their way around the map, collect weapons, health and powerups, and fight you and each other; `-skill` sets how well they aim.
 - Browser players: a host started with `-websocket 26001` (or a separate `-wsrelay host:port`) relays WebSocket connections to the game, and the web build joins with `?connect=host` in its URL (an https page needs `wss://`, so a TLS proxy in front of the relay).
 - Client-side prediction of your own movement (the server runs exactly the inputs you sent, the client replays the unacknowledged ones) and UDP hole punching through a rendezvous service: `-rendezvous` on a reachable machine, `-host e1m1 -register myname@rendezvous`, `-connect myname@rendezvous`.

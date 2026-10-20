@@ -42,6 +42,8 @@ var
   CmdNoPredict: Boolean;
   CmdPort: Integer;
   CmdCoop: Boolean;
+  { -splitscreen [stacked]: host with a second local player (coop) }
+  CmdSplit, CmdSplitStacked: Boolean;
   CmdSkill: Integer;
   CmdExportMap, CmdExportUrl: String;
 
@@ -348,6 +350,16 @@ begin
     if (Parameters[I] = '-coop') or (Parameters[I] = '--coop') then
       CmdCoop := True
     else
+    if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
+    begin
+      CmdSplit := True;
+      CmdCoop := True;
+      if (I + 1 <= Parameters.High) and ((Parameters[I + 1] = 'stacked') or (Parameters[I + 1] = 'sides')) then
+      begin
+        CmdSplitStacked := Parameters[I + 1] = 'stacked';
+        Inc(I);
+      end;
+    end else
     if ((Parameters[I] = '-register') or (Parameters[I] = '--register')) and (I + 1 <= Parameters.High) then
     begin
       CmdRegister := Parameters[I + 1];
@@ -632,6 +644,8 @@ begin
   begin
     ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
     ViewDemo.HostCoop := CmdCoop;
+    ViewDemo.SplitScreen := CmdSplit;
+    ViewDemo.SplitStacked := CmdSplitStacked;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
@@ -657,6 +671,8 @@ begin
   begin
     ViewDemo.HostMap := CmdHost;
     ViewDemo.HostCoop := CmdCoop;
+    ViewDemo.SplitScreen := CmdSplit;
+    ViewDemo.SplitStacked := CmdSplitStacked;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
