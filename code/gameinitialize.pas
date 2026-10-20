@@ -19,6 +19,8 @@ var
   AutoTestPrefix: String;
   AutoTestDemo: String;
   CmdWarp: String;
+  { -load <slot>: start from a savegame }
+  CmdLoad: String;
   { -horde: waves of monsters on the map played }
   CmdHorde: Boolean = False;
   { -bots N: deathmatch bots in the hosted game }
@@ -280,6 +282,11 @@ begin
     if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
     begin
       CmdWarp := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-load') or (Parameters[I] = '--load')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdLoad := Parameters[I + 1];
       Inc(I);
     end else
     if ((Parameters[I] = '-bots') or (Parameters[I] = '--bots')) and (I + 1 <= Parameters.High) then
@@ -690,6 +697,11 @@ begin
     ViewPlay.AutoTestMap := AutoTestMap;
     ViewPlay.AutoTestPrefix := AutoTestPrefix;
     ViewPlay.AutoTestDemo := AutoTestDemo;
+    Window.Container.View := ViewPlay;
+  end else
+  if CmdLoad <> '' then
+  begin
+    ViewPlay.LoadSlot := CmdLoad;
     Window.Container.View := ViewPlay;
   end else
   if CmdWarp <> '' then

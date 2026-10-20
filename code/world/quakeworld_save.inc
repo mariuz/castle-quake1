@@ -88,6 +88,7 @@ begin
     D.SetInt('skill', FSkill);
     D.SetInt('serverflags', FServerFlags);
     D.SetFloat('time', FTime);
+    D.SetStr('saved', FormatDateTime('yyyy-mm-dd hh:nn:ss', Now));
     D.SetBool('godmode', FGodMode);
     SaveStats(D, 'stats.', FPlayerStats);
     D.SetBool('levelstart.valid', FLevelStartValid);

@@ -113,6 +113,41 @@
       "Exists": false
     },
     {
+      "$$ClassName": "TCastleRectangleControl",
+      "Name": "SaveThumbnailFrame",
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.75,
+        "Green": 0.55,
+        "Blue": 0.2
+      },
+      "Width": 328.0,
+      "Height": 188.0,
+      "HorizontalAnchorParent": "hpRight",
+      "HorizontalAnchorSelf": "hpRight",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpMiddle",
+      "TranslationPersistent": {
+        "$$ClassName": "TCastleVector2Persistent",
+        "X": -48,
+        "Y": -40
+      },
+      "Exists": false,
+      "$Children": [
+        {
+          "$$ClassName": "TCastleImageControl",
+          "Name": "SaveThumbnail",
+          "Stretch": true,
+          "Width": 320.0,
+          "Height": 180.0,
+          "HorizontalAnchorParent": "hpMiddle",
+          "HorizontalAnchorSelf": "hpMiddle",
+          "VerticalAnchorParent": "vpMiddle",
+          "VerticalAnchorSelf": "vpMiddle"
+        }
+      ]
+    },
+    {
       "$$ClassName": "TCastleLabel",
       "Name": "HintLabel",
       "Text": [

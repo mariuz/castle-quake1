@@ -14,7 +14,7 @@ uses
   GameInput, GameVideo, GameTouch, QuakeCaptions, CastleConfig,
   QuakePak, QuakePalette, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound,
   QuakeHud, QuakeParticles, QuakeEntities, QuakeWorld, QuakeConsole, QuakeMenu,
-  QuakePhysics, QuakeSaveGame, QuakeDebug, QuakeMapBrowser, GamePhoto;
+  QuakePhysics, QuakeSaveGame, QuakeDebug, QuakeMapBrowser, GamePhoto, CastleUriUtils;
 
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
@@ -33,6 +33,10 @@ type
     FCameraMode: TCameraMode;
     FThirdPersonDist: Single;
     FMapName: String;
+    FLoadSlot: String;
+    { Jump and fire held when the menu closed (Space, a click or the
+      gamepad's A picked an item): ignored until released }
+    FHeldFromMenu: Boolean;
     FAutoTestMap: String;
     FAutoTestPrefix: String;
     FAutoTestDemo: String;
@@ -99,11 +103,16 @@ type
     procedure ReportHorde;
     procedure MapBrowserCommand(const Cmd, Args: String);
     procedure SetPhotoMode(const On: Boolean);
+    procedure SaveThumbnail(const Slot: String);
+    procedure ListSavesCommand;
     function PhotoPrefix: String;
     procedure SetCameraMode(const Mode: TCameraMode);
 
     property World: TQuakeWorld read FWorld;
     property MapName: String read FMapName write FMapName;
+    { A savegame slot to start from instead of MapName (Load Game in the
+      main menu), cleared when used }
+    property LoadSlot: String read FLoadSlot write FLoadSlot;
     { Horde mode: waves of monsters on the maps loaded (-horde, the menu,
       console horde) }
     property HordeMode: Boolean read FHordeMode write FHordeMode;
@@ -316,6 +325,7 @@ begin
   if FMenu = nil then
   begin
     FMenu := TQuakeMenu.Create(Self);
+    FMenu.InGame := True;
     FMenu.OnMenuAction := @HandleMenuAction;
     FMenu.Exists := False; { hidden initially during gameplay }
     InsertFront(FMenu);
@@ -324,14 +334,26 @@ begin
   { Every start from the main menu (or the command line) is a new game }
   FWorld.NewGame;
 
-  { Autotest or normal start }
+  { Autotest or normal start; load:<slot> (and Load Game in the main menu)
+    starts from a savegame, which loads its own map }
   if FAutoTestMap <> '' then
   begin
     FAutoTestActive := True;
     FAutoTestTimer := 0;
     ParseDemoScript(FAutoTestDemo);
-    LoadLevel(FAutoTestMap);
+    if Pos('load:', FAutoTestMap) = 1 then
+      FLoadSlot := Copy(FAutoTestMap, 6, MaxInt)
+    else
+      LoadLevel(FAutoTestMap);
+  end;
+  if FLoadSlot <> '' then
+  begin
+    LoadGameSlot(FLoadSlot);
+    FLoadSlot := '';
+    if FWorld.MapName = '' then
+      LoadLevel('start');
   end else
+  if FAutoTestMap = '' then
   begin
     if FMapName = '' then
       FMapName := 'start';
@@ -534,9 +556,59 @@ begin
     Exit;
   end;
   if FWorld.SaveGame(SaveGameUrl(Slot), FViewport.Camera.Direction) then
-    FHud.ShowMessage('Game saved (' + Slot + ')')
-  else
+  begin
+    SaveThumbnail(Slot);
+    FHud.ShowMessage('Game saved (' + Slot + ')');
+  end else
     FHud.ShowMessage('Saving failed');
+end;
+
+{ A small picture of the view (the viewport alone: no HUD, no menu) for
+  the Load Game list; not in the browser, where the config directory lives
+  in localStorage }
+procedure TViewPlay.SaveThumbnail(const Slot: String);
+{$ifndef WASI}
+var
+  Image: TCastleImage;
+begin
+  try
+    Image := RenderViewportImage(FViewport, 320, 180);
+    if Image = nil then
+      Exit;
+    try
+      SaveImage(Image, SaveThumbnailUrl(Slot));
+      WritelnLog('GameViewPlay', 'Thumbnail of slot %s saved: %dx%d', [SaveSlotName(Slot), Image.Width, Image.Height]);
+    finally
+      Image.Free;
+    end;
+  except
+    on E: Exception do
+      WritelnWarning('GameViewPlay', 'Cannot save the thumbnail of slot %s: %s', [Slot, E.Message]);
+  end;
+end;
+{$else}
+begin
+end;
+{$endif}
+
+{ Console saves: the savegames as the Load Game menu lists them }
+procedure TViewPlay.ListSavesCommand;
+var
+  Saves: TSaveGameInfoArray;
+  I: Integer;
+  Line: String;
+begin
+  Saves := ListSaveGames;
+  FConsole.Print(Format('%d saved games', [Length(Saves)]));
+  WritelnLog('GameViewPlay', 'Saved games: %d', [Length(Saves)]);
+  for I := 0 to High(Saves) do
+  begin
+    Line := Format('%s: %s, health %d, kills %d/%d, skill %d, %.0f s, %s, thumbnail %s', [Saves[I].Slot,
+      Saves[I].Map, Saves[I].Health, Saves[I].Kills, Saves[I].TotalKills, Saves[I].Skill, Saves[I].LevelTime,
+      Saves[I].Saved, BoolToStr(UriExists(SaveThumbnailUrl(Saves[I].Slot)) = ueFile, 'yes', 'no')]);
+    FConsole.Print('  ' + Line);
+    WritelnLog('GameViewPlay', '  Save %s', [Line]);
+  end;
 end;
 
 procedure TViewPlay.LoadGameSlot(const Slot: String);
@@ -960,7 +1032,7 @@ begin
       Cmd.ForwardMove := Cmd.ForwardMove * 0.5;
       Cmd.SideMove := Cmd.SideMove * 0.5;
     end;
-    Cmd.Jump := BindingHeld(qbJump, Container);
+    Cmd.Jump := BindingHeld(qbJump, Container) and not FHeldFromMenu;
   end;
 
   { Autotest input }
@@ -998,6 +1070,12 @@ begin
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
     RunDemoStep(SecondsPassed);
+
+  { What picked a menu item must not jump or fire in the game }
+  if FMenu.Exists or FConsole.IsOpen then
+    FHeldFromMenu := True
+  else if FHeldFromMenu and not BindingHeld(qbJump, Container) and not BindingHeld(qbFire, Container) then
+    FHeldFromMenu := False;
 
   { Photo mode: nothing moves but the camera; the gamepad's B or View
     leaves, A takes a photo, Y changes the effect, the bumpers the field of
@@ -1147,7 +1225,7 @@ begin
   { Attack trigger while fire key is held }
   if not FConsole.IsOpen and not FMenu.Exists and not FWorld.PlayerDead then
   begin
-    if BindingHeld(qbFire, Container) or (FDemoFireTime > 0) then
+    if (BindingHeld(qbFire, Container) and not FHeldFromMenu) or (FDemoFireTime > 0) then
     begin
       RayOrigin := FViewport.Camera.Translation;
       RayDir := FViewport.Camera.Direction;
@@ -1499,6 +1577,9 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
+  if Cmd = 'saves' then
+    ListSavesCommand
+  else
   if Cmd = 'photo' then
   begin
     { photo [0|1]: photo mode (toggles without an argument) }
@@ -1557,6 +1638,7 @@ begin
     FConsole.Print('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility');
     FConsole.Print('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies');
     FConsole.Print('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it');
+    FConsole.Print('  saves          - List the saved games (the Load Game menu)');
     FConsole.Print('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,');
     FConsole.Print('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot');
     FConsole.Print('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,');
@@ -1592,6 +1674,14 @@ begin
         Pak.PreferOriginal := (Param <> 'maps/start.bsp') and Pak.OriginalFileExists(Param);
         FWorld.NewGame;
         LoadLevel(Param);
+      end;
+    maSaveGame:
+      SaveGameSlot(Param);
+    maLoadGame:
+      begin
+        FMenu.Exists := False;
+        FNavigation.MouseLook := not TouchControlsWanted;
+        LoadGameSlot(Param);
       end;
     maToggleShadows:
       begin

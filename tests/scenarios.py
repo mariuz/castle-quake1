@@ -232,6 +232,33 @@ def frames_photo(out_dir):
     return result
 
 
+def check_saves(logs):
+    result = common_checks(logs, 'menusave') + common_checks(logs, 'startload')
+    log = logs['menusave']
+    result.append(('Saved game to "castle-config:/save_8.sav"' in log, 'Save Game in the menu saves slot 8'))
+    result.append(('Thumbnail of slot 8 saved: 320x180' in log, 'the slot gets a thumbnail of the view'))
+    m = re.search(r'Save 8: e1m1, health \d+, kills \d+/\d+, skill \d, \d+ s, (\S+ \S+), thumbnail (\w+)', log)
+    result.append((m is not None and m.group(2) == 'yes', 'the saves list has slot 8 with its date and thumbnail (%s)' %
+                   (m.group(1) if m else '-')))
+    saves = re.findall(r'  Save (\S+): ', log)
+    result.append((bool(saves) and saves[0] == '8', 'the newest save comes first (%s)' % ', '.join(saves[:4])))
+    result.append(('Loaded game from "castle-config:/save_8.sav"' in log, 'Load Game in the menu loads it'))
+    v = views(log)
+
+    def near(a, b):
+        return max(abs(x - y) for x, y in zip(a, b)) < 2
+
+    result.append((len(v) == 3 and not near(v[1]['eye'], v[0]['eye']), 'the player moved away after saving'))
+    result.append((len(v) == 3 and near(v[2]['eye'], v[0]['eye']),
+                   'loading puts the player back where it was saved, standing (%s)' %
+                   (' '.join('%.1f' % x for x in v[2]['eye']) if len(v) == 3 else '-')))
+    s = logs['startload']
+    w = views(s)
+    result.append(('Loaded game from "castle-config:/save_8.sav"' in s and len(w) == 1 and len(v) == 3 and
+                   near(w[0]['eye'], v[0]['eye']), 'load:8 starts the game from the savegame'))
+    return result
+
+
 def check_e1m1_finish(logs):
     v = views(logs['finish'])
     result = common_checks(logs, 'finish')
@@ -730,6 +757,14 @@ def check_bots(logs):
     return result
 
 
+# Open the menu (its touch button), Save Game > Slot 8, back, teleport,
+# Load Game > the newest (slot 8)
+SAVES_DEMO = ','.join(['W:0.5,Y,V:1;0;0,W:1,V:0;0;0,W:0.5,S,TD:4;0.97;0.95,W:0.3,TU:4,W:0.3'] +
+                      ['GB:down,W:0.3'] * 4 + ['GB:south,W:0.5'] + ['GB:down,W:0.3'] * 7 +
+                      ['GB:south,W:0.5,GB:east,W:0.3,M:200,W:0.2,S,CMD:saves'] + ['GB:down,W:0.3'] * 5 +
+                      ['GB:south,W:0.5,GB:south,W:1,S,Q'])
+
+
 SCENARIOS = [
     Scenario('e1m1_finish', [('finish', ['--autotest', 'e1m1', '{out}/finish', '--demo',
                                          'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,G:1312;-230;-544,W:1.5,S,'
@@ -900,6 +935,12 @@ SCENARIOS = [
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,W:1,S,Q'], 0)],
              check_photo, [], frame_checks=frames_photo),
+    # Save and Load Game in the menu (the virtual gamepad walks it): slot 8
+    # saved with a thumbnail, the player teleported away, slot 8 loaded
+    # back from the newest-first list; then a game started from load:8
+    Scenario('saves', [('menusave', ['--autotest', 'e1m1', '{out}/menusave', '--demo', SAVES_DEMO], 0),
+                       ('startload', ['--autotest', 'load:8', '{out}/startload', '--demo', 'W:0.5,S,Q'], 12)],
+             check_saves, []),
     # Performance budgets: the PVS counts at fixed spots on four maps against
     # tests/budgets.json (--update rewrites it), frame times in budgets.json
     # of the output directory; one map after the other, so the frame times
