@@ -928,6 +928,25 @@ begin
     CheckNear(1, Forward, 1e-5, 'left stick forward');
     CheckNear(0.5, Side, 1e-5, 'left stick side');
 
+    { Split-screen: one pad belongs to the second player; the keyboard
+      player gets none of it }
+    Check((PlayerController(2) <> nil) and (PlayerController(2) = PlayerController(0)),
+      'the only pad is the second player''s');
+    Check(PlayerController(1) = nil, 'the keyboard player has no pad of one');
+    GamepadMove(Forward, Side, 2);
+    CheckNear(1, Forward, 1e-5, 'the second player walks with the stick');
+    GamepadMove(Forward, Side, 1);
+    Check((Forward = 0) and (Side = 0), 'the stick does not walk the first player');
+    { The container copies a virtual press into Pressed every frame }
+    Controllers[0].Pressed[gbSouth] := True;
+    UpdateGamepad(1);
+    UpdateGamepad(2);
+    Check(GamepadJustPressed(gbSouth, 2) and not GamepadJustPressed(gbSouth, 1),
+      'a button is the second player''s alone');
+    Check(BindingHeld(qbJump, nil, 2) and not BindingHeld(qbJump, nil, 1), 'the pad jumps the second player');
+    Controllers[0].Pressed[gbSouth] := False;
+    UpdateGamepad(2);
+
     { Right stick right for 0.5 s: 160 deg/s turns 80 deg to the right }
     ResetCamera;
     SetVirtualSticks(TVector2.Zero, Vector2(1, 0));

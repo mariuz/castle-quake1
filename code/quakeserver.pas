@@ -48,7 +48,7 @@ type
     function NetModelIndex(const Model: String): Integer;
     function NetSoundIndex(const Sample: String): Integer;
     procedure ForClients(const E: Integer; const Reliable: Boolean; out First, Last: Integer);
-    procedure WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer);
+    procedure WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer; const SeeAll: Boolean);
     procedure WriteClientData(const Msg: TQuakeNetMessage; const E: Integer);
     procedure SendFrames;
     procedure ChangeLevel(const Map: String);
@@ -82,6 +82,10 @@ type
     property Game: TQuakeQcGame read FGame;
     property Net: TQuakeNetServer read FNet;
     property MapName: String read FMapName;
+  public
+    { Split-screen: the clients on this machine draw one world for all the
+      local players, so they get every entity (no PVS culling) }
+    SplitScreen: Boolean;
   end;
 
 var
@@ -484,7 +488,8 @@ begin
     FGame.PlayerAmmo(E, 3), FGame.PlayerAmmo(E, 4), Integer(FGame.PlayerWeapon(E)));
 end;
 
-procedure TQuakeServer.WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer);
+procedure TQuakeServer.WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer;
+  const SeeAll: Boolean);
 var
   E: Integer;
   State, Baseline: TNetEntityState;
@@ -494,7 +499,8 @@ begin
   { SV_WriteEntitiesToClient: the entities with a model whose box touches
     a leaf in the fat PVS around the client's eye (the client itself
     always), each as the difference from its baseline }
-  AllVisible := not FGame.Bsp.FatPvs(FGame.EntityOrigin(ClientEdict) + FGame.PlayerViewOfs(ClientEdict), FPvs);
+  AllVisible := SeeAll or
+    not FGame.Bsp.FatPvs(FGame.EntityOrigin(ClientEdict) + FGame.PlayerViewOfs(ClientEdict), FPvs);
   for E := 1 to FGame.Progs.NumEdicts - 1 do
   begin
     if (E <= FGame.MaxClients) and not FGame.ClientActive(E) then
@@ -553,7 +559,7 @@ begin
       FOut.Clear;
       FOut.Time(FGame.Time);
       WriteClientData(FOut, E);
-      WriteEntities(FOut, E);
+      WriteEntities(FOut, E, SplitScreen and (Copy(FNet.ClientAddress(C), 1, 4) = '127.'));
       Inc(FStatFrames);
       Inc(FStatBytes, FOut.Size);
       if FOut.Size > FStatMaxBytes then

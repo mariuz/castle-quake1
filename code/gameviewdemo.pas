@@ -39,9 +39,18 @@ type
     Origin: TVector3; { predicted after this input }
   end;
 
+  { A view of split-screen: both share the world, so while one renders it
+    hides what only the other shows (its weapon, the other's body) }
+  TSplitViewport = class(TCastleViewport)
+  protected
+    procedure RenderFromViewEverything(const RenderingCamera: TRenderingCamera); override;
+  public
+    Hidden: array of TCastleTransform;
+  end;
+
   TViewDemo = class(TCastleView)
   private
-    FViewport: TCastleViewport;
+    FViewport: TSplitViewport;
     FDemo: TQuakeDemoReader;
     FBsp: TQuakeBsp;
     FGeometry: TQuakeGeometry;
@@ -86,6 +95,26 @@ type
     FScriptMove: TVector3;
     FScriptJump: Single;
     FWasConnected: Boolean;
+    { Split-screen: the second local player has its own client, reader,
+      camera (in FViewport2, sharing FViewport's world), HUD and weapon;
+      the entities and sounds come from the first player's client, which
+      the listen server sends every entity }
+    FSplit: Boolean;
+    FViewport2: TSplitViewport;
+    FCamera2: TCastleCamera;
+    FHud2: TQuakeHud;
+    FWeaponTransform2: TCastleTransform;
+    FWeapon2: TDemoVisual;
+    FClient2: TQuakeNetClient;
+    FDemo2: TQuakeDemoReader;
+    FInputSeq2: Word;
+    FInputTime2: Single;
+    FImpulse2: Integer;
+    FWasPvsCulling, FPvsOverridden: Boolean;
+    { The virtual gamepad of the script (GL, GR, GT, GB) }
+    FPadLeft, FPadRight: TVector2;
+    FPadButton: TGameControllerButton;
+    FPadRelease: Single;
     { Autotest: W:sec, S (screenshot), Q }
     FScript: TStringList;
     FScriptIndex: Integer;
@@ -113,8 +142,17 @@ type
     procedure CullVisuals;
     procedure FreeVisual(var V: TDemoVisual);
     procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
-    procedure UpdateWeapon;
-    procedure UpdateHudStats(const SecondsPassed: Single);
+    procedure UpdateWeapon(const Reader: TQuakeDemoReader; var Weapon: TDemoVisual; const Holder: TCastleTransform);
+    procedure UpdateHudStats(const Reader: TQuakeDemoReader; const Hud: TQuakeHud; const Eye: TVector3;
+      const Main: Boolean; const SecondsPassed: Single);
+    procedure ApplySplitLayout;
+    procedure UpdatePlayer2(const SecondsPassed: Single);
+    procedure SendInput2(const SecondsPassed: Single);
+    procedure HandleCenterPrint2(const S: String);
+    procedure HandleDamage2(const Armor, Blood: Integer; const From: TVector3);
+    procedure HandleIntermission2;
+    function PlayerOne: Integer;
+    function VisualTransform(const Entity: Integer): TCastleTransform;
     procedure RunScript(const SecondsPassed: Single);
     procedure CaptureScreenshot;
     procedure SetPhotoMode(const On: Boolean);
@@ -160,6 +198,10 @@ type
     WsRelayTarget: String;
     { Client-side prediction of the local player (default on) }
     Predict: Boolean;
+    { Split-screen with HostMap: a second local player with the gamepad
+      (the keyboard and mouse play the first), side by side or, with
+      SplitStacked, one above the other }
+    SplitScreen, SplitStacked: Boolean;
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -181,6 +223,25 @@ uses
 const
   BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
 
+procedure TSplitViewport.RenderFromViewEverything(const RenderingCamera: TRenderingCamera);
+var
+  I: Integer;
+  Was: array of Boolean;
+begin
+  Was := nil;
+  SetLength(Was, Length(Hidden));
+  for I := 0 to High(Hidden) do
+    if Hidden[I] <> nil then
+    begin
+      Was[I] := Hidden[I].Visible;
+      Hidden[I].Visible := False;
+    end;
+  inherited RenderFromViewEverything(RenderingCamera);
+  for I := 0 to High(Hidden) do
+    if Hidden[I] <> nil then
+      Hidden[I].Visible := Was[I];
+end;
+
 constructor TViewDemo.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -197,6 +258,10 @@ begin
   FDemo.OnLightStyle := @HandleLightStyle;
   FDemo.OnCdTrack := @HandleCdTrack;
   FDemo.OnIntermission := @HandleIntermission;
+  FDemo2 := TQuakeDemoReader.Create;
+  FDemo2.OnCenterPrint := @HandleCenterPrint2;
+  FDemo2.OnDamage := @HandleDamage2;
+  FDemo2.OnIntermission := @HandleIntermission2;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
   SetLength(FVisuals, MaxDemoEntities);
@@ -206,6 +271,7 @@ destructor TViewDemo.Destroy;
 begin
   ClearLevel;
   FDemo.Free;
+  FDemo2.Free;
   FAmbient.Free;
   FScript.Free;
   inherited Destroy;
@@ -220,7 +286,8 @@ begin
 
   if FViewport = nil then
   begin
-    FViewport := TCastleViewport.Create(Self);
+    FViewport := TSplitViewport.Create(Self);
+    FViewport.Name := 'viewport';
     FViewport.FullSize := True;
     FViewport.Transparent := False;
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
@@ -228,6 +295,24 @@ begin
     FViewport.Camera.ProjectionNear := 1.0;
     ApplyVideoSettings(FViewport);
     InsertFront(FViewport);
+
+    { The second split-screen view: its own camera in the same world }
+    FViewport2 := TSplitViewport.Create(Self);
+    FViewport2.Name := 'viewport2';
+    FViewport2.Transparent := False;
+    FViewport2.BackgroundColor := FViewport.BackgroundColor;
+    FViewport2.Exists := False;
+    FCamera2 := TCastleCamera.Create(Self);
+    FCamera2.Name := 'camera2';
+    FCamera2.ProjectionNear := 1.0;
+    FViewport.Items.Add(FCamera2);
+    FViewport2.Items := FViewport.Items;
+    FViewport2.Camera := FCamera2;
+    InsertFront(FViewport2);
+    FWeaponTransform2 := TCastleTransform.Create(Self);
+    FWeaponTransform2.Name := 'view_weapon2';
+    FWeaponTransform2.Rotation := Vector4(0, 1, 0, Pi / 2);
+    FCamera2.Add(FWeaponTransform2);
 
     FNavigation := TCastleWalkNavigation.Create(Self);
     FNavigation.MoveSpeed := 0;
@@ -254,6 +339,9 @@ begin
     FHud := TQuakeHud.Create(Self);
     FHud.CrosshairVisible := False;
     InsertFront(FHud);
+    FHud2 := TQuakeHud.Create(Self);
+    FHud2.Name := 'hud2';
+    FViewport2.InsertFront(FHud2);
   end;
   if FTouch = nil then
   begin
@@ -263,6 +351,11 @@ begin
   if FPhoto = nil then
     FPhoto := TPhotoMode.Create(Self, FViewport, Self, FNavigation);
   SetPhotoMode(False);
+  { Split-screen only hosts here (and not in the browser, one socket) }
+  FSplit := SplitScreen and (HostMap <> '') {$ifdef WASI} and False {$endif};
+  ApplySplitLayout;
+  FHud2.StopIntermission;
+  FHud2.CrosshairVisible := True;
   FHud.StopIntermission;
   FHud.CrosshairVisible := NetMode;
   FNavigation.Exists := NetMode;
@@ -284,6 +377,10 @@ begin
   FScriptMove := TVector3.Zero;
   FScriptJump := 0;
   FWasConnected := False;
+  FImpulse2 := 0;
+  FPadRelease := 0;
+  FPadLeft := TVector2.Zero;
+  FPadRight := TVector2.Zero;
   ClearLevel;
   if NetMode then
   begin
@@ -342,6 +439,7 @@ begin
       end;
       NetHost := '127.0.0.1';
       NetName := '';
+      ListenServer.SplitScreen := FSplit;
     end;
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
@@ -360,6 +458,21 @@ begin
       FDemo.Finished := True;
     end else
       FHud.ShowMessage('Connecting to ' + NetHost + ':' + IntToStr(NetPort) + '...', 5);
+    { The second player joins the same listen server after the first }
+    FreeAndNil(FClient2);
+    if FSplit then
+    begin
+      FDemo2.StartNetwork;
+      FClient2 := TQuakeNetClient.Create;
+      if FClient2.Connect('127.0.0.1', NetPort) then
+      begin
+        if SplitStacked then
+          WritelnLog('GameViewDemo', 'Split-screen: player 2 joins on port %d (one above the other)', [NetPort])
+        else
+          WritelnLog('GameViewDemo', 'Split-screen: player 2 joins on port %d (side by side)', [NetPort]);
+      end else
+        FreeAndNil(FClient2);
+    end;
   end else
   if not FDemo.Load(DemoName) then
   begin
@@ -374,6 +487,16 @@ begin
   begin
     FClient.Disconnect;
     FreeAndNil(FClient);
+  end;
+  if FClient2 <> nil then
+  begin
+    FClient2.Disconnect;
+    FreeAndNil(FClient2);
+  end;
+  if FSplit then
+  begin
+    FSplit := False;
+    ApplySplitLayout;
   end;
   FreeAndNil(ListenServer);
   FreeAndNil(FRendezvous);
@@ -433,9 +556,9 @@ begin
   { Weapon changes of the frames in between are kept for the next input }
   if AutoTestPrefix = '' then
   begin
-    if GamepadJustPressed(GamepadNextWeapon) then
+    if GamepadJustPressed(GamepadNextWeapon, PlayerOne) then
       FImpulse := 10;
-    if GamepadJustPressed(GamepadPrevWeapon) then
+    if GamepadJustPressed(GamepadPrevWeapon, PlayerOne) then
       FImpulse := 12;
   end;
   { Fast frames add up: the server and the prediction run each input as one
@@ -451,22 +574,22 @@ begin
   Input.Angles := FDemo.ViewAngles;
   if AutoTestPrefix = '' then
   begin
-    if BindingHeld(qbForward, Container) then
+    if BindingHeld(qbForward, Container, PlayerOne) then
       Input.Move.X := Input.Move.X + ClForwardSpeed;
-    if BindingHeld(qbBackward, Container) then
+    if BindingHeld(qbBackward, Container, PlayerOne) then
       Input.Move.X := Input.Move.X - ClBackSpeed;
-    if BindingHeld(qbStrafeRight, Container) then
+    if BindingHeld(qbStrafeRight, Container, PlayerOne) then
       Input.Move.Y := Input.Move.Y + ClSideSpeed;
-    if BindingHeld(qbStrafeLeft, Container) then
+    if BindingHeld(qbStrafeLeft, Container, PlayerOne) then
       Input.Move.Y := Input.Move.Y - ClSideSpeed;
-    GamepadMove(PadForward, PadSide);
+    GamepadMove(PadForward, PadSide, PlayerOne);
     Input.Move.X := Input.Move.X + PadForward * ClForwardSpeed;
     Input.Move.Y := Input.Move.Y + PadSide * ClSideSpeed;
-    if BindingHeld(qbWalk, Container) then
+    if BindingHeld(qbWalk, Container, PlayerOne) then
       Input.Move := Input.Move * 0.5;
-    if BindingHeld(qbJump, Container) then
+    if BindingHeld(qbJump, Container, PlayerOne) then
       Input.Buttons := Input.Buttons or nbJump;
-    if BindingHeld(qbFire, Container) then
+    if BindingHeld(qbFire, Container, PlayerOne) then
       Input.Buttons := Input.Buttons or nbFire;
   end;
   Input.Move := Input.Move + Vector3(FScriptMove.X * ClForwardSpeed, FScriptMove.Y * ClSideSpeed,
@@ -479,6 +602,154 @@ begin
   FImpulse := 0;
   FClient.SendInput(Input);
   PredictInput(Input, SecondsPassed);
+end;
+
+{ The second split-screen player: the gamepad only (the last one connected) }
+procedure TViewDemo.SendInput2(const SecondsPassed: Single);
+var
+  Input: TNetInput;
+  PadForward, PadSide: Single;
+begin
+  if GamepadJustPressed(GamepadNextWeapon, 2) then
+    FImpulse2 := 10;
+  if GamepadJustPressed(GamepadPrevWeapon, 2) then
+    FImpulse2 := 12;
+  FInputTime2 := FInputTime2 + SecondsPassed;
+  if FInputTime2 * 1000 < MinInputMsec then
+    Exit;
+  Input := Default(TNetInput);
+  Inc(FInputSeq2);
+  Input.Sequence := FInputSeq2;
+  Input.Msec := Min(Round(FInputTime2 * 1000), MaxInputMsec);
+  FInputTime2 := Max(0, FInputTime2 - Input.Msec / 1000);
+  Input.Angles := FDemo2.ViewAngles;
+  GamepadMove(PadForward, PadSide, 2);
+  Input.Move := Vector3(PadForward * ClForwardSpeed, PadSide * ClSideSpeed, 0);
+  if BindingHeld(qbJump, nil, 2) then
+    Input.Buttons := Input.Buttons or nbJump;
+  if BindingHeld(qbFire, nil, 2) then
+    Input.Buttons := Input.Buttons or nbFire;
+  Input.Impulse := EnsureRange(FImpulse2, 0, 255);
+  FImpulse2 := 0;
+  FClient2.SendInput(Input);
+end;
+
+{ The second player's camera turns with its pad, the server's angles win
+  (spawn, teleport), its input goes out and its view follows its entity }
+procedure TViewDemo.UpdatePlayer2(const SecondsPassed: Single);
+var
+  CamDir, Eye, Dir: TVector3;
+  Yaw, Pitch, Bob: Single;
+  CD: TDemoClientData;
+begin
+  UpdateGamepad(2);
+  GamepadTurnCamera(FCamera2, SecondsPassed, 2);
+  CamDir := FCamera2.Direction;
+  Yaw := RadToDeg(ArcTan2(-CamDir.Z, CamDir.X));
+  Pitch := -RadToDeg(ArcSin(Clamped(CamDir.Y, -1, 1)));
+  if FDemo2.AngleFixed then
+  begin
+    Yaw := FDemo2.ViewAngles.Y;
+    Pitch := FDemo2.ViewAngles.X;
+    FDemo2.AngleFixed := False;
+  end;
+  FDemo2.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
+  if (FClient2 <> nil) and (FDemo2.Signon = Signons) then
+    SendInput2(SecondsPassed);
+
+  CD := FDemo2.ClientData;
+  if (FDemo2.ViewEntity > 0) and (FDemo2.ViewEntity < Length(FDemo2.Entities)) then
+    Eye := FDemo2.Entities[FDemo2.ViewEntity].State.Origin + Vector3(0, 0, CD.ViewHeight)
+  else
+    Eye := TVector3.Zero;
+  Pitch := EnsureRange(FDemo2.ViewAngles.X + CD.Punch.X, -89, 89);
+  Yaw := FDemo2.ViewAngles.Y;
+  Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(Pitch)), Sin(DegToRad(Yaw)) * Cos(DegToRad(Pitch)),
+    -Sin(DegToRad(Pitch)));
+  if (FDemo2.Intermission = 0) and (FDemo2.ViewEntity > 0) then
+    Bob := CalcViewBob(FDemo2.Time, CD.Velocity)
+  else
+    Bob := 0;
+  FCamera2.SetWorldView(QuakeToCge(Eye + Vector3(0, 0, Bob)), QuakeToCge(Dir), Vector3(0, 1, 0));
+  FWeaponTransform2.Translation := Vector3(0, 0, -Bob * 0.4);
+  UpdateWeapon(FDemo2, FWeapon2, FWeaponTransform2);
+end;
+
+function TViewDemo.PlayerOne: Integer;
+begin
+  if FSplit then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+{ One viewport over the window, or two: side by side (the first player on
+  the left) or one above the other (the first on top), each with its HUD }
+procedure TViewDemo.ApplySplitLayout;
+
+  procedure MoveHud(const Hud: TQuakeHud; const NewParent: TCastleUserInterface);
+  begin
+    if Hud.Parent = NewParent then
+      Exit;
+    if Hud.Parent <> nil then
+      Hud.Parent.RemoveControl(Hud);
+    NewParent.InsertFront(Hud);
+  end;
+
+begin
+  FViewport2.Exists := FSplit;
+  FViewport.FullSize := not FSplit;
+  if FSplit then
+  begin
+    { One world for two cameras: the PVS of one would hide what the other sees }
+    if not FPvsOverridden then
+    begin
+      FWasPvsCulling := WorldPvsCulling;
+      FPvsOverridden := True;
+    end;
+    WorldPvsCulling := False;
+    FViewport2.FullSize := False;
+    if SplitStacked then
+    begin
+      FViewport.WidthFraction := 1;
+      FViewport.HeightFraction := 0.5;
+      FViewport.Anchor(hpLeft);
+      FViewport.Anchor(vpTop);
+      FViewport2.WidthFraction := 1;
+      FViewport2.HeightFraction := 0.5;
+      FViewport2.Anchor(hpLeft);
+      FViewport2.Anchor(vpBottom);
+    end else
+    begin
+      FViewport.WidthFraction := 0.5;
+      FViewport.HeightFraction := 1;
+      FViewport.Anchor(hpLeft);
+      FViewport.Anchor(vpBottom);
+      FViewport2.WidthFraction := 0.5;
+      FViewport2.HeightFraction := 1;
+      FViewport2.Anchor(hpRight);
+      FViewport2.Anchor(vpBottom);
+    end;
+    MoveHud(FHud, FViewport);
+  end else
+  begin
+    if FPvsOverridden then
+    begin
+      WorldPvsCulling := FWasPvsCulling;
+      FPvsOverridden := False;
+    end;
+    FViewport.WidthFraction := 0;
+    FViewport.HeightFraction := 0;
+    MoveHud(FHud, Self);
+    { Back in front of the viewport (the touch controls stay on top) }
+    if FTouch <> nil then
+    begin
+      RemoveControl(FTouch);
+      InsertFront(FTouch);
+    end;
+  end;
+  SetLength(FViewport.Hidden, 0);
+  SetLength(FViewport2.Hidden, 0);
 end;
 
 procedure TViewDemo.RefreshPredictSolids;
@@ -599,6 +870,12 @@ begin
   FClient.Update(SecondsPassed);
   while FClient.PollBlock(Data) do
     FDemo.PushBlock(Data);
+  if FClient2 <> nil then
+  begin
+    FClient2.Update(SecondsPassed);
+    while FClient2.PollBlock(Data) do
+      FDemo2.PushBlock(Data);
+  end;
   if FClient.State = csConnected then
     FWasConnected := True
   else
@@ -656,6 +933,11 @@ begin
     FreeVisual(FStaticVisuals[I]);
   SetLength(FStaticVisuals, 0);
   FreeVisual(FWeapon);
+  FreeVisual(FWeapon2);
+  if FViewport <> nil then
+    SetLength(FViewport.Hidden, 0);
+  if FViewport2 <> nil then
+    SetLength(FViewport2.Hidden, 0);
   for I := 0 to High(FBeams) do
   begin
     FBeams[I].Time := 0;
@@ -914,6 +1196,23 @@ begin
   FHud.ShowMessage(S, 2.5);
 end;
 
+procedure TViewDemo.HandleCenterPrint2(const S: String);
+begin
+  FHud2.ShowMessage(S, 2.5);
+end;
+
+procedure TViewDemo.HandleDamage2(const Armor, Blood: Integer; const From: TVector3);
+begin
+  FHud2.DamageFlash(Armor, Blood);
+end;
+
+procedure TViewDemo.HandleIntermission2;
+begin
+  FHud2.StartIntermission(FDemo2.LevelName, Math.Max(0.0, FDemo2.Time - FLevelStart),
+    FDemo2.Stats[STAT_MONSTERS], FDemo2.Stats[STAT_TOTALMONSTERS],
+    FDemo2.Stats[STAT_SECRETS], FDemo2.Stats[STAT_TOTALSECRETS]);
+end;
+
 procedure TViewDemo.HandleCdTrack(const Track, LoopTrack: Integer);
 begin
   Sounds.PlayTrack(Track);
@@ -1078,48 +1377,50 @@ begin
   end;
 end;
 
-procedure TViewDemo.UpdateWeapon;
+procedure TViewDemo.UpdateWeapon(const Reader: TQuakeDemoReader; var Weapon: TDemoVisual;
+  const Holder: TCastleTransform);
 var
   MdlName: String;
   Mdl: TQuakeMdl;
   Idx: Integer;
 begin
-  Idx := FDemo.ClientData.Weapon;
-  MdlName := FDemo.ModelName(Idx);
-  if (MdlName = '') or (FDemo.Intermission <> 0) or (FDemo.ClientData.Health <= 0) then
+  Idx := Reader.ClientData.Weapon;
+  MdlName := Reader.ModelName(Idx);
+  if (MdlName = '') or (Reader.Intermission <> 0) or (Reader.ClientData.Health <= 0) then
   begin
-    HideVisual(FWeapon);
+    HideVisual(Weapon);
     Exit;
   end;
   Mdl := MdlManager.GetModel(MdlName);
   if Mdl = nil then
   begin
-    HideVisual(FWeapon);
+    HideVisual(Weapon);
     Exit;
   end;
-  if (FWeapon.Transform = nil) or (FWeapon.ModelIndex <> Idx) then
+  if (Weapon.Transform = nil) or (Weapon.ModelIndex <> Idx) then
   begin
-    FreeVisual(FWeapon);
-    FWeapon.Transform := TCastleTransform.Create(nil);
-    FWeapon.Transform.Name := 'weapon_model';
-    FWeapon.Scene := Mdl.CreateScene(0);
-    FWeapon.Scene.Name := 'weapon_model_scene';
-    FWeapon.Scene.Collides := False;
-    FWeapon.Transform.Add(FWeapon.Scene);
-    FWeaponTransform.Add(FWeapon.Transform);
-    FWeapon.Mdl := Mdl;
-    FWeapon.ModelIndex := Idx;
-    FWeapon.Frame := -1;
+    FreeVisual(Weapon);
+    Weapon.Transform := TCastleTransform.Create(nil);
+    Weapon.Transform.Name := 'weapon_model';
+    Weapon.Scene := Mdl.CreateScene(0);
+    Weapon.Scene.Name := 'weapon_model_scene';
+    Weapon.Scene.Collides := False;
+    Weapon.Transform.Add(Weapon.Scene);
+    Holder.Add(Weapon.Transform);
+    Weapon.Mdl := Mdl;
+    Weapon.ModelIndex := Idx;
+    Weapon.Frame := -1;
   end;
-  FWeapon.Transform.Exists := ShowWeapon;
-  if FWeapon.Frame <> FDemo.ClientData.WeaponFrame then
+  Weapon.Transform.Exists := ShowWeapon;
+  if Weapon.Frame <> Reader.ClientData.WeaponFrame then
   begin
-    FWeapon.Frame := FDemo.ClientData.WeaponFrame;
-    Mdl.ApplyFrame(FWeapon.Scene, EnsureRange(FWeapon.Frame, 0, Max(0, Mdl.FrameCount - 1)));
+    Weapon.Frame := Reader.ClientData.WeaponFrame;
+    Mdl.ApplyFrame(Weapon.Scene, EnsureRange(Weapon.Frame, 0, Max(0, Mdl.FrameCount - 1)));
   end;
 end;
 
-procedure TViewDemo.UpdateHudStats(const SecondsPassed: Single);
+procedure TViewDemo.UpdateHudStats(const Reader: TQuakeDemoReader; const Hud: TQuakeHud; const Eye: TVector3;
+  const Main: Boolean; const SecondsPassed: Single);
 var
   S: TQuakePlayerStats;
   Items: Cardinal;
@@ -1129,20 +1430,20 @@ const
     IT_SUPER_NAILGUN, IT_GRENADE_LAUNCHER, IT_ROCKET_LAUNCHER, IT_LIGHTNING);
 begin
   S := Default(TQuakePlayerStats);
-  Items := FDemo.ClientData.Items;
-  S.Health := FDemo.ClientData.Health;
-  S.Armor := FDemo.ClientData.Armor;
+  Items := Reader.ClientData.Items;
+  S.Health := Reader.ClientData.Health;
+  S.Armor := Reader.ClientData.Armor;
   if (Items and IT_ARMOR3) <> 0 then
     S.ArmorType := 3
   else if (Items and IT_ARMOR2) <> 0 then
     S.ArmorType := 2
   else if (Items and IT_ARMOR1) <> 0 then
     S.ArmorType := 1;
-  S.Ammo := FDemo.ClientData.Ammo;
-  S.Shells := FDemo.ClientData.Shells;
-  S.Nails := FDemo.ClientData.Nails;
-  S.Rockets := FDemo.ClientData.Rockets;
-  S.Cells := FDemo.ClientData.Cells;
+  S.Ammo := Reader.ClientData.Ammo;
+  S.Shells := Reader.ClientData.Shells;
+  S.Nails := Reader.ClientData.Nails;
+  S.Rockets := Reader.ClientData.Rockets;
+  S.Cells := Reader.ClientData.Cells;
   S.MaxShells := 100;
   S.MaxNails := 200;
   S.MaxRockets := 100;
@@ -1151,7 +1452,7 @@ begin
   begin
     if (Items and WeaponItems[I]) <> 0 then
       S.WeaponMask := S.WeaponMask or (1 shl I);
-    if Cardinal(FDemo.ClientData.ActiveWeapon) = WeaponItems[I] then
+    if Cardinal(Reader.ClientData.ActiveWeapon) = WeaponItems[I] then
       S.CurrentWeapon := I;
   end;
   if (Items and IT_KEY1) <> 0 then
@@ -1160,20 +1461,21 @@ begin
     S.Keys := S.Keys or 2;
   if (Items and IT_SUIT) <> 0 then
     S.BiosuitTime := 1;
-  S.Kills := FDemo.Stats[STAT_MONSTERS];
-  S.TotalKills := FDemo.Stats[STAT_TOTALMONSTERS];
-  S.Secrets := FDemo.Stats[STAT_SECRETS];
-  S.TotalSecrets := FDemo.Stats[STAT_TOTALSECRETS];
-  S.LevelTime := Math.Max(0.0, FDemo.Time - FLevelStart);
+  S.Kills := Reader.Stats[STAT_MONSTERS];
+  S.TotalKills := Reader.Stats[STAT_TOTALMONSTERS];
+  S.Secrets := Reader.Stats[STAT_SECRETS];
+  S.TotalSecrets := Reader.Stats[STAT_TOTALSECRETS];
+  S.LevelTime := Math.Max(0.0, Reader.Time - FLevelStart);
   S.AirLeft := 12;
   if FBsp <> nil then
   begin
-    I := FBsp.PointContentsCge(FViewport.Camera.Translation);
-    FHud.SetContents(I);
+    I := FBsp.PointContentsCge(Eye);
+    Hud.SetContents(I);
     S.Underwater := (I = CONTENTS_WATER) or (I = CONTENTS_SLIME) or (I = CONTENTS_LAVA);
-    Sounds.SetUnderwater(S.Underwater);
+    if Main then
+      Sounds.SetUnderwater(S.Underwater);
   end;
-  FHud.Update(SecondsPassed, S);
+  Hud.Update(SecondsPassed, S);
 end;
 
 { Photo mode in demo playback (not in a network game, which goes on): the
@@ -1235,6 +1537,14 @@ begin
           [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
            FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
            FDemo.Protocol]);
+      if FSplit and (FDemo2.ViewEntity > 0) and (FDemo2.ViewEntity < Length(FDemo2.Entities)) then
+        WritelnLog('GameViewDemo', 'Player 2: view entity %d at %.1f %.1f %.1f, yaw %.0f, health %d, ammo %d, ' +
+          'weapon %d, signon %d, viewports %.0fx%.0f and %.0fx%.0f',
+          [FDemo2.ViewEntity, FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.X,
+           FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.Y, FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.Z,
+           FDemo2.ViewAngles.Y, FDemo2.ClientData.Health, FDemo2.ClientData.Ammo, FDemo2.ClientData.ActiveWeapon,
+           FDemo2.Signon, FViewport.EffectiveWidth, FViewport.EffectiveHeight,
+           FViewport2.EffectiveWidth, FViewport2.EffectiveHeight]);
       if FWsRelay <> nil then
         WritelnLog('GameViewDemo', 'WebSocket relay: %d clients, %d messages in, %d out',
           [FWsRelay.ClientCount, FWsRelay.MessagesIn, FWsRelay.MessagesOut]);
@@ -1301,6 +1611,35 @@ begin
     if Action = 'J' then
       FScriptJump := 0.1
     else
+    if (Action = 'GL') or (Action = 'GR') then
+    begin
+      { The virtual gamepad (in split-screen the second player's): sticks
+        x;y in -1..1, the right trigger, a button pressed for 0.2 s }
+      Parts := Param.Split([';']);
+      if Length(Parts) >= 2 then
+      begin
+        if Action = 'GL' then
+          FPadLeft := Vector2(StrToFloatDef(Parts[0], 0), StrToFloatDef(Parts[1], 0))
+        else
+          FPadRight := Vector2(StrToFloatDef(Parts[0], 0), StrToFloatDef(Parts[1], 0));
+        SetVirtualSticks(FPadLeft, FPadRight);
+      end;
+    end else
+    if Action = 'GT' then
+      SetVirtualRightTrigger(StrToFloatDef(Param, 0))
+    else
+    if Action = 'GB' then
+    begin
+      if GamepadButtonByName(Param, FPadButton) then
+      begin
+        SetVirtualButton(FPadButton, True);
+        FPadRelease := 0.2;
+      end else
+        WritelnWarning('GameViewDemo', 'Unknown gamepad button "%s"', [Param]);
+    end else
+    if Action = 'PN' then
+      SetVirtualPadName(Param)
+    else
     if Action = 'CMD' then
     begin
       { Photo mode's console commands: photo [0|1], photo_fov, photo_effect,
@@ -1330,6 +1669,8 @@ procedure TViewDemo.Leave;
 begin
   if FClient <> nil then
     FClient.Disconnect;
+  if FClient2 <> nil then
+    FClient2.Disconnect;
   if AutoTestPrefix <> '' then
     Application.Terminate
   else
@@ -1346,7 +1687,15 @@ var
 begin
   inherited Update(SecondsPassed, HandleInput);
   ApplyVideoSettings(FViewport);
+  if FSplit then
+    ApplyVideoSettings(FViewport2);
   FPhoto.ApplyView;
+  if FPadRelease > 0 then
+  begin
+    FPadRelease := FPadRelease - SecondsPassed;
+    if FPadRelease <= 0 then
+      SetVirtualButton(FPadButton, False);
+  end;
 
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
@@ -1375,6 +1724,8 @@ begin
   end;
 
   FDemo.Advance(SecondsPassed);
+  if FSplit then
+    FDemo2.Advance(SecondsPassed);
   if not FLoaded then
     Exit;
   ApplyEnvironment;
@@ -1406,9 +1757,9 @@ begin
     end;
     FDemo.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
     FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
-    UpdateGamepad;
+    UpdateGamepad(PlayerOne);
     if AutoTestPrefix = '' then
-      GamepadTurnCamera(FViewport.Camera, SecondsPassed);
+      GamepadTurnCamera(FViewport.Camera, SecondsPassed, PlayerOne);
     if FDemo.Signon = Signons then
     begin
       ReconcilePrediction;
@@ -1435,7 +1786,7 @@ begin
   for I := 0 to High(FSubmodelUsed) do
     FSubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
-    if FDemo.EntityVisible(I) and (I <> FDemo.ViewEntity) then
+    if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit) then
       ShowVisual(FVisuals[I], FDemo.Entities[I].State, SecondsPassed)
     else
       HideVisual(FVisuals[I]);
@@ -1470,7 +1821,9 @@ begin
   FViewport.Camera.SetWorldView(QuakeToCge(Eye + Vector3(0, 0, Bob)), QuakeToCge(Dir), Vector3(0, 1, 0));
   if FWeaponTransform <> nil then
     FWeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
-  UpdateWeapon;
+  UpdateWeapon(FDemo, FWeapon, FWeaponTransform);
+  if FSplit then
+    UpdatePlayer2(SecondsPassed);
 
   for I := 0 to High(FBeams) do
     if FBeams[I].Time > 0 then
@@ -1483,11 +1836,33 @@ begin
 
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
   FGeometry.UpdateVisibility(FViewport.Camera.Translation);
-  CullVisuals;
+  if not FSplit then
+    CullVisuals;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
-  UpdateHudStats(SecondsPassed);
+  UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
+  if FSplit then
+  begin
+    UpdateHudStats(FDemo2, FHud2, FCamera2.Translation, False, SecondsPassed);
+    FViewport2.Fog := FViewport.Fog;
+    FViewport2.Background := FViewport.Background;
+    { Each view hides its own player's body and the other's weapon }
+    SetLength(FViewport.Hidden, 2);
+    FViewport.Hidden[0] := FWeaponTransform2;
+    FViewport.Hidden[1] := VisualTransform(FDemo.ViewEntity);
+    SetLength(FViewport2.Hidden, 2);
+    FViewport2.Hidden[0] := FWeaponTransform;
+    FViewport2.Hidden[1] := VisualTransform(FDemo2.ViewEntity);
+  end;
+end;
+
+function TViewDemo.VisualTransform(const Entity: Integer): TCastleTransform;
+begin
+  if (Entity > 0) and (Entity <= High(FVisuals)) then
+    Result := FVisuals[Entity].Transform
+  else
+    Result := nil;
 end;
 
 function TViewDemo.Press(const Event: TInputPressRelease): Boolean;

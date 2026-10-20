@@ -390,8 +390,8 @@ begin
   { 2. Draw centered crosshair }
   if FCrosshairVisible then
   begin
-    CX := RenderRect.Width / 2;
-    CY := RenderRect.Height / 2;
+    CX := RenderRect.Left + RenderRect.Width / 2;
+    CY := RenderRect.Bottom + RenderRect.Height / 2;
 
     { Small crosshair with center gap }
     R := FloatRectangle(CX - 8, CY - 1, 5, 2);
@@ -500,7 +500,7 @@ var
     Pic := QuakePic(Name);
     Result := Pic <> nil;
     if Result then
-      Pic.Draw(FloatRectangle(OffX + X * Scale, RenderRect.Height - OffY - (Y + Pic.Height) * Scale,
+      Pic.Draw(FloatRectangle(OffX + X * Scale, RenderRect.Top - OffY - (Y + Pic.Height) * Scale,
         Pic.Width * Scale, Pic.Height * Scale));
   end;
 
@@ -511,7 +511,7 @@ var
     PX := OffX + X * Scale;
     if Centered then
       PX := PX - UIFont.TextWidth(S) / 2;
-    UIFont.Print(PX, RenderRect.Height - OffY - Y * Scale - UIFont.Height,
+    UIFont.Print(PX, RenderRect.Top - OffY - Y * Scale - UIFont.Height,
       Vector4(1.0, 0.85, 0.35, 1.0), S);
   end;
 
@@ -576,7 +576,7 @@ var
 begin
   { The 320x200 Quake screen, scaled up and centered }
   Scale := Min(RenderRect.Width / 320, RenderRect.Height / 200);
-  OffX := (RenderRect.Width - 320 * Scale) / 2;
+  OffX := RenderRect.Left + (RenderRect.Width - 320 * Scale) / 2;
   OffY := (RenderRect.Height - 200 * Scale) / 2;
 
   DrawRectangle(RenderRect, Vector4(0, 0, 0, 0.35));
