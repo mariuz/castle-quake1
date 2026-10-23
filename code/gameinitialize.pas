@@ -357,6 +357,9 @@ begin
       CmdLang := Parameters[I + 1];
       Inc(I);
     end else
+    if (Parameters[I] = '-netloopback') or (Parameters[I] = '--netloopback') then
+      NetLoopback := True
+    else
     if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
     begin
       CmdSplit := True;
@@ -580,6 +583,17 @@ begin
     TouchControlsMode := tcOff;
   if PageParameter('fullscreen') = '0' then
     TouchFullscreen := False;
+  { ?splitscreen=1 (or stacked): with ?autotest=host:<map> or ?host=<map>,
+    split-screen coop with a second local player on the page's own
+    (loopback) listen server }
+  if PageParameter('splitscreen') <> '' then
+  begin
+    CmdSplit := True;
+    CmdCoop := True;
+    CmdSplitStacked := PageParameter('splitscreen') = 'stacked';
+  end;
+  if PageParameter('host') <> '' then
+    CmdHost := PageParameter('host');
   { ?lang=<code>: the language of this visit }
   if PageParameter('lang') <> '' then
     CmdLang := PageParameter('lang');

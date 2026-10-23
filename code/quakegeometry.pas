@@ -189,12 +189,15 @@ type
     FLiquidLinks: array of array of Integer; { per leaf: leaves across its liquid surfaces }
     FVisBits, FExtraBits, FRowBits: TBytes;
     FCameraLeaf: Integer;
+    { The second camera's leaf of a split-screen UpdateVisibility (-2 none) }
+    FSecondLeaf: Integer;
     FVisLiquidSeeThrough: Boolean;
     FVisibleClusters, FVisibleShapes, FShapeCount: Integer;
     FAllVisible: Boolean;
     FFullbrightFaces: Integer; { faces whose lightmap found no room, while building a model }
     FEntityCount, FVisibleEntities: Integer;
     procedure SetLiquidAlpha(const Value: Single);
+    procedure UpdateVisibilityOf(const CameraPos, SecondPos: TVector3; const Two: Boolean);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
       const Atlases: TQuakeLightmapAtlasList);
@@ -230,6 +233,11 @@ type
       camera changes leaves. Everything shows outside the map, without
       vis data or when WorldPvsCulling is off. }
     procedure UpdateVisibility(const CameraPos: TVector3);
+    { Split-screen: what either camera's PVS has (one world for both views) }
+    procedure UpdateVisibility2(const CameraPos, SecondPos: TVector3);
+    { The eye the scrolling sky is projected from, for the next render (a
+      second view sets its own before it draws) }
+    procedure SetSkyEye(const EyePos: TVector3);
 
     { True when a box (Quake coordinates) touches a leaf in the camera's
       PVS of the last UpdateVisibility (SV_FindTouchedLeafs against the
@@ -271,6 +279,8 @@ type
     { PVS statistics: the camera's leaf (-1 = not culled), the world
       clusters and shapes drawn and in total }
     property CameraLeaf: Integer read FCameraLeaf;
+    { The second camera's leaf of UpdateVisibility2 (-2 without one) }
+    property SecondLeaf: Integer read FSecondLeaf;
     property VisibleClusters: Integer read FVisibleClusters;
     property VisibleShapes: Integer read FVisibleShapes;
     property ShapeCount: Integer read FShapeCount;
@@ -1030,6 +1040,7 @@ begin
   FSkySurfaces := TQuakeSkySurfaceList.Create;
   FClusters := TQuakeVisClusterList.Create(True);
   FCameraLeaf := -2;
+  FSecondLeaf := -2;
 end;
 
 function TQuakeGeometry.ClusterCount: Integer;
@@ -1615,8 +1626,26 @@ begin
 end;
 
 procedure TQuakeGeometry.UpdateVisibility(const CameraPos: TVector3);
+begin
+  UpdateVisibilityOf(CameraPos, CameraPos, False);
+end;
+
+procedure TQuakeGeometry.UpdateVisibility2(const CameraPos, SecondPos: TVector3);
+begin
+  UpdateVisibilityOf(CameraPos, SecondPos, True);
+end;
+
+procedure TQuakeGeometry.SetSkyEye(const EyePos: TVector3);
 var
-  Leaf, L, L2, I, ByteCount: Integer;
+  I: Integer;
+begin
+  for I := 0 to FSkyEyeFields.Count - 1 do
+    FSkyEyeFields[I].Send(EyePos);
+end;
+
+procedure TQuakeGeometry.UpdateVisibilityOf(const CameraPos, SecondPos: TVector3; const Two: Boolean);
+var
+  Leaf, Leaf2, L, L2, I, ByteCount: Integer;
   AllVisible, LiquidSeeThrough, V: Boolean;
   Cluster: TQuakeVisCluster;
   Shape: TShapeNode;
@@ -1640,14 +1669,34 @@ begin
     Leaf := FBsp.PointLeaf(CgeToQuake(CameraPos))
   else
     Leaf := -1;
+  if not Two then
+    Leaf2 := -2
+  else
+  if WorldPvsCulling then
+    Leaf2 := FBsp.PointLeaf(CgeToQuake(SecondPos))
+  else
+    Leaf2 := -1;
   LiquidSeeThrough := FLiquidAlpha < 1;
-  if (Leaf = FCameraLeaf) and (LiquidSeeThrough = FVisLiquidSeeThrough) then
+  if (Leaf = FCameraLeaf) and (Leaf2 = FSecondLeaf) and (LiquidSeeThrough = FVisLiquidSeeThrough) then
     Exit;
   FCameraLeaf := Leaf;
+  FSecondLeaf := Leaf2;
   FVisLiquidSeeThrough := LiquidSeeThrough;
 
   { Outside the map (solid leaf 0) or without vis data everything is drawn }
   AllVisible := (Leaf <= 0) or not FBsp.LeafPVS(Leaf, FVisBits);
+  { The second camera adds its leaf's row }
+  if Two and not AllVisible then
+  begin
+    if (Leaf2 <= 0) or not FBsp.LeafPVS(Leaf2, FRowBits) then
+      AllVisible := True
+    else
+    begin
+      for I := 0 to Min(Length(FVisBits), Length(FRowBits)) - 1 do
+        FVisBits[I] := FVisBits[I] or FRowBits[I];
+      FVisBits[(Leaf2 - 1) div 8] := FVisBits[(Leaf2 - 1) div 8] or (1 shl ((Leaf2 - 1) and 7));
+    end;
+  end;
   if not AllVisible then
   begin
     ByteCount := Length(FVisBits);

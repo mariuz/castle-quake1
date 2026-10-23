@@ -12,7 +12,7 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate;
+  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets;
 
 var
   Checks, Failures: Integer;
@@ -1324,6 +1324,75 @@ begin
   end;
 end;
 
+type
+  { Accepts every client of the loopback test as edict 1 }
+  TLoopbackAccept = class
+    function Connect(const Client: Integer): Integer;
+  end;
+
+function TLoopbackAccept.Connect(const Client: Integer): Integer;
+begin
+  Result := 1;
+end;
+
+{ Loopback sockets (the web build's listen server): packets between
+  sockets of this process, and a client joining a server over them }
+procedure TestLoopback;
+var
+  A, B: TQuakeNetSocket;
+  Addr: TInetSockAddr;
+  Data: TNetBytes;
+  Port: Word;
+  Server: TQuakeNetServer;
+  Client: TQuakeNetClient;
+  Accept: TLoopbackAccept;
+  I: Integer;
+begin
+  StartTest('Loopback sockets');
+  A := TQuakeNetSocket.CreateLoopback(26500);
+  B := TQuakeNetSocket.CreateLoopback(0);
+  try
+    Check(A.Valid and B.Valid, 'two loopback sockets');
+    Check(TQuakeNetSocket.LoopbackListening(26500), 'the first listens on its port');
+    Data := TNetBytes.Create(1, 2, 3);
+    Check(B.Send(TQuakeNetSocket.LoopbackAddress(26500), Data), 'a packet to the port');
+    Check(not B.Send(TQuakeNetSocket.LoopbackAddress(26501), Data), 'no socket on another port');
+    Check(A.Receive(Addr, Data) and (Length(Data) = 3) and (Data[2] = 3), 'it arrives');
+    Check(TQuakeNetSocket.IsLoopbackAddress(Addr, Port) and (Port >= FirstLoopbackPort),
+      Format('from the sender''s port %d', [Port]));
+    CheckEqualsStr(Format('127.0.0.1:%d', [Port]), TQuakeNetSocket.AddressToString(Addr), 'shown as this machine');
+    Check(A.Send(Addr, Data) and B.Receive(Addr, Data), 'the answer goes back');
+    Check(not A.Receive(Addr, Data), 'nothing more');
+  finally
+    A.Free;
+    B.Free;
+  end;
+  Check(not TQuakeNetSocket.LoopbackListening(26500), 'a freed socket stops listening');
+
+  NetLoopback := True;
+  Accept := TLoopbackAccept.Create;
+  Server := TQuakeNetServer.Create(26501);
+  Client := TQuakeNetClient.Create;
+  try
+    Server.OnConnect := @Accept.Connect;
+    Check(Server.Valid and TQuakeNetSocket.LoopbackListening(26501), 'a server on loopback');
+    Check(Client.Connect('127.0.0.1', 26501), 'a client connects');
+    for I := 1 to 20 do
+    begin
+      Client.Update(0.05);
+      Server.Update(0.05);
+    end;
+    Check(Client.State = csConnected, 'the client is connected over the loopback');
+    Check((Server.ClientCount = 1) and (Copy(Server.ClientAddress(1), 1, 10) = '127.0.0.1:'),
+      'the server has it as a client of this machine: ' + Server.ClientAddress(1));
+  finally
+    Client.Free;
+    Server.Free;
+    Accept.Free;
+    NetLoopback := False;
+  end;
+end;
+
 { Localization: the .po reader, the menu item rule and every translation
   against the template (every text, the same format specifiers) }
 procedure TestTranslate(const LangDir: String);
@@ -1524,6 +1593,7 @@ begin
   TestRandomMap;
   TestCaptions;
   TestSaveList;
+  TestLoopback;
   TestTranslate(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'lang') + PathDelim);
   TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +
     PathDelim + 'maps.txt'));

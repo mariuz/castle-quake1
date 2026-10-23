@@ -46,6 +46,8 @@ type
     procedure RenderFromViewEverything(const RenderingCamera: TRenderingCamera); override;
   public
     Hidden: array of TCastleTransform;
+    { Called before it draws (the sky's eye for its camera) }
+    OnBeforeDraw: TNotifyEvent;
   end;
 
   TViewDemo = class(TCastleView)
@@ -110,7 +112,6 @@ type
     FInputSeq2: Word;
     FInputTime2: Single;
     FImpulse2: Integer;
-    FWasPvsCulling, FPvsOverridden: Boolean;
     { The virtual gamepad of the script (GL, GR, GT, GB) }
     FPadLeft, FPadRight: TVector2;
     FPadButton: TGameControllerButton;
@@ -152,6 +153,9 @@ type
     procedure HandleDamage2(const Armor, Blood: Integer; const From: TVector3);
     procedure HandleIntermission2;
     function PlayerOne: Integer;
+    procedure ViewportBeforeDraw(Sender: TObject);
+    procedure UpdateWorldVisibility;
+    procedure ComparePvsRender;
     function VisualTransform(const Entity: Integer): TCastleTransform;
     procedure RunScript(const SecondsPassed: Single);
     procedure CaptureScreenshot;
@@ -236,6 +240,8 @@ begin
       Was[I] := Hidden[I].Visible;
       Hidden[I].Visible := False;
     end;
+  if Assigned(OnBeforeDraw) then
+    OnBeforeDraw(Self);
   inherited RenderFromViewEverything(RenderingCamera);
   for I := 0 to High(Hidden) do
     if Hidden[I] <> nil then
@@ -302,6 +308,8 @@ begin
     FViewport2.Transparent := False;
     FViewport2.BackgroundColor := FViewport.BackgroundColor;
     FViewport2.Exists := False;
+    FViewport.OnBeforeDraw := @ViewportBeforeDraw;
+    FViewport2.OnBeforeDraw := @ViewportBeforeDraw;
     FCamera2 := TCastleCamera.Create(Self);
     FCamera2.Name := 'camera2';
     FCamera2.ProjectionNear := 1.0;
@@ -351,8 +359,9 @@ begin
   if FPhoto = nil then
     FPhoto := TPhotoMode.Create(Self, FViewport, Self, FNavigation);
   SetPhotoMode(False);
-  { Split-screen only hosts here (and not in the browser, one socket) }
-  FSplit := SplitScreen and (HostMap <> '') {$ifdef WASI} and False {$endif};
+  { Split-screen hosts here: a listen server and two clients, over UDP or
+    (in the browser, -netloopback) in-process loopback sockets }
+  FSplit := SplitScreen and (HostMap <> '');
   ApplySplitLayout;
   FHud2.StopIntermission;
   FHud2.CrosshairVisible := True;
@@ -675,6 +684,80 @@ begin
   UpdateWeapon(FDemo2, FWeapon2, FWeaponTransform2);
 end;
 
+{ What the PVS shows, and the entities in it; split-screen: one world for
+  two cameras, so what either PVS has }
+procedure TViewDemo.UpdateWorldVisibility;
+begin
+  if FSplit then
+    FGeometry.UpdateVisibility2(FViewport.Camera.Translation, FCamera2.Translation)
+  else
+    FGeometry.UpdateVisibility(FViewport.Camera.Translation);
+  CullVisuals;
+end;
+
+{ The NC action: this frame drawn with the PVS culling and without it; no
+  pixel may differ (in split-screen both views are in the window) }
+procedure TViewDemo.ComparePvsRender;
+var
+  Culled, Full: TRGBImage;
+  WasCulling: Boolean;
+  X, Y, Differ, Total: Integer;
+  A, B: PVector3Byte;
+  Status: String;
+
+  function Render(const Culling: Boolean): TRGBImage;
+  begin
+    WorldPvsCulling := Culling;
+    UpdateWorldVisibility;
+    if Culling then
+      Status := Format('leaves %d and %d, clusters %d/%d, entities %d/%d', [FGeometry.CameraLeaf,
+        FGeometry.SecondLeaf, FGeometry.VisibleClusters, FGeometry.ClusterCount, FGeometry.VisibleEntities,
+        FGeometry.EntityCount]);
+    Result := Container.SaveScreen;
+  end;
+
+begin
+  if FGeometry = nil then
+    Exit;
+  WasCulling := WorldPvsCulling;
+  Culled := Render(True);
+  Full := Render(False);
+  try
+    { Pixels where a channel differs by more than 24 of 255 }
+    Differ := 0;
+    Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
+    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
+      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
+      begin
+        A := Culled.PixelPtr(X, Y);
+        B := Full.PixelPtr(X, Y);
+        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
+          Inc(Differ);
+      end;
+    WritelnLog('GameViewDemo', 'PVS compare: %d of %d pixels differ, %s', [Differ, Total, Status]);
+    if (Differ > 0) and (AutoTestPrefix <> '') then
+    begin
+      Inc(FShots);
+      {$ifndef WASI}
+      SaveImage(Culled, AutoTestPrefix + '_' + IntToStr(FShots) + '_pvs.png');
+      SaveImage(Full, AutoTestPrefix + '_' + IntToStr(FShots) + '_full.png');
+      {$endif}
+    end;
+  finally
+    Culled.Free;
+    Full.Free;
+    WorldPvsCulling := WasCulling;
+    UpdateWorldVisibility;
+  end;
+end;
+
+{ Each split-screen view projects the scrolling sky from its own eye }
+procedure TViewDemo.ViewportBeforeDraw(Sender: TObject);
+begin
+  if FSplit and (FGeometry <> nil) then
+    FGeometry.SetSkyEye(TCastleViewport(Sender).Camera.Translation);
+end;
+
 function TViewDemo.PlayerOne: Integer;
 begin
   if FSplit then
@@ -701,13 +784,6 @@ begin
   FViewport.FullSize := not FSplit;
   if FSplit then
   begin
-    { One world for two cameras: the PVS of one would hide what the other sees }
-    if not FPvsOverridden then
-    begin
-      FWasPvsCulling := WorldPvsCulling;
-      FPvsOverridden := True;
-    end;
-    WorldPvsCulling := False;
     FViewport2.FullSize := False;
     if SplitStacked then
     begin
@@ -733,11 +809,6 @@ begin
     MoveHud(FHud, FViewport);
   end else
   begin
-    if FPvsOverridden then
-    begin
-      WorldPvsCulling := FWasPvsCulling;
-      FPvsOverridden := False;
-    end;
     FViewport.WidthFraction := 0;
     FViewport.HeightFraction := 0;
     MoveHud(FHud, Self);
@@ -1545,6 +1616,10 @@ begin
            FDemo2.ViewAngles.Y, FDemo2.ClientData.Health, FDemo2.ClientData.Ammo, FDemo2.ClientData.ActiveWeapon,
            FDemo2.Signon, FViewport.EffectiveWidth, FViewport.EffectiveHeight,
            FViewport2.EffectiveWidth, FViewport2.EffectiveHeight]);
+      if FSplit and (FGeometry <> nil) then
+        WritelnLog('GameViewDemo', 'Split-screen PVS: leaves %d and %d, %d of %d clusters, %d of %d entities drawn',
+          [FGeometry.CameraLeaf, FGeometry.SecondLeaf, FGeometry.VisibleClusters, FGeometry.ClusterCount,
+           FGeometry.VisibleEntities, FGeometry.EntityCount]);
       if FWsRelay <> nil then
         WritelnLog('GameViewDemo', 'WebSocket relay: %d clients, %d messages in, %d out',
           [FWsRelay.ClientCount, FWsRelay.MessagesIn, FWsRelay.MessagesOut]);
@@ -1587,6 +1662,8 @@ begin
     end else
     if Action = 'S' then
       CaptureScreenshot
+    else if Action = 'NC' then
+      ComparePvsRender
     else if Action = 'X' then
       FFireHeld := 0.05
     else if Action = 'F' then
@@ -1835,9 +1912,7 @@ begin
     end;
 
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
-  FGeometry.UpdateVisibility(FViewport.Camera.Translation);
-  if not FSplit then
-    CullVisuals;
+  UpdateWorldVisibility;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);

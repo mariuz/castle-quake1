@@ -310,7 +310,7 @@ SPLIT_RE = re.compile(r'Player 2: view entity (\d+) at (\S+) (\S+) (\S+), yaw (-
 
 def check_split(logs):
     result = common_checks(logs, 'sides') + common_checks(logs, 'stacked')
-    for prefix in ('sides', 'stacked'):
+    for prefix in ('sides', 'stacked', 'loop'):
         log = logs[prefix]
         result.append(('Split-screen: player 2 joins' in log, '%s: the second player joins the listen server' % prefix))
     log = logs['sides']
@@ -326,6 +326,24 @@ def check_split(logs):
                        % (p2[0][4], p2[1][4])))
         w1, h1, w2, h2 = (int(x) for x in p2[0][7:11])
         result.append((w1 == w2 and h1 == h2 and w1 * 2 > h1, 'side by side: two views of %dx%d' % (w1, h1)))
+    compares = re.findall(r'PVS compare: (\d+) of \d+ pixels differ, leaves (-?\d+) and (-?\d+), clusters (\d+)/(\d+)',
+                          log)
+    result.append((len(compares) == 2 and all(c[0] == '0' for c in compares),
+                   'sides: culling changes no pixel of either view (%s)' % ', '.join(c[0] for c in compares)))
+    result.append((len(compares) == 2 and all(int(c[3]) < int(c[4]) for c in compares),
+                   'sides: the world is culled to what the two cameras can see (%s)'
+                   % ', '.join('%s/%s' % (c[3], c[4]) for c in compares)))
+    result.append((len(compares) == 2 and compares[1][1] != compares[1][2],
+                   'sides: the players are in different leaves after walking (%s)'
+                   % (' and '.join(compares[1][1:3]) if len(compares) == 2 else '')))
+    log = logs['loop']
+    result += common_checks(logs, 'loop')
+    result.append(('Loopback socket on port 26000' in log and log.count('Loopback socket on port 400') == 2 and
+                   log.count('QuakeNet: Connected') == 2, 'loop: the server and both clients use loopback sockets'))
+    p2 = SPLIT_RE.findall(log)
+    result.append((len(p2) == 2 and dist(tuple(float(x) for x in p2[0][1:4]), tuple(float(x) for x in p2[1][1:4])) > 200,
+                   'loop: the second player walks over the loopback'))
+    result.append(('PVS compare: 0 of' in log, 'loop: culling changes no pixel'))
     log = logs['stacked']
     p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
     p2 = SPLIT_RE.findall(log)
@@ -1118,8 +1136,12 @@ SCENARIOS = [
     # walks and turns only the second player, the keyboard script only the
     # first, the trigger fires the second player's weapon
     Scenario('splitscreen', [('sides', ['-splitscreen', '--autotest', 'host:e1m1', '{out}/sides', '--demo',
-                                        'W:4,S,GL:0;1,W:2,GL:0;0,GR:1;0,W:0.5,GR:0;0,W:0.5,S,Q',
+                                        'W:4,NC,S,GL:0;1,W:2,GL:0;0,GR:1;0,W:0.5,GR:0;0,W:0.5,NC,S,Q',
                                         '-port', '26360'], 0),
+                             # The browser's way: the listen server and both
+                             # clients on in-process loopback sockets
+                             ('loop', ['-netloopback', '-splitscreen', '--autotest', 'host:e1m1', '{out}/loop',
+                                       '--demo', 'W:4,S,GL:0;1,W:2,GL:0;0,W:0.5,NC,S,Q'], 0),
                              ('stacked', ['-splitscreen', 'stacked', '--autotest', 'host:e1m1', '{out}/stacked',
                                           '--demo', 'W:4,S,V:1;0;0,W:1,V:0;0;0,GT:1,W:0.6,GT:0,W:0.5,S,Q',
                                           '-port', '26361'], 0)],

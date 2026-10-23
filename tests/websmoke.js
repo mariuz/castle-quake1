@@ -9,7 +9,9 @@
 //    loads.
 // 3. ?game=quake plays the original content (id1 models and samples).
 // 4. A random map (random42) is built in the browser and played.
-// 5. A touch screen page: the first touch shows the touch controls, a drag
+// 5. Split-screen coop hosted in the page (loopback sockets), the virtual
+//    gamepad walking the second player.
+// 6. A touch screen page: the first touch shows the touch controls, a drag
 //    on the move stick walks the player forward (between two screenshots
 //    the eye moves) and the touches do not reach the engine as clicks.
 // Fails (exit code 1) on a page error, a WebAssembly crash or a missing log
@@ -103,7 +105,23 @@ async function run(page, url, expected, seconds, shot) {
   ], 150, 'websmoke_rnd.png');
   report('a random map is built and plays (random42)', fourth);
 
-  // 5. Touch: a tap shows the controls, a held drag on the move stick walks
+  // 5. Split-screen coop on the page's own listen server: no UDP in the
+  //    browser, so the server and both clients use loopback sockets; the
+  //    virtual gamepad walks the second player, culling changes no pixel
+  const split = await run(page, withParams(base, { autotest: 'host:e1m1', splitscreen: '1',
+    demo: 'W:4,S,GL:0;1,W:2,GL:0;0,W:0.5,NC,S' }), [
+    /Loopback socket on port 26000/,
+    /Split-screen: player 2 joins/,
+    /PVS compare: 0 of \d+ pixels differ/,
+  ], 150, 'websmoke_split.png');
+  const p2 = split.lines.map(l => /Player 2: view entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+),/.exec(l)).filter(m => m)
+    .map(m => [Number(m[1]), Number(m[2]), Number(m[3])]);
+  const moved = p2.length >= 2 ? Math.hypot(...p2[p2.length - 1].map((v, i) => v - p2[0][i])) : 0;
+  if (!(moved >= 100)) split.errors.push(`the second player did not walk (${moved.toFixed(0)} units, ${p2.length} positions)`);
+  report('split-screen coop on a loopback listen server', split);
+  console.log('split: player 2 walked ' + moved.toFixed(0) + ' units');
+
+  // 6. Touch: a tap shows the controls, a held drag on the move stick walks
   const touchPage = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
   const touchLines = [];
   const touchErrors = [];

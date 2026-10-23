@@ -61,6 +61,8 @@ const
   { Client input buttons }
   nbFire = 1;
   nbJump = 2;
+  { The first port of a loopback socket opened on port 0 }
+  FirstLoopbackPort = 40000;
 
 type
   TNetBytes = TBytes;
@@ -102,8 +104,21 @@ type
   private
     FSock: cint;
     FWeb: TObject; { TQuakeBrowserWebSocket in the web build }
+    FLoop: TObject; { TLoopEndpoint of a loopback socket }
+    function LoopSend(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
+    function LoopReceive(out Addr: TInetSockAddr; out Data: TNetBytes): Boolean;
   public
+    { A UDP socket on Port (0: any), or a loopback one with NetLoopback
+      (always in the web build, which has no UDP) }
     constructor Create(const Port: Word);
+    { An in-process socket: its packets go to the loopback socket of the
+      port they are sent to (address 127.0.0.1), nothing leaves the
+      process; Port 0 takes a free one }
+    constructor CreateLoopback(const Port: Word);
+    { A loopback socket listens on Port (a listen server of this process) }
+    class function LoopbackListening(const Port: Word): Boolean;
+    class function LoopbackAddress(const Port: Word): TInetSockAddr;
+    class function IsLoopbackAddress(const A: TInetSockAddr; out Port: Word): Boolean;
     { The web build's socket: a WebSocket to the relay at Url; every packet
       goes there, whatever address Send is given }
     constructor CreateWebSocket(const Url: String);
@@ -340,10 +355,167 @@ const
     PRFL_SHORTANGLE or PRFL_FLOATCOORD }
   NetRMQProtocolFlags = (1 shl 1) or (1 shl 4);
 
+var
+  { Sockets are in-process loopback ones (-netloopback; always in the web
+    build): a listen server and the clients of this process only }
+  NetLoopback: Boolean {$ifdef QUAKE_NO_SOCKETS} = True {$endif};
+
 implementation
 
 uses
   QuakeWebSocketClient;
+
+{ Loopback sockets }
+
+type
+  TLoopPacket = record
+    FromPort: Word;
+    Data: TNetBytes;
+  end;
+  TLoopEndpoint = class
+    Port: Word;
+    Queue: specialize TQueue<TLoopPacket>;
+    constructor Create(const APort: Word);
+    destructor Destroy; override;
+  end;
+  TLoopEndpointList = specialize TList<TLoopEndpoint>;
+
+var
+  LoopEndpoints: TLoopEndpointList;
+
+constructor TLoopEndpoint.Create(const APort: Word);
+begin
+  inherited Create;
+  Port := APort;
+  Queue := specialize TQueue<TLoopPacket>.Create;
+end;
+
+destructor TLoopEndpoint.Destroy;
+begin
+  Queue.Free;
+  inherited Destroy;
+end;
+
+function FindLoopEndpoint(const Port: Word): TLoopEndpoint;
+var
+  E: TLoopEndpoint;
+begin
+  Result := nil;
+  if LoopEndpoints <> nil then
+    for E in LoopEndpoints do
+      if E.Port = Port then
+        Exit(E);
+end;
+
+{ The port of an address as a number, and back (network byte order with
+  real sockets, as is in the web build's stand-in record) }
+function PortOfAddress(const A: TInetSockAddr): Word;
+begin
+  {$ifdef QUAKE_NO_SOCKETS}
+  Result := A.sin_port;
+  {$else}
+  Result := ntohs(A.sin_port);
+  {$endif}
+end;
+
+function LoopHost: Cardinal;
+begin
+  {$ifdef QUAKE_NO_SOCKETS}
+  Result := $7F000001;
+  {$else}
+  Result := htonl($7F000001);
+  {$endif}
+end;
+
+class function TQuakeNetSocket.LoopbackAddress(const Port: Word): TInetSockAddr;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.sin_family := 2; { AF_INET }
+  {$ifdef QUAKE_NO_SOCKETS}
+  Result.sin_port := Port;
+  {$else}
+  Result.sin_port := htons(Port);
+  {$endif}
+  Result.sin_addr.s_addr := LoopHost;
+end;
+
+class function TQuakeNetSocket.IsLoopbackAddress(const A: TInetSockAddr; out Port: Word): Boolean;
+begin
+  Port := PortOfAddress(A);
+  Result := A.sin_addr.s_addr = LoopHost;
+end;
+
+class function TQuakeNetSocket.LoopbackListening(const Port: Word): Boolean;
+begin
+  Result := FindLoopEndpoint(Port) <> nil;
+end;
+
+constructor TQuakeNetSocket.CreateLoopback(const Port: Word);
+var
+  P: Word;
+begin
+  inherited Create;
+  FSock := -1;
+  if LoopEndpoints = nil then
+    LoopEndpoints := TLoopEndpointList.Create;
+  P := Port;
+  if P = 0 then
+  begin
+    P := FirstLoopbackPort;
+    while FindLoopEndpoint(P) <> nil do
+      Inc(P);
+  end else
+  if FindLoopEndpoint(P) <> nil then
+  begin
+    WritelnWarning('QuakeNet', 'Loopback port %d is in use', [P]);
+    Exit;
+  end;
+  FLoop := TLoopEndpoint.Create(P);
+  LoopEndpoints.Add(TLoopEndpoint(FLoop));
+  WritelnLog('QuakeNet', 'Loopback socket on port %d', [P]);
+end;
+
+function TQuakeNetSocket.LoopSend(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
+var
+  Target: TLoopEndpoint;
+  Packet: TLoopPacket;
+  Port: Word;
+begin
+  Result := False;
+  if not IsLoopbackAddress(Addr, Port) or (Length(Data) = 0) then
+    Exit;
+  Target := FindLoopEndpoint(Port);
+  if Target = nil then
+    Exit;
+  Packet.FromPort := TLoopEndpoint(FLoop).Port;
+  Packet.Data := Copy(Data);
+  Target.Queue.Enqueue(Packet);
+  Result := True;
+end;
+
+function TQuakeNetSocket.LoopReceive(out Addr: TInetSockAddr; out Data: TNetBytes): Boolean;
+var
+  Packet: TLoopPacket;
+begin
+  SetLength(Data, 0);
+  FillChar(Addr, SizeOf(Addr), 0);
+  Result := TLoopEndpoint(FLoop).Queue.Count > 0;
+  if not Result then
+    Exit;
+  Packet := TLoopEndpoint(FLoop).Queue.Dequeue;
+  Addr := LoopbackAddress(Packet.FromPort);
+  Data := Packet.Data;
+end;
+
+procedure FreeLoop(var Loop: TObject);
+begin
+  if Loop = nil then
+    Exit;
+  { At program exit the list may be gone before the last sockets }
+  if LoopEndpoints <> nil then
+    LoopEndpoints.Remove(TLoopEndpoint(Loop));
+  FreeAndNil(Loop);
+end;
 
 { TQuakeNetSocket }
 
@@ -358,30 +530,36 @@ end;
 
 constructor TQuakeNetSocket.Create(const Port: Word);
 begin
-  inherited Create;
-  FSock := -1;
-  WritelnWarning('QuakeNet', 'No UDP sockets on this platform: cannot open UDP port %d', [Port]);
+  { No UDP here: a listen server (and its local clients) talk in-process }
+  CreateLoopback(Port);
 end;
 
 destructor TQuakeNetSocket.Destroy;
 begin
   FreeAndNil(FWeb);
+  FreeLoop(FLoop);
   inherited Destroy;
 end;
 
 function TQuakeNetSocket.Valid: Boolean;
 begin
+  if FLoop <> nil then
+    Exit(True);
   { A WebSocket counts while it is connecting or open }
   Result := (FWeb <> nil) and (TQuakeBrowserWebSocket(FWeb).State <= 1);
 end;
 
 function TQuakeNetSocket.Send(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
 begin
+  if FLoop <> nil then
+    Exit(LoopSend(Addr, Data));
   Result := (FWeb <> nil) and TQuakeBrowserWebSocket(FWeb).Send(Data);
 end;
 
 function TQuakeNetSocket.Receive(out Addr: TInetSockAddr; out Data: TNetBytes): Boolean;
 begin
+  if FLoop <> nil then
+    Exit(LoopReceive(Addr, Data));
   { Everything on the WebSocket comes from the one server (address zero) }
   FillChar(Addr, SizeOf(Addr), 0);
   SetLength(Data, 0);
@@ -390,9 +568,13 @@ end;
 
 class function TQuakeNetSocket.Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
 begin
-  { The relay knows the server: the client only needs a stand-in address,
-    the same one Receive reports }
-  FillChar(Addr, SizeOf(Addr), 0);
+  { This machine: a loopback listen server of the page. Elsewhere the
+    relay knows the server: the client only needs a stand-in address, the
+    same one Receive reports }
+  if (Trim(Host) = '') or SameText(Trim(Host), 'localhost') or (Trim(Host) = '127.0.0.1') then
+    Addr := LoopbackAddress(Port)
+  else
+    FillChar(Addr, SizeOf(Addr), 0);
   Result := Host <> '';
 end;
 
@@ -402,8 +584,13 @@ begin
 end;
 
 class function TQuakeNetSocket.AddressToString(const A: TInetSockAddr): String;
+var
+  Port: Word;
 begin
-  Result := 'the server (through the WebSocket relay)';
+  if IsLoopbackAddress(A, Port) then
+    Result := Format('127.0.0.1:%d', [Port])
+  else
+    Result := 'the server (through the WebSocket relay)';
 end;
 
 {$else}
@@ -413,6 +600,11 @@ var
   Addr: TInetSockAddr;
   {$ifndef UNIX} NonBlocking: u_long; {$endif}
 begin
+  if NetLoopback then
+  begin
+    CreateLoopback(Port);
+    Exit;
+  end;
   inherited Create;
   FSock := fpsocket(AF_INET, SOCK_DGRAM, 0);
   if FSock < 0 then
@@ -444,16 +636,19 @@ begin
   if FSock >= 0 then
     CloseSocket(FSock);
   FreeAndNil(FWeb);
+  FreeLoop(FLoop);
   inherited Destroy;
 end;
 
 function TQuakeNetSocket.Valid: Boolean;
 begin
-  Result := FSock >= 0;
+  Result := (FSock >= 0) or (FLoop <> nil);
 end;
 
 function TQuakeNetSocket.Send(const Addr: TInetSockAddr; const Data: TNetBytes): Boolean;
 begin
+  if FLoop <> nil then
+    Exit(LoopSend(Addr, Data));
   if (FSock < 0) or (Length(Data) = 0) then
     Exit(False);
   Result := fpsendto(FSock, @Data[0], Length(Data), 0, @Addr, SizeOf(Addr)) = Length(Data);
@@ -465,6 +660,8 @@ var
   Len: tsocklen;
   N: ssize_t;
 begin
+  if FLoop <> nil then
+    Exit(LoopReceive(Addr, Data));
   Result := False;
   SetLength(Data, 0);
   FillChar(Addr, SizeOf(Addr), 0);
@@ -1153,13 +1350,23 @@ begin
 end;
 
 function TQuakeNetClient.OpenSocket: Boolean;
+var
+  LoopPort: Word;
 begin
   FreeAndNil(FSocket);
-  {$ifdef QUAKE_NO_SOCKETS}
-  FSocket := TQuakeNetSocket.CreateWebSocket(FWebSocketUrl);
-  {$else}
-  FSocket := TQuakeNetSocket.Create(0);
-  {$endif}
+  { A listen server of this process on loopback: join it in-process }
+  if TQuakeNetSocket.IsLoopbackAddress(FServer, LoopPort) and TQuakeNetSocket.LoopbackListening(LoopPort) then
+    FSocket := TQuakeNetSocket.CreateLoopback(0)
+  else
+  begin
+    {$ifdef QUAKE_NO_SOCKETS}
+    { Everything on the WebSocket comes from the stand-in address zero }
+    FillChar(FServer, SizeOf(FServer), 0);
+    FSocket := TQuakeNetSocket.CreateWebSocket(FWebSocketUrl);
+    {$else}
+    FSocket := TQuakeNetSocket.Create(0);
+    {$endif}
+  end;
   Result := FSocket.Valid;
   if not Result then
     FError := 'No socket';
@@ -1870,4 +2077,6 @@ begin
   end;
 end;
 
+finalization
+  FreeAndNil(LoopEndpoints);
 end.
