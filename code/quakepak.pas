@@ -48,31 +48,58 @@ type
     added the file (QuakeRandomMap builds maps/random<seed>.bsp) }
   TQuakePakMissingFileHook = function(const APath: String): Boolean;
 
+  { A pak, pk3, directory or memory file the entries point into }
+  TQuakePakContainer = class
+    Name: String;
+    { The archive's bytes (nil: a directory of loose files, or unmounted):
+      a TMemoryStream, or a TFileStream reading the file on disk when asked }
+    Stream: TStream;
+    { Where the archive starts in Stream and its size (a pak stored in a
+      zip shares the zip's stream) }
+    Base, Size: Int64;
+    OwnsStream: Boolean;
+    Original: Boolean;
+    { The MountTag it was added with ('' for the paks of the start) }
+    Tag: String;
+    Removed: Boolean;
+    destructor Destroy; override;
+  end;
+
   { Quake PAK archive manager. Supports stacking multiple PAK files
     (e.g. pak0.pak, pak1.pak) where later paks override earlier ones. }
   TQuakePak = class
   private
-    FStreams: specialize TList<TMemoryStream>;
-    FFilenames: TStringList;
+    FContainers: specialize TObjectList<TQuakePakContainer>;
     FEntries: TQuakePakEntryList;
     { Entries replaced by a later pak, kept so original maps stay reachable }
     FShadowed: TQuakePakEntryList;
-    FOriginal: specialize TList<Boolean>;
     FProtocolRegistered: Boolean;
     FPreferOriginal: Boolean;
     { Unpacked zip entries and loose files handed out by GetData }
     FDataCache: specialize TObjectDictionary<String, TMemoryStream>;
     FInMissingHook: Boolean;
+    FMountTag: String;
     function FindEntryIndex(const APath: String; const AllowHook: Boolean = True): Integer;
     function FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
-    function AddContainer(const Name: String; const Stream: TMemoryStream; const Original: Boolean): Integer;
+    function AddContainer(const Name: String; const Stream: TStream; const Base, Size: Int64;
+      const OwnsStream, Original: Boolean): Integer;
+    { Count bytes at Offset of container Index into Buffer; False out of its bounds }
+    function ReadAt(const Index: Integer; const Offset: Int64; var Buffer; const Count: Int64): Boolean;
+    function AddPakArchive(const Name: String; const Stream: TStream; const Base, Size: Int64;
+      const OwnsStream, Original: Boolean): Boolean;
+    function IsOriginal(const Index: Integer): Boolean;
+    { A pak file on disk, read from there, under another name }
+    function AddPakFile(const Name, FileName: String): Boolean;
     procedure AddEntry(const Entry: TQuakePakEntry);
     function ReadEntry(const Entry: TQuakePakEntry): TMemoryStream;
   public
     constructor Create;
     destructor Destroy; override;
 
-    { Add a PAK archive from file or castle-data URL. Returns true if successful. }
+    { Add a PAK archive from file or castle-data URL. Returns true if
+      successful. A file on disk stays there, its entries are read when
+      asked for (OpenLocalFile); a URL that is no file (the web, Android's
+      assets) is copied into memory. }
     function AddFile(const AUrlOrFilename: String; const Original: Boolean = False): Boolean;
     { Add a PAK archive already in memory (the pak owns Stream from now
       on, also on failure): a mod's pak inside its zip }
@@ -84,6 +111,22 @@ type
     { The same with the zip's paths moved by Mapping (MapArchivePath): a
       map browser zip whose files land in id1/maps/ }
     function AddPk3(const AUrlOrFilename, Mapping: String; const GameDir: String = 'id1'): Boolean;
+
+    { Add the pak at InnerPath of an archive already added (a mod's pak0.pak
+      in its zip): stored in a zip on disk it is read from there, deflated
+      it is unpacked once to CacheFile (a filename, '' for none) and read
+      from that, else it is copied into memory }
+    function AddPakFromArchive(const Name, InnerPath, CacheFile: String): Boolean;
+
+    { Remove every archive added with this MountTag: their files go, the
+      ones they replaced come back. Returns how many archives went. }
+    function Unmount(const Tag: String): Integer;
+
+    { The bytes the archives hold in memory (the paks and pk3s that are no
+      files on disk, memory files, unpacked entries GetData keeps) and how
+      many archives are read from disk }
+    function MemoryBytes: Int64;
+    function DiskArchives: Integer;
 
     { Add the loose files under a directory (maps/x.bsp, progs/y.mdl...),
       searched below the archives added after it. Returns the file count. }
@@ -100,9 +143,14 @@ type
       replaces (the LibreQuake one is what FileExists alone would give) }
     function UsesOriginalCopy(const APath: String): Boolean;
 
-    { APath, or APath with OriginalPathMarker in front when UsesOriginalCopy:
-      the key and URL of a cached model or sound, so the original and the
-      replacing version of a file never share a cache entry }
+    { '' for a file of the paks of the start, 'original' when
+      UsesOriginalCopy, else the MountTag of the archive it comes from }
+    function VariantTag(const APath: String): String;
+
+    { APath, or APath with '@<VariantTag>/' in front (OriginalPathMarker for
+      an original copy): the key and URL of a cached model or sound, so the
+      original and the replacing version of a file, or the files of two
+      mods, never share a cache entry }
     function VariantPath(const APath: String): String;
 
     { Check if a file exists in any loaded PAK. }
@@ -129,6 +177,9 @@ type
       episode hub plays id1's content, LibreQuake only fills in what the
       original paks lack }
     property PreferOriginal: Boolean read FPreferOriginal write FPreferOriginal;
+    { The archives added from now on belong to this mount (Unmount, VariantTag):
+      the map browser's release id, '' for none; no '/' in it }
+    property MountTag: String read FMountTag write FMountTag;
   end;
 
 { Where a zip path lands in the game: Mapping is "from>to" pairs separated
@@ -236,9 +287,47 @@ begin
       Result[I] := '/';
   while (Length(Result) > 0) and (Result[1] = '/') do
     Delete(Result, 1, 1);
-  { The marker of VariantPath only names a cache entry }
-  if Pos(OriginalPathMarker, Result) = 1 then
-    Delete(Result, 1, Length(OriginalPathMarker));
+  { The marker of VariantPath ('@tag/') only names a cache entry }
+  if (Result <> '') and (Result[1] = '@') and (Pos('/', Result) > 0) then
+    Delete(Result, 1, Pos('/', Result));
+end;
+
+destructor TQuakePakContainer.Destroy;
+begin
+  if OwnsStream then
+    FreeAndNil(Stream);
+  inherited Destroy;
+end;
+
+{ A local file for a URL or filename, '' when it is none (the web,
+  Android's assets, http) }
+function LocalFile(const AUrlOrFilename: String): String;
+begin
+  Result := '';
+  {$ifndef WASI}
+  Result := UriToFilenameSafe(AUrlOrFilename);
+  if (Result <> '') and not SysUtils.FileExists(Result) then
+    Result := '';
+  {$endif}
+end;
+
+{ The archive's bytes: the file on disk opened for reading, else a copy in memory }
+function OpenArchive(const AUrlOrFilename: String): TStream;
+var
+  FileName: String;
+  InStream: TStream;
+begin
+  FileName := LocalFile(AUrlOrFilename);
+  if FileName <> '' then
+    Exit(TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite));
+  InStream := Download(AUrlOrFilename);
+  try
+    Result := TMemoryStream.Create;
+    Result.CopyFrom(InStream, InStream.Size);
+    Result.Position := 0;
+  finally
+    InStream.Free;
+  end;
 end;
 
 { TQuakePak }
@@ -246,28 +335,20 @@ end;
 constructor TQuakePak.Create;
 begin
   inherited Create;
-  FStreams := specialize TList<TMemoryStream>.Create;
-  FFilenames := TStringList.Create;
+  FContainers := specialize TObjectList<TQuakePakContainer>.Create(True);
   FEntries := TQuakePakEntryList.Create;
   FShadowed := TQuakePakEntryList.Create;
-  FOriginal := specialize TList<Boolean>.Create;
   FDataCache := specialize TObjectDictionary<String, TMemoryStream>.Create([doOwnsValues]);
   FProtocolRegistered := False;
 end;
 
 destructor TQuakePak.Destroy;
-var
-  Stream: TMemoryStream;
 begin
   if FProtocolRegistered then
     CastleDownload.UnregisterUrlProtocol('quakepak');
-  for Stream in FStreams do
-    Stream.Free;
-  FStreams.Free;
-  FFilenames.Free;
+  FContainers.Free;
   FEntries.Free;
   FShadowed.Free;
-  FOriginal.Free;
   FDataCache.Free;
   inherited Destroy;
 end;
@@ -277,27 +358,35 @@ begin
   Result := FEntries.Count;
 end;
 
+function TQuakePak.IsOriginal(const Index: Integer): Boolean;
+begin
+  Result := FContainers[Index].Original;
+end;
+
+function TQuakePak.ReadAt(const Index: Integer; const Offset: Int64; var Buffer; const Count: Int64): Boolean;
+var
+  C: TQuakePakContainer;
+begin
+  C := FContainers[Index];
+  Result := (C.Stream <> nil) and (Offset >= 0) and (Count >= 0) and (Offset + Count <= C.Size);
+  if not Result or (Count = 0) then
+    Exit;
+  if C.Stream is TMemoryStream then
+    Move((PByte(TMemoryStream(C.Stream).Memory) + C.Base + Offset)^, Buffer, Count)
+  else
+  begin
+    C.Stream.Position := C.Base + Offset;
+    C.Stream.ReadBuffer(Buffer, Count);
+  end;
+end;
+
 function TQuakePak.AddFile(const AUrlOrFilename: String; const Original: Boolean): Boolean;
 var
-  InStream: TStream;
-  MemStream: TMemoryStream;
-  Header: TPakHeader;
-  RawEntry: TPakRawEntry;
-  Count, I: Integer;
-  EntryName: String;
-  Entry: TQuakePakEntry;
-  PakIdx: Integer;
+  Stream: TStream;
 begin
   Result := False;
   try
-    InStream := Download(AUrlOrFilename);
-    try
-      MemStream := TMemoryStream.Create;
-      MemStream.CopyFrom(InStream, InStream.Size);
-      MemStream.Position := 0;
-    finally
-      InStream.Free;
-    end;
+    Stream := OpenArchive(AUrlOrFilename);
   except
     on E: Exception do
     begin
@@ -305,76 +394,104 @@ begin
       Exit;
     end;
   end;
-  Result := AddPakStream(AUrlOrFilename, MemStream, Original);
+  Result := AddPakArchive(AUrlOrFilename, Stream, 0, Stream.Size, True, Original);
 end;
 
 function TQuakePak.AddPakStream(const Name: String; const Stream: TMemoryStream; const Original: Boolean): Boolean;
+begin
+  Result := AddPakArchive(Name, Stream, 0, Stream.Size, True, Original);
+end;
+
+{ Reads Count bytes at Offset of an archive not added yet }
+function ReadArchive(const Stream: TStream; const Base, Size, Offset: Int64; var Buffer; const Count: Int64): Boolean;
+begin
+  Result := (Offset >= 0) and (Count >= 0) and (Offset + Count <= Size);
+  if not Result or (Count = 0) then
+    Exit;
+  if Stream is TMemoryStream then
+    Move((PByte(TMemoryStream(Stream).Memory) + Base + Offset)^, Buffer, Count)
+  else
+  begin
+    Stream.Position := Base + Offset;
+    Stream.ReadBuffer(Buffer, Count);
+  end;
+end;
+
+function TQuakePak.AddPakArchive(const Name: String; const Stream: TStream; const Base, Size: Int64;
+  const OwnsStream, Original: Boolean): Boolean;
 var
-  AUrlOrFilename: String;
-  MemStream: TMemoryStream;
   Header: TPakHeader;
-  RawEntry: TPakRawEntry;
+  Dir: array of TPakRawEntry;
   Count, I: Integer;
-  EntryName: String;
   Entry: TQuakePakEntry;
   PakIdx: Integer;
-begin
-  Result := False;
-  AUrlOrFilename := Name;
-  MemStream := Stream;
-  MemStream.Position := 0;
-  if MemStream.Size < SizeOf(TPakHeader) then
+
+  procedure Fail(const Message: String);
   begin
-    WritelnWarning('QuakePak', 'PAK "%s" is too small (%d bytes)', [AUrlOrFilename, MemStream.Size]);
-    MemStream.Free;
-    Exit;
+    WritelnWarning('QuakePak', 'PAK "%s" %s', [Name, Message]);
+    if OwnsStream then
+      Stream.Free;
   end;
 
-  MemStream.ReadBuffer(Header, SizeOf(TPakHeader));
+begin
+  Result := False;
+  if not ReadArchive(Stream, Base, Size, 0, Header, SizeOf(TPakHeader)) then
+  begin
+    Fail(Format('is too small (%d bytes)', [Size]));
+    Exit;
+  end;
   if (Header.Magic[0] <> 'P') or (Header.Magic[1] <> 'A') or
      (Header.Magic[2] <> 'C') or (Header.Magic[3] <> 'K') then
   begin
-    WritelnWarning('QuakePak', 'PAK "%s" has invalid magic (not "PACK")', [AUrlOrFilename]);
-    MemStream.Free;
+    Fail('has invalid magic (not "PACK")');
     Exit;
   end;
-
   Count := Header.DirLength div SizeOf(TPakRawEntry);
-  if (Header.DirOffset + Header.DirLength > Cardinal(MemStream.Size)) or
-     (Header.DirLength mod SizeOf(TPakRawEntry) <> 0) then
+  Dir := nil;
+  SetLength(Dir, Count);
+  if (Int64(Header.DirOffset) + Header.DirLength > Size) or
+     (Header.DirLength mod SizeOf(TPakRawEntry) <> 0) or
+     not ReadArchive(Stream, Base, Size, Header.DirOffset, Pointer(Dir)^, Int64(Count) * SizeOf(TPakRawEntry)) then
   begin
-    WritelnWarning('QuakePak', 'PAK "%s" has invalid directory header', [AUrlOrFilename]);
-    MemStream.Free;
+    Fail('has invalid directory header');
     Exit;
   end;
 
-  PakIdx := AddContainer(AUrlOrFilename, MemStream, Original);
-
-  MemStream.Position := Header.DirOffset;
+  PakIdx := AddContainer(Name, Stream, Base, Size, OwnsStream, Original);
   for I := 0 to Count - 1 do
   begin
-    MemStream.ReadBuffer(RawEntry, SizeOf(TPakRawEntry));
-    EntryName := NormalizePath(PAnsiChar(@RawEntry.Name[0]));
     Entry := Default(TQuakePakEntry);
-    Entry.Path := EntryName;
-    Entry.Offset := RawEntry.Offset;
-    Entry.Size := RawEntry.Size;
+    Entry.Path := NormalizePath(PAnsiChar(@Dir[I].Name[0]));
+    Entry.Offset := Dir[I].Offset;
+    Entry.Size := Dir[I].Size;
     Entry.PakIndex := PakIdx;
     Entry.Kind := pekPak;
     AddEntry(Entry);
   end;
 
-  WritelnLog('QuakePak', 'Loaded PAK "%s": %d files (total indexed: %d)',
-    [AUrlOrFilename, Count, FEntries.Count]);
+  if Stream is TMemoryStream then
+    WritelnLog('QuakePak', 'Loaded PAK "%s": %d files (total indexed: %d)',
+      [Name, Count, FEntries.Count])
+  else
+    WritelnLog('QuakePak', 'Loaded PAK "%s": %d files (total indexed: %d), read from disk',
+      [Name, Count, FEntries.Count]);
   Result := True;
 end;
 
-function TQuakePak.AddContainer(const Name: String; const Stream: TMemoryStream; const Original: Boolean): Integer;
+function TQuakePak.AddContainer(const Name: String; const Stream: TStream; const Base, Size: Int64;
+  const OwnsStream, Original: Boolean): Integer;
+var
+  C: TQuakePakContainer;
 begin
-  Result := FStreams.Count;
-  FStreams.Add(Stream);
-  FFilenames.Add(Name);
-  FOriginal.Add(Original);
+  C := TQuakePakContainer.Create;
+  C.Name := Name;
+  C.Stream := Stream;
+  C.Base := Base;
+  C.Size := Size;
+  C.OwnsStream := OwnsStream;
+  C.Original := Original;
+  C.Tag := FMountTag;
+  Result := FContainers.Add(C);
 end;
 
 procedure TQuakePak.AddEntry(const Entry: TQuakePakEntry);
@@ -471,27 +588,20 @@ end;
 
 function TQuakePak.AddPk3(const AUrlOrFilename, Mapping, GameDir: String): Boolean;
 var
-  InStream: TStream;
-  MemStream: TMemoryStream;
+  Stream: TStream;
+  Size, TailStart, Pos, Count: Int64;
+  Tail, CentralDir: array of Byte;
   EndDir: TZipEndOfCentralDir;
   Central: TZipCentralHeader;
-  Pos, Count, Idx: Int64;
   { An Integer: a 32-bit CPU (Android arm) has no Int64 for loops; the
     entry count is 16-bit anyway }
-  I: Integer;
+  I, Idx: Integer;
   Name, Mapped: String;
   Entry: TQuakePakEntry;
-  Base: PByte;
 begin
   Result := False;
   try
-    InStream := Download(AUrlOrFilename);
-    try
-      MemStream := TMemoryStream.Create;
-      MemStream.CopyFrom(InStream, InStream.Size);
-    finally
-      InStream.Free;
-    end;
+    Stream := OpenArchive(AUrlOrFilename);
   except
     on E: Exception do
     begin
@@ -499,40 +609,52 @@ begin
       Exit;
     end;
   end;
-  Base := PByte(MemStream.Memory);
+  Size := Stream.Size;
 
-  { The end of central directory record, before an optional comment }
-  Pos := MemStream.Size - SizeOf(TZipEndOfCentralDir);
-  while (Pos >= 0) and (Pos >= MemStream.Size - SizeOf(TZipEndOfCentralDir) - 65535) and
-        (PLongWord(Base + Pos)^ <> $06054b50) do
-    Dec(Pos);
+  { The end of central directory record, before an optional comment, in
+    the last 64 KB }
+  TailStart := Max(Int64(0), Size - SizeOf(TZipEndOfCentralDir) - 65535);
+  Tail := nil;
+  SetLength(Tail, Size - TailStart);
+  Pos := -1;
+  if (Size >= SizeOf(TZipEndOfCentralDir)) and
+     ReadArchive(Stream, 0, Size, TailStart, Pointer(Tail)^, Length(Tail)) then
+  begin
+    Pos := Length(Tail) - SizeOf(TZipEndOfCentralDir);
+    while (Pos >= 0) and (PLongWord(@Tail[Pos])^ <> $06054b50) do
+      Dec(Pos);
+  end;
   if Pos < 0 then
   begin
     WritelnWarning('QuakePak', 'PK3 "%s" is not a zip archive', [AUrlOrFilename]);
-    MemStream.Free;
+    Stream.Free;
     Exit;
   end;
-  Move((Base + Pos)^, EndDir, SizeOf(EndDir));
-  if Int64(EndDir.CentralDirOffset) + EndDir.CentralDirSize > Pos then
+  Move(Tail[Pos], EndDir, SizeOf(EndDir));
+  Tail := nil;
+  CentralDir := nil;
+  SetLength(CentralDir, EndDir.CentralDirSize);
+  if (Int64(EndDir.CentralDirOffset) + EndDir.CentralDirSize > TailStart + Pos) or
+     not ReadArchive(Stream, 0, Size, EndDir.CentralDirOffset, Pointer(CentralDir)^, Length(CentralDir)) then
   begin
     WritelnWarning('QuakePak', 'PK3 "%s" has a broken central directory', [AUrlOrFilename]);
-    MemStream.Free;
+    Stream.Free;
     Exit;
   end;
 
-  Idx := AddContainer(AUrlOrFilename, MemStream, False);
+  Idx := AddContainer(AUrlOrFilename, Stream, 0, Size, True, False);
   Count := 0;
-  Pos := EndDir.CentralDirOffset;
+  Pos := 0;
   for I := 0 to EndDir.EntriesTotal - 1 do
   begin
-    if Pos + SizeOf(Central) > MemStream.Size then
+    if Pos + SizeOf(Central) > Length(CentralDir) then
       Break;
-    Move((Base + Pos)^, Central, SizeOf(Central));
-    if (Central.Signature <> $02014b50) or (Pos + SizeOf(Central) + Central.NameLength > MemStream.Size) then
+    Move(CentralDir[Pos], Central, SizeOf(Central));
+    if (Central.Signature <> $02014b50) or (Pos + SizeOf(Central) + Central.NameLength > Length(CentralDir)) then
       Break;
     SetLength(Name, Central.NameLength);
     if Central.NameLength > 0 then
-      Move((Base + Pos + SizeOf(Central))^, Name[1], Central.NameLength);
+      Move(CentralDir[Pos + SizeOf(Central)], Name[1], Central.NameLength);
     Inc(Pos, SizeOf(Central) + Central.NameLength + Central.ExtraLength + Central.CommentLength);
     { Directories end with a slash; only stored and deflated files }
     if (Name = '') or (Name[Length(Name)] = '/') then
@@ -561,9 +683,157 @@ begin
     AddEntry(Entry);
     Inc(Count);
   end;
-  WritelnLog('QuakePak', 'Loaded PK3 "%s": %d files (total indexed: %d)',
-    [AUrlOrFilename, Count, FEntries.Count]);
+  if Stream is TMemoryStream then
+    WritelnLog('QuakePak', 'Loaded PK3 "%s": %d files (total indexed: %d)',
+      [AUrlOrFilename, Count, FEntries.Count])
+  else
+    WritelnLog('QuakePak', 'Loaded PK3 "%s": %d files (total indexed: %d), read from disk',
+      [AUrlOrFilename, Count, FEntries.Count]);
   Result := True;
+end;
+
+{ Where a zip entry's data starts (after its local header), -1 when broken }
+function ZipDataOffset(const Pak: TQuakePak; const Entry: TQuakePakEntry): Int64; forward;
+
+function TQuakePak.AddPakFile(const Name, FileName: String): Boolean;
+var
+  Stream: TStream;
+begin
+  Result := False;
+  try
+    Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+  except
+    on E: Exception do
+    begin
+      WritelnWarning('QuakePak', 'Failed to open "%s": %s', [FileName, E.Message]);
+      Exit;
+    end;
+  end;
+  Result := AddPakArchive(Name, Stream, 0, Stream.Size, True, False);
+end;
+
+function TQuakePak.AddPakFromArchive(const Name, InnerPath, CacheFile: String): Boolean;
+var
+  Entry: TQuakePakEntry;
+  C: TQuakePakContainer;
+  DataPos: Int64;
+  Data: TMemoryStream;
+  Info: TSearchRec;
+  Fresh: Boolean;
+begin
+  Result := False;
+  if not FindEntry(InnerPath, Entry) then
+    Exit;
+  C := FContainers[Entry.PakIndex];
+  { Stored in an archive read from disk: a window into its stream }
+  if (Entry.Kind = pekZip) and (Entry.Method = 0) and (C.Stream <> nil) and not (C.Stream is TMemoryStream) then
+  begin
+    DataPos := ZipDataOffset(Self, Entry);
+    if DataPos >= 0 then
+      Exit(AddPakArchive(Name, C.Stream, C.Base + DataPos, Entry.Size, False, False));
+  end;
+  if (Entry.Kind = pekFile) and (Entry.DiskPath <> '') then
+    Exit(AddPakFile(Name, Entry.DiskPath));
+  { Deflated: unpacked to a file once, then read from it }
+  if (CacheFile <> '') and (C.Stream <> nil) and not (C.Stream is TMemoryStream) then
+  begin
+    Fresh := (FindFirst(CacheFile, faAnyFile, Info) = 0) and (Info.Size = Entry.Size);
+    FindClose(Info);
+    if not Fresh then
+    begin
+      Data := GetStream(InnerPath);
+      if Data = nil then
+        Exit;
+      try
+        Data.SaveToFile(CacheFile);
+      finally
+        Data.Free;
+      end;
+      WritelnLog('QuakePak', 'Unpacked "%s" to "%s" (%d bytes)', [InnerPath, CacheFile, Entry.Size]);
+    end;
+    Exit(AddPakFile(Name, CacheFile));
+  end;
+  Data := GetStream(InnerPath);
+  if Data <> nil then
+    Result := AddPakStream(Name, Data);
+end;
+
+function TQuakePak.Unmount(const Tag: String): Integer;
+var
+  I, J, Best: Integer;
+  Gone: array of Boolean;
+  Path: String;
+begin
+  Result := 0;
+  if Tag = '' then
+    Exit;
+  Gone := nil;
+  SetLength(Gone, FContainers.Count);
+  for I := 0 to FContainers.Count - 1 do
+    if not FContainers[I].Removed and (FContainers[I].Tag = Tag) then
+    begin
+      Gone[I] := True;
+      Inc(Result);
+    end;
+  if Result = 0 then
+    Exit;
+  { The files of the archives that go: the top one below them comes back }
+  for I := FEntries.Count - 1 downto 0 do
+    if Gone[FEntries[I].PakIndex] then
+    begin
+      Path := FEntries[I].Path;
+      FDataCache.Remove(Path);
+      Best := -1;
+      for J := 0 to FShadowed.Count - 1 do
+        if (FShadowed[J].Path = Path) and not Gone[FShadowed[J].PakIndex] and
+           ((Best < 0) or (FShadowed[J].PakIndex >= FShadowed[Best].PakIndex)) then
+          Best := J;
+      if Best >= 0 then
+      begin
+        FEntries[I] := FShadowed[Best];
+        FShadowed.Delete(Best);
+      end else
+        FEntries.Delete(I);
+    end;
+  for J := FShadowed.Count - 1 downto 0 do
+    if Gone[FShadowed[J].PakIndex] then
+      FShadowed.Delete(J);
+  { Windows into a zip's stream go before the zip that owns it (slots stay,
+    so the other entries keep their indexes) }
+  for I := FContainers.Count - 1 downto 0 do
+    if Gone[I] then
+    begin
+      if FContainers[I].OwnsStream then
+        FreeAndNil(FContainers[I].Stream)
+      else
+        FContainers[I].Stream := nil;
+      FContainers[I].Removed := True;
+      FContainers[I].Tag := '';
+    end;
+  WritelnLog('QuakePak', 'Unmounted "%s": %d archives (total indexed: %d)', [Tag, Result, FEntries.Count]);
+end;
+
+function TQuakePak.MemoryBytes: Int64;
+var
+  C: TQuakePakContainer;
+  Cached: TMemoryStream;
+begin
+  Result := 0;
+  for C in FContainers do
+    if (C.Stream is TMemoryStream) and C.OwnsStream then
+      Inc(Result, C.Stream.Size);
+  for Cached in FDataCache.Values do
+    Inc(Result, Cached.Size);
+end;
+
+function TQuakePak.DiskArchives: Integer;
+var
+  C: TQuakePakContainer;
+begin
+  Result := 0;
+  for C in FContainers do
+    if (C.Stream <> nil) and not (C.Stream is TMemoryStream) then
+      Inc(Result);
 end;
 
 function TQuakePak.AddDirectory(const Dir: String): Integer;
@@ -611,7 +881,7 @@ begin
   Root := IncludeTrailingPathDelimiter(Dir);
   if not DirectoryExists(Root) then
     Exit;
-  Idx := AddContainer(Root, nil, False);
+  Idx := AddContainer(Root, nil, 0, 0, False, False);
   Scan('');
   if Result > 0 then
     WritelnLog('QuakePak', 'Loaded %d loose files from "%s" (total indexed: %d)',
@@ -626,15 +896,23 @@ begin
   Entry.Path := NormalizePath(APath);
   Entry.Offset := 0;
   Entry.Size := Stream.Size;
-  Entry.PakIndex := AddContainer(Entry.Path, Stream, False);
+  Entry.PakIndex := AddContainer(Entry.Path, Stream, 0, Stream.Size, True, False);
   Entry.Kind := pekPak;
   AddEntry(Entry);
 end;
 
+function ZipDataOffset(const Pak: TQuakePak; const Entry: TQuakePakEntry): Int64;
+var
+  Local: TZipLocalHeader;
+begin
+  Result := -1;
+  if not Pak.ReadAt(Entry.PakIndex, Entry.Offset, Local, SizeOf(Local)) or (Local.Signature <> $04034b50) then
+    Exit;
+  Result := Int64(Entry.Offset) + SizeOf(Local) + Local.NameLength + Local.ExtraLength;
+end;
+
 function TQuakePak.ReadEntry(const Entry: TQuakePakEntry): TMemoryStream;
 var
-  Src: TMemoryStream;
-  Local: TZipLocalHeader;
   DataPos: Int64;
   Deflated: TMemoryStream;
   Inflater: TDecompressionStream;
@@ -650,39 +928,33 @@ begin
       end;
     pekPak:
       begin
-        Src := FStreams[Entry.PakIndex];
-        if Int64(Entry.Offset) + Entry.Size > Src.Size then
-          Exit;
         Result := TMemoryStream.Create;
         Result.Size := Entry.Size;
-        if Entry.Size > 0 then
-          Move((PByte(Src.Memory) + Entry.Offset)^, Result.Memory^, Entry.Size);
+        if not ReadAt(Entry.PakIndex, Entry.Offset, Result.Memory^, Entry.Size) then
+          FreeAndNil(Result);
       end;
     pekZip:
       begin
-        Src := FStreams[Entry.PakIndex];
-        if Int64(Entry.Offset) + SizeOf(Local) > Src.Size then
-          Exit;
-        Move((PByte(Src.Memory) + Entry.Offset)^, Local, SizeOf(Local));
-        if Local.Signature <> $04034b50 then
-          Exit;
-        DataPos := Int64(Entry.Offset) + SizeOf(Local) + Local.NameLength + Local.ExtraLength;
-        if DataPos + Entry.CompressedSize > Src.Size then
+        DataPos := ZipDataOffset(Self, Entry);
+        if DataPos < 0 then
           Exit;
         Result := TMemoryStream.Create;
         if Entry.Method = 0 then
         begin
           Result.Size := Entry.Size;
-          if Entry.Size > 0 then
-            Move((PByte(Src.Memory) + DataPos)^, Result.Memory^, Entry.Size);
+          if not ReadAt(Entry.PakIndex, DataPos, Result.Memory^, Entry.Size) then
+            FreeAndNil(Result);
         end else
         begin
           { Raw deflate (no zlib header) }
           Deflated := TMemoryStream.Create;
           try
             Deflated.Size := Entry.CompressedSize;
-            if Entry.CompressedSize > 0 then
-              Move((PByte(Src.Memory) + DataPos)^, Deflated.Memory^, Entry.CompressedSize);
+            if not ReadAt(Entry.PakIndex, DataPos, Deflated.Memory^, Entry.CompressedSize) then
+            begin
+              FreeAndNil(Result);
+              Exit;
+            end;
             Deflated.Position := 0;
             Inflater := TDecompressionStream.Create(Deflated, True);
             try
@@ -737,11 +1009,11 @@ begin
   if not Result then
     Exit;
   Entry := FEntries[Idx];
-  if not FPreferOriginal or FOriginal[Entry.PakIndex] then
+  if not FPreferOriginal or IsOriginal(Entry.PakIndex) then
     Exit;
   Target := Entry.Path;
   for I := FShadowed.Count - 1 downto 0 do
-    if (FShadowed[I].Path = Target) and FOriginal[FShadowed[I].PakIndex] then
+    if (FShadowed[I].Path = Target) and IsOriginal(FShadowed[I].PakIndex) then
     begin
       Entry := FShadowed[I];
       Exit;
@@ -761,11 +1033,11 @@ begin
   Idx := FindEntryIndex(APath);
   if Idx < 0 then
     Exit(False);
-  if FOriginal[FEntries[Idx].PakIndex] then
+  if IsOriginal(FEntries[Idx].PakIndex) then
     Exit(True);
   Target := FEntries[Idx].Path;
   for I := 0 to FShadowed.Count - 1 do
-    if (FShadowed[I].Path = Target) and FOriginal[FShadowed[I].PakIndex] then
+    if (FShadowed[I].Path = Target) and IsOriginal(FShadowed[I].PakIndex) then
       Exit(True);
   Result := False;
 end;
@@ -780,11 +1052,29 @@ begin
     ((Entry.PakIndex <> FEntries[Idx].PakIndex) or (Entry.Offset <> FEntries[Idx].Offset));
 end;
 
+function TQuakePak.VariantTag(const APath: String): String;
+var
+  Idx: Integer;
+begin
+  Result := '';
+  if UsesOriginalCopy(APath) then
+    Exit('original');
+  Idx := FindEntryIndex(APath);
+  if Idx >= 0 then
+    Result := FContainers[FEntries[Idx].PakIndex].Tag;
+end;
+
 function TQuakePak.VariantPath(const APath: String): String;
+var
+  Tag: String;
 begin
   Result := NormalizePath(APath);
-  if UsesOriginalCopy(Result) then
-    Result := OriginalPathMarker + Result;
+  Tag := VariantTag(Result);
+  if Tag = 'original' then
+    Result := OriginalPathMarker + Result
+  else
+  if Tag <> '' then
+    Result := '@' + Tag + '/' + Result;
 end;
 
 function TQuakePak.GetStream(const APath: String): TMemoryStream;
@@ -810,24 +1100,26 @@ end;
 function TQuakePak.GetData(const APath: String; out ASize: Cardinal): Pointer;
 var
   Entry: TQuakePakEntry;
-  Src, Cached: TMemoryStream;
+  Cached: TMemoryStream;
+  C: TQuakePakContainer;
 begin
   ASize := 0;
   Result := nil;
   if not FindEntry(APath, Entry) then
     Exit;
 
-  if Entry.Kind = pekPak then
+  { A pak in memory hands out its own bytes }
+  C := FContainers[Entry.PakIndex];
+  if (Entry.Kind = pekPak) and (C.Stream is TMemoryStream) then
   begin
-    Src := FStreams[Entry.PakIndex];
-    if Int64(Entry.Offset) + Entry.Size > Src.Size then
+    if Int64(Entry.Offset) + Entry.Size > C.Size then
       Exit;
     ASize := Entry.Size;
-    Result := PByte(Src.Memory) + Entry.Offset;
+    Result := PByte(TMemoryStream(C.Stream).Memory) + C.Base + Entry.Offset;
     Exit;
   end;
 
-  { Zip entries and loose files are unpacked once and kept }
+  { Zip entries, loose files and paks read from disk are unpacked once and kept }
   if not FDataCache.TryGetValue(Entry.Path, Cached) then
   begin
     Cached := GetStream(Entry.Path);

@@ -403,7 +403,8 @@ end;
 { The horde ended with the player's death: the score against the best one
   of the map (user config horde/<map>/...) }
 { The map browser from the console: maps lists, maps_install downloads (the
-  log says when it is installed), maps_play mounts and plays, maps_remove }
+  log says when it is installed), maps_play mounts and plays, maps_mount
+  only mounts, maps_remove }
 procedure TViewPlay.MapBrowserCommand(const Cmd, Args: String);
 var
   Words: TStringList;
@@ -467,6 +468,15 @@ begin
     begin
       MapBrowser.Remove(Index);
       FConsole.Print(MapBrowser.Status);
+    end else
+    if Cmd = 'maps_mount' then
+    begin
+      { Only mounts it (and unmounts what it does not need) }
+      if MapBrowser.Mount(Index) then
+        FConsole.Print('Mounted: ' + MapBrowser.MountedIds)
+      else
+        FConsole.Print(MapBrowser[Index].Title + ' is not installed');
+      WritelnLog('MapBrowser', 'Mounted now: %s (game directory %s)', [MapBrowser.MountedIds, QuakePak.GameDir]);
     end else
     begin
       if not MapBrowser.Mount(Index) then
@@ -1637,7 +1647,8 @@ begin
   if (Cmd = 'photo_fov') or (Cmd = 'photo_effect') or (Cmd = 'photo_scale') or (Cmd = 'photo_shot') then
     FConsole.Print(FPhoto.Command(Cmd, Args, PhotoPrefix))
   else
-  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') then
+  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') or
+     (Cmd = 'maps_mount') then
     MapBrowserCommand(Cmd, Args)
   else
   if Cmd = 'killall' then

@@ -155,6 +155,10 @@ def prepare_mapbrowser(out_dir):
     mod_zip = os.path.join(site, 'qmod.zip')
     with zipfile.ZipFile(mod_zip, 'w', zipfile.ZIP_DEFLATED) as z:
         z.write(pak_path, 'pak0.pak')
+        # A second pak stored (not deflated): read in place from the zip
+        pak1_path = os.path.join(out_dir, 'qmod_pak1.pak')
+        bsp2convert.write_pak(pak1_path, [('maps/qmod2.bsp', data)])
+        z.write(pak1_path, 'pak1.pak', compress_type=zipfile.ZIP_STORED)
         z.writestr('qmod_readme.txt', 'A test mod for the map browser scenario\n')
     map_zip = os.path.join(site, 'qmodmap.zip')
     with zipfile.ZipFile(map_zip, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -172,7 +176,7 @@ def prepare_mapbrowser(out_dir):
                            'small', 'singleplayer', 'qtest1', 'qtest/>id1/maps/', url]) + '\n')
         f.write('\t'.join(['qmod', releases['qmod'][0], releases['qmod'][1], 'Test Mod', 'Scenarios',
                            '2026-10-17', '', 'small', 'mod,singleplayer', 'qmod1', '>qmod/', releases['qmod'][2],
-                           'qmod', '', 'pak0.pak']) + '\n')
+                           'qmod', '', 'pak0.pak,pak1.pak']) + '\n')
         f.write('\t'.join(['qmodmap', releases['qmodmap'][0], releases['qmodmap'][1], 'Test Mod Map', 'Scenarios',
                            '2026-10-16', '', 'small', 'mod,singleplayer', 'qmodmap', 'qmodmap/>qmod/maps/',
                            releases['qmodmap'][2], 'qmod', 'qmod', '']) + '\n')
@@ -217,6 +221,27 @@ def check_mapbrowser(logs):
                    'the mod\'s map plays in QuakeC mode'))
     result.append(('Saved screenshot' in mod and 'edicts' in mod.split('Playing "qmodmap"')[-1],
                    'the QuakeC view goes on with the script'))
+    result.append((re.search(r'Loaded PK3 "[^"]*quaddicted_qmod\.zip": \d+ files \(total indexed: \d+\), read from disk',
+                             mod) is not None, 'the mod\'s zip is read from disk'))
+    result.append(('Unpacked "pak0.pak"' in mod and re.search(r'Loaded PAK "qmod:pak0\.pak": 1 files .*read from disk',
+                                                              mod) is not None,
+                   'the mod\'s deflated pak is unpacked to a file and read from there'))
+    result.append((re.search(r'Loaded PAK "qmod:pak1\.pak": 1 files .*read from disk', mod) is not None,
+                   'the mod\'s stored pak is read in place from its zip'))
+    # Before it plays: mounting another release unmounts the ones it does not need
+    result.append((mod.count('Unpacked "pak0.pak"') == 1 and mod.count('Loaded PAK "qmod:pak0.pak"') == 2,
+                   'the unpacked pak is used again when the mod mounts again'))
+    result.append(('Mounted now: qmod, qmodmap (game directory qmod)' in mod, 'the map mounts with its mod'))
+    i = mod.find('Mounted now: qmod (game directory qmod)')
+    result.append((i > 0 and 'Unmounted "qmodmap"' in mod[:i] and 'Unmounted "qmod"' not in mod[:i],
+                   'mounting the mod alone unmounts its map, not the mod'))
+    v = views(mod)
+    j = mod.find('Map "qtest" removed')
+    result.append((0 < mod.find('Unmounted "qmod"') < j and len(v) >= 1 and v[0]['map'] == 'qtest1',
+                   'playing a map of id1 unmounts the mod'))
+    m = re.search(r'Unmounted "qmod": (\d+) archives', mod)
+    result.append((m is not None and m.group(1) == '3', 'the mod\'s zip and its two paks go (%s)' %
+                   (m.group(1) if m else '-')))
     return result
 
 
@@ -1156,7 +1181,9 @@ SCENARIOS = [
                                         'CMD:maps_remove qtest,CMD:maps installed,Q'], 0),
                             ('mod', ['-mapcatalog', '{out}/maps.txt', '--autotest', 'e1m1', '{out}/mod', '--demo',
                                      'W:0.5,CMD:maps_remove qmodmap,CMD:maps_remove qmod,CMD:maps_install qmodmap,'
-                                     'W:4,CMD:maps installed,CMD:maps_play qmodmap,W:2,S,Q'], 40)],
+                                     'W:4,CMD:maps installed,CMD:maps_install qtest,W:3,CMD:maps_mount qmodmap,'
+                                     'CMD:maps_mount qmod,CMD:maps_play qtest,W:1.5,S,CMD:maps_remove qtest,'
+                                     'CMD:maps_play qmodmap,W:2,S,Q'], 40)],
              check_mapbrowser, [], prepare=prepare_mapbrowser),
     # Photo mode: E1M1 paused while the camera flies off, a depth of field
     # photo at twice the window size and a grayscale one at fov 60, the
