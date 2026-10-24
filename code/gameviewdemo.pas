@@ -2117,7 +2117,6 @@ begin
       FDemo.AngleFixed := False;
     end;
     FDemo.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
-    FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
     UpdateGamepad(PlayerOne);
     if AutoTestPrefix = '' then
       GamepadTurnCamera(FViewport.Camera, SecondsPassed, PlayerOne);
@@ -2126,6 +2125,9 @@ begin
       ReconcilePrediction;
       SendInput(SecondsPassed);
     end;
+    { A script's jump and fire count down after an input took them, so a
+      slow frame does not lose them }
+    FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
     FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
     if FDemo.FragsChanged then
     begin

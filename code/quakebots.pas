@@ -13,7 +13,12 @@
   (Dijkstra). It fights the nearest player it can see: it turns toward
   him with a reaction delay and an aiming error, strafes, keeps its
   distance, picks the weapon for the range and fires when its aim is
-  close. A bot that does not get anywhere jumps and takes another goal. }
+  close. A bot that does not get anywhere jumps and takes another goal.
+
+  Coop: a bot fights the monsters it sees instead of the players, follows
+  the nearest human player when it is more than FollowDistance away (else
+  takes the items near him), and one left far behind for a while catches
+  up: it is put at a spot near the player that he does not see. }
 unit QuakeBots;
 
 {$mode objfpc}{$H+}
@@ -58,6 +63,10 @@ type
     { Goals that could not be reached, and until when they are left alone }
     Avoid: array of Integer;
     AvoidUntil: array of Single;
+    { Coop: the player it follows (0: none) and how long it has been far
+      behind him }
+    Leader: Integer;
+    FarTime: Single;
   end;
 
   TQuakeBots = class
@@ -77,6 +86,11 @@ type
     procedure ChooseGoal(var B: TQuakeBot);
     procedure UpdateBot(var B: TQuakeBot; const Dt: Single);
     function BestWeaponImpulse(const E: Integer; const Dist: Single): Integer;
+    function IsBot(const E: Integer): Boolean;
+    { Coop: the nearest human player alive (0: none) }
+    function NearestHuman(const Org: TVector3): Integer;
+    { Coop: put the bot near its leader, where he does not see it }
+    procedure CatchUp(var B: TQuakeBot);
   public
     { Skill 0..3: reaction time and aiming error }
     Skill: Integer;
@@ -101,6 +115,11 @@ const
   NavMaxNodes = 8000;
   NavMaxDrop = 240;
   MoveSpeed = 320;
+  { Coop: a bot farther than this from its leader goes to him }
+  FollowDistance = 350;
+  { ... and one this far for this long catches up }
+  CatchUpDistance = 1500;
+  CatchUpTime = 8.0;
 
 function HorizontalDistance(const A, B: TVector3): Single;
 begin
@@ -235,7 +254,7 @@ begin
     for Ent in Bsp.Entities do
     begin
       CName := LowerCase(Ent.ClassName);
-      if ((CName = 'info_player_deathmatch') or (CName = 'info_player_start') or
+      if ((CName = 'info_player_deathmatch') or (CName = 'info_player_start') or (CName = 'info_player_coop') or
          (Pos('item_', CName) = 1) or (Pos('weapon_', CName) = 1)) and
          Settle(Ent.Origin + Vector3(0, 0, 24), S) then
         AddNode(S);
@@ -424,14 +443,79 @@ begin
   B.GoalEdict := 0;
 end;
 
+function TQuakeBots.IsBot(const E: Integer): Boolean;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FBots) do
+    if FBots[I].E = E then
+      Exit(True);
+  Result := False;
+end;
+
+function TQuakeBots.NearestHuman(const Org: TVector3): Integer;
+var
+  O: Integer;
+  D, BestD: Single;
+begin
+  Result := 0;
+  BestD := MaxSingle;
+  for O := 1 to FGame.MaxClients do
+    if FGame.ClientActive(O) and not IsBot(O) and not FGame.PlayerDead(O) then
+    begin
+      D := (FGame.EntityOrigin(O) - Org).Length;
+      if D < BestD then
+      begin
+        BestD := D;
+        Result := O;
+      end;
+    end;
+end;
+
+procedure TQuakeBots.CatchUp(var B: TQuakeBot);
+var
+  I, Best: Integer;
+  LeaderOrg, LeaderEye: TVector3;
+  D, BestD: Single;
+begin
+  if (B.Leader <= 0) or (Length(FNodes) = 0) then
+    Exit;
+  LeaderOrg := FGame.EntityOrigin(B.Leader);
+  LeaderEye := LeaderOrg + Vector3(0, 0, 22);
+  { The nearest spot 96 to 600 units from him that he does not see, else the nearest }
+  Best := -1;
+  BestD := MaxSingle;
+  for I := 0 to High(FNodes) do
+  begin
+    D := (FNodes[I].Pos - LeaderOrg).Length;
+    if (D >= 96) and (D < 600) and (D < BestD) and not Visible(LeaderEye, FNodes[I].Pos + Vector3(0, 0, 16)) then
+    begin
+      BestD := D;
+      Best := I;
+    end;
+  end;
+  if Best < 0 then
+    Best := NearestNode(LeaderOrg);
+  if Best < 0 then
+    Exit;
+  FGame.TeleportEntity(B.E, FNodes[Best].Pos);
+  WritelnLog('Bots', 'Bot "%s" catches up with %s (%.0f units from him)',
+    [B.Name, FGame.ClientName(B.Leader), (FNodes[Best].Pos - LeaderOrg).Length]);
+  B.FarTime := 0;
+  B.Path := nil;
+  B.Repath := 0;
+  B.LastPos := FNodes[Best].Pos;
+end;
+
 { What the bot wants most: a weapon it lacks, health when hurt, armor,
-  ammo for its weapons, by worth over distance; else somewhere at random }
+  ammo for its weapons, by worth over distance; else somewhere at random.
+  Coop: its leader when it is far from him, else the items near him }
 procedure TQuakeBots.ChooseGoal(var B: TQuakeBot);
 var
   E, Best, FromNode, ToNode, Tries: Integer;
   CName: String;
   Worth, Score, BestScore, Dist: Single;
-  Org, P: TVector3;
+  Org, P, LeaderOrg: TVector3;
   Items, Health: Cardinal;
   Path: TIntegerArray;
 begin
@@ -439,6 +523,26 @@ begin
   B.GoalEdict := 0;
   B.GoalName := '';
   Org := FGame.EntityOrigin(B.E);
+  if FGame.Coop <> 0 then
+  begin
+    B.Leader := NearestHuman(Org);
+    if B.Leader > 0 then
+    begin
+      LeaderOrg := FGame.EntityOrigin(B.Leader);
+      if (LeaderOrg - Org).Length > FollowDistance then
+      begin
+        { He moves: look again soon }
+        B.Repath := 1.5;
+        B.GoalName := 'follow ' + FGame.ClientName(B.Leader);
+        B.Path := nil;
+        B.PathPos := 0;
+        if FindPath(NearestNode(Org), NearestNode(LeaderOrg), Path) then
+          B.Path := Path;
+        Exit;
+      end;
+    end;
+  end else
+    B.Leader := 0;
   Items := FGame.PlayerItems(B.E);
   Health := Max(0, FGame.PlayerHealth(B.E));
   Best := 0;
@@ -473,6 +577,9 @@ begin
       Worth := 70;
     if Worth <= 0 then
       Continue;
+    { Coop: only what is near the leader, he leads }
+    if (B.Leader > 0) and ((FGame.EntityOrigin(E) - FGame.EntityOrigin(B.Leader)).Length > FollowDistance * 2) then
+      Continue;
     Dist := (FGame.EntityOrigin(E) - Org).Length;
     Score := Worth / (200 + Dist);
     if Score > BestScore then
@@ -497,6 +604,13 @@ begin
       Exit;
     end;
     AvoidGoal(B);
+  end;
+  { Coop: near the leader with nothing to take, wait there }
+  if B.Leader > 0 then
+  begin
+    B.GoalName := 'stay near ' + FGame.ClientName(B.Leader);
+    B.Repath := 1;
+    Exit;
   end;
   { Somewhere at random that can be reached }
   B.GoalName := 'roam';
@@ -566,9 +680,24 @@ begin
   Moved := HorizontalDistance(Org, B.LastPos);
   B.Travelled := B.Travelled + Moved;
 
-  { The nearest player in sight }
+  { The nearest player in sight (coop: the nearest monster) }
   BestEnemy := 0;
   BestD := 2500;
+  if FGame.Coop <> 0 then
+  begin
+    BestD := 1500;
+    for O := FGame.MaxClients + 1 to FGame.EdictCount - 1 do
+      if FGame.EntityIsLiveMonster(O) then
+      begin
+        EnemyPos := FGame.EntityOrigin(O) + Vector3(0, 0, 8);
+        D := (EnemyPos - Eye).Length;
+        if (D < BestD) and Visible(Eye, EnemyPos) then
+        begin
+          BestD := D;
+          BestEnemy := O;
+        end;
+      end;
+  end else
   for O := 1 to FGame.MaxClients do
     if (O <> B.E) and FGame.ClientActive(O) and not FGame.PlayerDead(O) then
     begin
@@ -580,8 +709,24 @@ begin
         BestEnemy := O;
       end;
     end;
+  { Coop: left far behind its leader for a while, it catches up }
+  if (FGame.Coop <> 0) and (B.Leader > 0) and FGame.ClientActive(B.Leader) then
+  begin
+    if (FGame.EntityOrigin(B.Leader) - Org).Length > CatchUpDistance then
+      B.FarTime := B.FarTime + Dt
+    else
+      B.FarTime := 0;
+    if B.FarTime > CatchUpTime then
+    begin
+      CatchUp(B);
+      Org := FGame.EntityOrigin(B.E);
+      Eye := Org + Vector3(0, 0, 22);
+    end;
+  end;
   if BestEnemy <> B.Enemy then
   begin
+    if (FGame.Coop <> 0) and (B.Enemy = 0) and (BestEnemy > 0) then
+      WritelnLog('Bots', 'Bot "%s" fights %s (%.0f units)', [B.Name, FGame.EntityClassName(BestEnemy), BestD]);
     B.Enemy := BestEnemy;
     B.SeenTime := 0;
   end;
@@ -605,6 +750,10 @@ begin
   begin
     if B.GoalEdict > 0 then
       Target := FGame.EntityOrigin(B.GoalEdict) + Vector3(16, 16, 24)
+    else
+    if (B.Leader > 0) and FGame.ClientActive(B.Leader) and
+       ((FGame.EntityOrigin(B.Leader) - Org).Length > FollowDistance * 0.6) then
+      Target := FGame.EntityOrigin(B.Leader)
     else
       Target := Org;
   end;
@@ -720,7 +869,7 @@ procedure TQuakeBots.Update(const SecondsPassed: Single);
 var
   I: Integer;
   Dt: Single;
-  S: String;
+  S, Lead: String;
 begin
   if (Length(FBots) = 0) or (FGame.Bsp = nil) or FGame.Intermission then
     Exit;
@@ -750,10 +899,17 @@ begin
     begin
       if S <> '' then
         S := S + ', ';
-      S := S + Format('%s %d frags (health %d, %.0f units, goal %s%s)', [FBots[I].Name,
+      Lead := '';
+      if (FGame.Coop <> 0) and (FBots[I].Leader > 0) and FGame.ClientActive(FBots[I].Leader) then
+        Lead := Format(', %.0f units from %s', [(FGame.EntityOrigin(FBots[I].Leader) -
+          FGame.EntityOrigin(FBots[I].E)).Length, FGame.ClientName(FBots[I].Leader)]);
+      S := S + Format('%s %d frags (health %d, %.0f units, goal %s%s%s)', [FBots[I].Name,
         FGame.PlayerFrags(FBots[I].E), FGame.PlayerHealth(FBots[I].E), FBots[I].Travelled, FBots[I].GoalName,
-        IfThen(FBots[I].Enemy > 0, ', fighting', '')]);
+        IfThen(FBots[I].Enemy > 0, ', fighting ' + IfThen(FGame.Coop <> 0, FGame.EntityClassName(FBots[I].Enemy), ''),
+        ''), Lead]);
     end;
+    if FGame.Coop <> 0 then
+      S := S + Format('; coop: %d of %d monsters killed', [FGame.KilledMonsters, FGame.TotalMonsters]);
     WritelnLog('Bots', S);
   end;
 end;

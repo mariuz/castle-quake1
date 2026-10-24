@@ -115,6 +115,13 @@ begin
           ViewDemo.HostCoop := True;
           ViewDemo.HostMap := Copy(Param, 7, MaxInt);
         end else
+        if Pos('coopbots:', Param) = 1 then
+        begin
+          { coopbots:<map>: coop with two bots }
+          ViewDemo.HostCoop := True;
+          ViewDemo.HostBots := 2;
+          ViewDemo.HostMap := Copy(Param, 10, MaxInt);
+        end else
         if ViewDemo.HostCoop then
           ViewDemo.HostMap := Copy(Param, 6, MaxInt)
         else if Pos('bots:', Param) = 1 then

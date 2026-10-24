@@ -774,6 +774,10 @@ msgid "Deathmatch vs 3 bots"
 msgstr ""
 
 #: code/quakemenu.pas
+msgid "Coop with 2 bots"
+msgstr ""
+
+#: code/quakemenu.pas
 msgid "Find LAN Games"
 msgstr ""
 

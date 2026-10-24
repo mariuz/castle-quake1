@@ -1063,3 +1063,6 @@ msgstr "Observar"
 
 msgid "Spectating %s (fire: next player, jump: fly)"
 msgstr "Observando a %s (disparo: siguiente jugador, salto: volar)"
+
+msgid "Coop with 2 bots"
+msgstr "Cooperativo con 2 bots"

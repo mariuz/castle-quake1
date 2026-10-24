@@ -1063,3 +1063,6 @@ msgstr "Privește"
 
 msgid "Spectating %s (fire: next player, jump: fly)"
 msgstr "Îl privești pe %s (foc: jucătorul următor, salt: zbor)"
+
+msgid "Coop with 2 bots"
+msgstr "Cooperativ cu 2 boți"

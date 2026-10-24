@@ -325,6 +325,31 @@ def check_spectate(logs):
     return result
 
 
+COOPBOT_RE = re.compile(r'(\w+) (-?\d+) frags \(health (-?\d+), (\d+) units, goal ([^,)]*)(?:, fighting [^,)]*)?'
+                        r'(?:, (\d+) units from (\w+))?\)')
+
+
+def check_coopbots(logs):
+    log = logs['cbhost']
+    result = common_checks(logs, 'cbhost')
+    result.append(('Bot "Wolf" joined' in log and 'Bot "Raven" joined' in log, 'two bots join the coop game'))
+    lines = [l for l in log.splitlines() if l.startswith('Bots: Wolf')]
+    last = COOPBOT_RE.findall(lines[-1]) if lines else []
+    result.append((len(last) == 2 and all(b[6] == 'player3' for b in last),
+                   'the bots follow the human player (%s)' % ', '.join('%s: %s' % (b[0], b[6] or '-') for b in last)))
+    result.append((len(last) == 2 and all(b[5] != '' and int(b[5]) < 1500 for b in last),
+                   'and stay with him (%s units)' % ', '.join(b[5] or '-' for b in last)))
+    fights = re.findall(r'Bot "\w+" fights (monster_\w+)', log)
+    result.append((len(fights) > 0, 'they fight the monsters (%s)' % ', '.join(sorted(set(fights)))))
+    m = re.findall(r'coop: (\d+) of (\d+) monsters killed', log)
+    result.append((bool(m) and int(m[-1][0]) >= 2, 'they kill monsters while the player stands still (%s)'
+                   % (' of '.join(m[-1]) if m else '-')))
+    shot = re.search(r'Saved screenshot to ".*cbhost_1\.png" \(signon 4, health (-?\d+)', log)
+    result.append((shot is not None and int(shot.group(1)) > 0,
+                   'the player they go with stays alive (health %s)' % (shot.group(1) if shot else '-')))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1297,6 +1322,11 @@ SCENARIOS = [
                           ('spec', ['-spectate', '--autotest', 'connect:127.0.0.1:26003', '{out}/spec', '--demo',
                                     'W:3,S,X,W:1,S,J,W:0.3,V:1;0;0,W:1,V:0;0;0,S,Q'], 3)],
              check_spectate, [], dark=('shost', 'spec')),
+    # Bots in coop: two bots on E1M3 with a player who stands still follow
+    # him, fight and kill the monsters they meet
+    Scenario('coopbots', [('cbhost', ['-coop', '-bots', '2', '--autotest', 'host:e1m3', '{out}/cbhost', '--demo',
+                                      'W:31,S,Q', '-port', '26004'], 0)],
+             check_coopbots, [], dark=('cbhost',)),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
