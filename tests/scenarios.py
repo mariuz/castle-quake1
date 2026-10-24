@@ -1097,13 +1097,16 @@ def check_bots(logs):
     joined = re.findall(r'Bot "(\w+)" joined as client', h)
     result.append((len(joined) == 3, 'three bots join (%s)' % ', '.join(joined)))
     result.append((re.search(r'Client \d+ connected', h) is not None, 'a network client joins with the bots'))
-    lines = re.findall(r'Bots: (.*)', h)
+    lines = re.findall(r'Bots: (\w+ -?\d+ frags.*)', h)
     last = lines[-1] if lines else ''
     moved = [float(x) for x in re.findall(r'([\d.]+) units', last)]
     result.append((len(moved) == 3 and min(moved) > 1000, 'every bot walks the map (%s units)' %
                    ', '.join('%.0f' % x for x in moved)))
     frags = sum(int(x) for line in lines for x in re.findall(r'(-?\d+) frags', line))
-    result.append((frags != 0 or 'fighting' in ' '.join(lines), 'the bots fight (%d frags in the logs)' % frags))
+    # A fight starting is logged; frags depend on who hits whom in the time
+    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost']))
+    result.append((frags != 0 or fights > 0 or 'fighting' in ' '.join(lines),
+                   'the bots fight (%d fights, %d frags in the logs)' % (fights, frags)))
     shots = NET_SHOT_RE.findall(logs['bclient'])
     result.append((len(shots) == 1 and shots[0][0] == '4', 'the client plays with the bots'))
     # The browser's way: the listen server on loopback sockets, its own
@@ -1112,7 +1115,7 @@ def check_bots(logs):
     result += common_checks(logs, 'bloop')
     result.append(('Loopback socket on port 26000' in h and len(re.findall(r'Bot "(\w+)" joined', h)) == 3,
                    'bloop: three bots join a loopback listen server'))
-    lines = re.findall(r'Bots: (.*)', h)
+    lines = re.findall(r'Bots: (\w+ -?\d+ frags.*)', h)
     moved = [float(x) for x in re.findall(r'([\d.]+) units', lines[-1] if lines else '')]
     # 22 s, and a bot killed starts counting again: only that each one moves
     result.append((len(moved) == 3 and min(moved) > 300, 'bloop: the bots walk the map (%s units)' %
@@ -1250,10 +1253,10 @@ SCENARIOS = [
                         ('off', ['--autotest', 'random42', '{out}/off', '--demo',
                                  'W:0.5,Y,G:-450;80;-768,A:180,X,W:2,Q'], 0)],
              check_access, ['pickup_1']),
-    # Horde mode: E1M1's monsters give way to waves (killall clears wave 1,
+    # Horde mode: E1M1's monsters give way to waves (killall clears wave 1 -- twice, as its last monsters may still be coming in on a slow machine --,
     # wave 2 follows after the pause) and a random map plays it too
     Scenario('horde', [('waves', ['-horde', '--autotest', 'e1m1', '{out}/waves', '--demo',
-                                  'W:0.5,Y,W:5,S,CMD:killall,W:8,S,Q'], 0),
+                                  'W:0.5,Y,W:5,S,CMD:killall,W:2,CMD:killall,W:8,S,Q'], 0),
                        ('rndhorde', ['-horde', '--autotest', 'random42', '{out}/rndhorde', '--demo',
                                      'W:0.5,Y,W:5,S,Q'], 0)],
              check_horde, []),

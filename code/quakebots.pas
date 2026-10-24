@@ -67,6 +67,8 @@ type
       behind him }
     Leader: Integer;
     FarTime: Single;
+    { When the next fight may be logged }
+    FightLogTime: Single;
   end;
 
   TQuakeBots = class
@@ -725,8 +727,16 @@ begin
   end;
   if BestEnemy <> B.Enemy then
   begin
-    if (FGame.Coop <> 0) and (B.Enemy = 0) and (BestEnemy > 0) then
-      WritelnLog('Bots', 'Bot "%s" fights %s (%.0f units)', [B.Name, FGame.EntityClassName(BestEnemy), BestD]);
+    { A new fight (at most one line every 5 s per bot): a monster in coop,
+      a player in deathmatch }
+    if (B.Enemy = 0) and (BestEnemy > 0) and (FClock >= B.FightLogTime) then
+    begin
+      B.FightLogTime := FClock + 5;
+      if FGame.Coop <> 0 then
+        WritelnLog('Bots', 'Bot "%s" fights %s (%.0f units)', [B.Name, FGame.EntityClassName(BestEnemy), BestD])
+      else
+        WritelnLog('Bots', 'Bot "%s" fights %s (%.0f units)', [B.Name, FGame.ClientName(BestEnemy), BestD]);
+    end;
     B.Enemy := BestEnemy;
     B.SeenTime := 0;
   end;
