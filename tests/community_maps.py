@@ -58,7 +58,7 @@ MAPS = [
 URL = 'https://www.quaddicted.com/filebase/'
 SPOTS = 4                 # the player start and three items
 TRIGGER_CLEARANCE = 256   # spots this far from trigger brushes (a teleporter or exit would end the run)
-NC_RE = re.compile(r'PVS compare: (\d+) of (\d+) pixels differ')
+NC_RE = re.compile(r'PVS compare: (\d+) of (\d+) pixels differ \((\d+) alone\)')
 EDICTS_RE = re.compile(r'(\d+) edicts in use')
 
 
@@ -178,9 +178,10 @@ def check_map(exe, out, mod, entry, budgets, update, results, measured):
     results.append((len(frames) == len(places) and len(compares) == len(places),
                     '%s: a Z line and a PVS compare at each of the %d spots (got %d, %d)'
                     % (name, len(places), len(frames), len(compares))))
-    for i, (differ, total) in enumerate(compares):
-        results.append((int(differ) == 0, '%s spot %d: culling changes no pixel (%s of %s differ)'
-                        % (name, i + 1, differ, total)))
+    # A lone pixel is a crack between two faces showing what lies behind it
+    for i, (differ, total, alone) in enumerate(compares):
+        results.append((differ == alone, '%s spot %d: culling changes no pixel but lone ones (%s of %s differ, %s alone)'
+                        % (name, i + 1, differ, total, alone)))
     rows = [{'spot': spot, 'leaf': int(m[5]), 'clusters': int(m[6]), 'shapes': int(m[8]), 'entities': int(m[10]),
              'ms_average': float(m[2]), 'ms_longest': float(m[3])} for spot, m in zip(places, frames)]
     # QuakeC: progs.dat spawns the level and runs it for a few seconds

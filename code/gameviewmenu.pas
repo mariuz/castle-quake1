@@ -105,6 +105,7 @@ begin
         { split:<map>: split-screen coop, a second player with the gamepad }
         ViewDemo.SplitScreen := Pos('split:', Param) = 1;
         ViewDemo.SplitStacked := False;
+        ViewDemo.SplitPlayers := 2;
         if ViewDemo.SplitScreen then
         begin
           ViewDemo.HostCoop := True;

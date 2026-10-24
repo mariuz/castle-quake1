@@ -41,8 +41,9 @@ UPDATE = False             # --update: also rewrite tests/budgets.json
 
 class Scenario:
     def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD, prepare=None,
-                 frame_checks=None):
+                 frame_checks=None, dark=()):
         self.name = name
+        self.dark = dark              # runs whose screenshots may be dark (a random deathmatch spawn)
         self.prepare = prepare        # function(out_dir) run before the processes, or None
         self.frame_checks = frame_checks  # function(out_dir) -> [(ok, description)] on the screenshots, or None
         self.runs = runs              # [(prefix, args, delay before start)]
@@ -154,6 +155,10 @@ def prepare_mapbrowser(out_dir):
     mod_zip = os.path.join(site, 'qmod.zip')
     with zipfile.ZipFile(mod_zip, 'w', zipfile.ZIP_DEFLATED) as z:
         z.write(pak_path, 'pak0.pak')
+        # A second pak stored (not deflated): read in place from the zip
+        pak1_path = os.path.join(out_dir, 'qmod_pak1.pak')
+        bsp2convert.write_pak(pak1_path, [('maps/qmod2.bsp', data)])
+        z.write(pak1_path, 'pak1.pak', compress_type=zipfile.ZIP_STORED)
         z.writestr('qmod_readme.txt', 'A test mod for the map browser scenario\n')
     map_zip = os.path.join(site, 'qmodmap.zip')
     with zipfile.ZipFile(map_zip, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -171,7 +176,7 @@ def prepare_mapbrowser(out_dir):
                            'small', 'singleplayer', 'qtest1', 'qtest/>id1/maps/', url]) + '\n')
         f.write('\t'.join(['qmod', releases['qmod'][0], releases['qmod'][1], 'Test Mod', 'Scenarios',
                            '2026-10-17', '', 'small', 'mod,singleplayer', 'qmod1', '>qmod/', releases['qmod'][2],
-                           'qmod', '', 'pak0.pak']) + '\n')
+                           'qmod', '', 'pak0.pak,pak1.pak']) + '\n')
         f.write('\t'.join(['qmodmap', releases['qmodmap'][0], releases['qmodmap'][1], 'Test Mod Map', 'Scenarios',
                            '2026-10-16', '', 'small', 'mod,singleplayer', 'qmodmap', 'qmodmap/>qmod/maps/',
                            releases['qmodmap'][2], 'qmod', 'qmod', '']) + '\n')
@@ -216,6 +221,27 @@ def check_mapbrowser(logs):
                    'the mod\'s map plays in QuakeC mode'))
     result.append(('Saved screenshot' in mod and 'edicts' in mod.split('Playing "qmodmap"')[-1],
                    'the QuakeC view goes on with the script'))
+    result.append((re.search(r'Loaded PK3 "[^"]*quaddicted_qmod\.zip": \d+ files \(total indexed: \d+\), read from disk',
+                             mod) is not None, 'the mod\'s zip is read from disk'))
+    result.append(('Unpacked "pak0.pak"' in mod and re.search(r'Loaded PAK "qmod:pak0\.pak": 1 files .*read from disk',
+                                                              mod) is not None,
+                   'the mod\'s deflated pak is unpacked to a file and read from there'))
+    result.append((re.search(r'Loaded PAK "qmod:pak1\.pak": 1 files .*read from disk', mod) is not None,
+                   'the mod\'s stored pak is read in place from its zip'))
+    # Before it plays: mounting another release unmounts the ones it does not need
+    result.append((mod.count('Unpacked "pak0.pak"') == 1 and mod.count('Loaded PAK "qmod:pak0.pak"') == 2,
+                   'the unpacked pak is used again when the mod mounts again'))
+    result.append(('Mounted now: qmod, qmodmap (game directory qmod)' in mod, 'the map mounts with its mod'))
+    i = mod.find('Mounted now: qmod (game directory qmod)')
+    result.append((i > 0 and 'Unmounted "qmodmap"' in mod[:i] and 'Unmounted "qmod"' not in mod[:i],
+                   'mounting the mod alone unmounts its map, not the mod'))
+    v = views(mod)
+    j = mod.find('Map "qtest" removed')
+    result.append((0 < mod.find('Unmounted "qmod"') < j and len(v) >= 1 and v[0]['map'] == 'qtest1',
+                   'playing a map of id1 unmounts the mod'))
+    m = re.search(r'Unmounted "qmod": (\d+) archives', mod)
+    result.append((m is not None and m.group(1) == '3', 'the mod\'s zip and its two paks go (%s)' %
+                   (m.group(1) if m else '-')))
     return result
 
 
@@ -306,11 +332,22 @@ def dist(a, b):
 
 SPLIT_RE = re.compile(r'Player 2: view entity (\d+) at (\S+) (\S+) (\S+), yaw (-?\d+), health (-?\d+), '
                       r'ammo (\d+), weapon \d+, signon \d+, viewports (\d+)x(\d+) and (\d+)x(\d+)')
+PLAYER_RE = re.compile(r'Player (\d): view entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+), yaw (-?\d+), .*'
+                       r'viewports (\d+)x(\d+) and (\d+)x(\d+)')
+
+
+def players(log):
+    """{player: [(position, yaw, first view size, own view size) per screenshot]}"""
+    result = {}
+    for m in PLAYER_RE.findall(log):
+        result.setdefault(int(m[0]), []).append(((float(m[1]), float(m[2]), float(m[3])), int(m[4]),
+                                                (int(m[5]), int(m[6])), (int(m[7]), int(m[8]))))
+    return result
 
 
 def check_split(logs):
     result = common_checks(logs, 'sides') + common_checks(logs, 'stacked')
-    for prefix in ('sides', 'stacked', 'loop'):
+    for prefix in ('sides', 'stacked', 'loop', 'four', 'join'):
         log = logs[prefix]
         result.append(('Split-screen: player 2 joins' in log, '%s: the second player joins the listen server' % prefix))
     log = logs['sides']
@@ -326,10 +363,12 @@ def check_split(logs):
                        % (p2[0][4], p2[1][4])))
         w1, h1, w2, h2 = (int(x) for x in p2[0][7:11])
         result.append((w1 == w2 and h1 == h2 and w1 * 2 > h1, 'side by side: two views of %dx%d' % (w1, h1)))
-    compares = re.findall(r'PVS compare: (\d+) of \d+ pixels differ, leaves (-?\d+) and (-?\d+), clusters (\d+)/(\d+)',
-                          log)
-    result.append((len(compares) == 2 and all(c[0] == '0' for c in compares),
-                   'sides: culling changes no pixel of either view (%s)' % ', '.join(c[0] for c in compares)))
+    compares = [(c[0],) + c[2:] for c in re.findall(r'PVS compare: (\d+) of \d+ pixels differ \((\d+) alone\), '
+                                                   r'leaves (-?\d+) and (-?\d+), clusters (\d+)/(\d+)', log)]
+    alone = re.findall(r'PVS compare: \d+ of \d+ pixels differ \((\d+) alone\)', log)
+    result.append((len(compares) == 2 and pvs_clean(log),
+                   'sides: culling changes no pixel of either view but lone ones in cracks (%s)'
+                   % ', '.join('%s, %s alone' % (c[0], a) for c, a in zip(compares, alone))))
     result.append((len(compares) == 2 and all(int(c[3]) < int(c[4]) for c in compares),
                    'sides: the world is culled to what the two cameras can see (%s)'
                    % ', '.join('%s/%s' % (c[3], c[4]) for c in compares)))
@@ -343,7 +382,37 @@ def check_split(logs):
     p2 = SPLIT_RE.findall(log)
     result.append((len(p2) == 2 and dist(tuple(float(x) for x in p2[0][1:4]), tuple(float(x) for x in p2[1][1:4])) > 200,
                    'loop: the second player walks over the loopback'))
-    result.append(('PVS compare: 0 of' in log, 'loop: culling changes no pixel'))
+    result.append(('PVS compare:' in log and pvs_clean(log), 'loop: culling changes no pixel'))
+    # Four players in a 2 x 2 grid: pad 1 walks player 3, pad 2 turns player 4
+    log = logs['four']
+    result += common_checks(logs, 'four')
+    pl = players(log)
+    result.append(('Split-screen: player 4 joins' in log and sorted(pl) == [2, 3, 4] and
+                   all(len(v) == 2 for v in pl.values()), 'four: players 2, 3 and 4 join and are logged'))
+    if sorted(pl) == [2, 3, 4] and all(len(v) == 2 for v in pl.values()):
+        result.append((dist(pl[3][0][0], pl[3][1][0]) > 200 and dist(pl[2][0][0], pl[2][1][0]) < 8 and
+                       dist(pl[4][0][0], pl[4][1][0]) < 8, 'four: the second pad walks only player 3 (%.0f units)'
+                       % dist(pl[3][0][0], pl[3][1][0])))
+        result.append((pl[4][0][1] != pl[4][1][1] and pl[3][0][1] == pl[3][1][1],
+                       'four: the third pad turns only player 4 (yaw %d -> %d)' % (pl[4][0][1], pl[4][1][1])))
+        sizes = set(v[0][3] for v in pl.values()) | set(v[0][2] for v in pl.values())
+        result.append((len(sizes) == 1, 'four: four views of the same size (%s)' % sizes))
+    result.append((re.search(r'PVS compare: .*, 4 views', log) is not None and pvs_clean(log),
+                   'four: culling changes no pixel of the four views'))
+    # A third pad's Start adds player 3 to a two-player game
+    log = logs['join']
+    result += common_checks(logs, 'join')
+    pl = players(log)
+    result.append(('pressed Start: player 3' in log and 'player 3 joins on port' in log and
+                   '(one on top, two below)' in log, 'join: Start on a free pad adds player 3'))
+    result.append((3 in pl and dist(pl[3][0][0], pl[3][-1][0]) > 200 if 3 in pl else False,
+                   'join: the new player walks with its pad'))
+    if 3 in pl:
+        first, own = pl[3][-1][2], pl[3][-1][3]
+        result.append((first[0] == 2 * own[0] and first[1] == own[1],
+                       'join: player 1 on top, two below (%dx%d and %dx%d)' % (first + own)))
+    result.append((re.search(r'PVS compare: .*, 3 views', log) is not None and pvs_clean(log),
+                   'join: culling changes no pixel of the three views'))
     log = logs['stacked']
     p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
     p2 = SPLIT_RE.findall(log)
@@ -382,10 +451,21 @@ def split_frames(out_dir):
     return result
 
 
+PVS_COMPARE_RE = re.compile(r'PVS compare: (\d+) of \d+ pixels differ \((\d+) alone\)')
+
+
+def pvs_clean(log):
+    """Every NC compare in the log changed no pixel but lone ones (a crack one
+    pixel wide between two faces shows what lies behind it, drawn or culled;
+    a wrongly culled object differs in pixels next to each other)"""
+    compares = PVS_COMPARE_RE.findall(log)
+    return bool(compares) and all(differ == alone for differ, alone in compares)
+
+
 def check_language(logs):
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
     import lang_strings
-    result = common_checks(logs, 'de') + common_checks(logs, 'it')
+    result = common_checks(logs, 'de') + common_checks(logs, 'it') + common_checks(logs, 'ro')
     de = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'de.po'))[1]
     it = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'it.po'))[1]
     pad = 'D-pad to navigate, %s to select, %s to go back'
@@ -402,6 +482,11 @@ def check_language(logs):
     result.append((re.search(r'Language: it \(Italiano\), \d{3} texts', log) is not None,
                    'it: the console lang command switches to Italian'))
     result.append(('Hint: ' + it[pad] % ('A', 'B') in log, 'it: the menu hint is Italian'))
+    ro = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'ro.po'))[1]
+    log = logs['ro']
+    result.append((re.search(r'Language: ro \(Română\), \d{3} texts', log) is not None,
+                   'ro: -lang ro loads the Romanian texts'))
+    result.append(('Hint: ' + ro[pad] % ('A', 'B') in log, 'ro: the menu hint is Romanian'))
     return result
 
 
@@ -921,6 +1006,19 @@ def check_bots(logs):
     result.append((frags != 0 or 'fighting' in ' '.join(lines), 'the bots fight (%d frags in the logs)' % frags))
     shots = NET_SHOT_RE.findall(logs['bclient'])
     result.append((len(shots) == 1 and shots[0][0] == '4', 'the client plays with the bots'))
+    # The browser's way: the listen server on loopback sockets, its own
+    # player joining in-process
+    h = logs['bloop']
+    result += common_checks(logs, 'bloop')
+    result.append(('Loopback socket on port 26000' in h and len(re.findall(r'Bot "(\w+)" joined', h)) == 3,
+                   'bloop: three bots join a loopback listen server'))
+    lines = re.findall(r'Bots: (.*)', h)
+    moved = [float(x) for x in re.findall(r'([\d.]+) units', lines[-1] if lines else '')]
+    # 22 s, and a bot killed starts counting again: only that each one moves
+    result.append((len(moved) == 3 and min(moved) > 300, 'bloop: the bots walk the map (%s units)' %
+                   ', '.join('%.0f' % x for x in moved)))
+    shots = NET_SHOT_RE.findall(h)
+    result.append((len(shots) == 1 and shots[0][0] == '4', 'bloop: the host plays with them over the loopback'))
     return result
 
 
@@ -1075,8 +1173,10 @@ SCENARIOS = [
     Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
                                  '-port', '26320'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
-                                   'W:6,S,Q'], 5)],
-             check_bots, []),
+                                   'W:6,S,Q'], 5),
+                      ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
+                                 'W:22,S,Q'], 0)],
+             check_bots, [], dark=('bloop',)),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
@@ -1094,7 +1194,9 @@ SCENARIOS = [
                                         'CMD:maps_remove qtest,CMD:maps installed,Q'], 0),
                             ('mod', ['-mapcatalog', '{out}/maps.txt', '--autotest', 'e1m1', '{out}/mod', '--demo',
                                      'W:0.5,CMD:maps_remove qmodmap,CMD:maps_remove qmod,CMD:maps_install qmodmap,'
-                                     'W:4,CMD:maps installed,CMD:maps_play qmodmap,W:2,S,Q'], 40)],
+                                     'W:4,CMD:maps installed,CMD:maps_install qtest,W:3,CMD:maps_mount qmodmap,'
+                                     'CMD:maps_mount qmod,CMD:maps_play qtest,W:1.5,S,CMD:maps_remove qtest,'
+                                     'CMD:maps_play qmodmap,W:2,S,Q'], 40)],
              check_mapbrowser, [], prepare=prepare_mapbrowser),
     # Photo mode: E1M1 paused while the camera flies off, a depth of field
     # photo at twice the window size and a grayscale one at fov 60, the
@@ -1129,7 +1231,9 @@ SCENARIOS = [
                                   'W:0.5,PN:Xbox Wireless Controller,GB:start,W:0.5,S,GB:down,W:0.3,GB:down,W:0.3,'
                                   'GB:down,W:0.3,GB:south,W:0.5,S,Q'], 0),
                           ('it', ['--autotest', 'e1m1', '{out}/it', '--demo',
-                                  'W:0.5,CMD:lang it,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0)],
+                                  'W:0.5,CMD:lang it,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0),
+                          ('ro', ['-lang', 'ro', '--autotest', 'e1m1', '{out}/ro', '--demo',
+                                  'W:0.5,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0)],
              check_language, []),
     # Split-screen coop: a second local player on the listen server with the
     # (virtual) gamepad, side by side and one above the other; the stick
@@ -1142,6 +1246,14 @@ SCENARIOS = [
                              # clients on in-process loopback sockets
                              ('loop', ['-netloopback', '-splitscreen', '--autotest', 'host:e1m1', '{out}/loop',
                                        '--demo', 'W:4,S,GL:0;1,W:2,GL:0;0,W:0.5,NC,S,Q'], 0),
+                             # Four players from the start (three virtual pads)
+                             ('four', ['-splitplayers', '4', '--autotest', 'host:e1m1', '{out}/four', '--demo',
+                                       'PADS:3,W:4,S,PAD:1,GL:0;1,W:2,GL:0;0,PAD:2,GR:1;0,W:0.5,GR:0;0,W:0.3,NC,S,Q',
+                                       '-port', '26362'], 0),
+                             # Two players, a third pad presses Start and joins
+                             ('join', ['-splitscreen', '--autotest', 'host:e1m1', '{out}/join', '--demo',
+                                       'PADS:3,W:4,S,PAD:2,GB:start,W:2,S,GL:0;1,W:1.5,GL:0;0,W:0.3,NC,S,Q',
+                                       '-port', '26363'], 0),
                              ('stacked', ['-splitscreen', 'stacked', '--autotest', 'host:e1m1', '{out}/stacked',
                                           '--demo', 'W:4,S,V:1;0;0,W:1,V:0;0;0,GT:1,W:0.6,GT:0,W:0.5,S,Q',
                                           '-port', '26361'], 0)],
@@ -1186,6 +1298,8 @@ def image_checks(out_dir, scenario, update):
                    if f.endswith('.png') and not f.endswith('_compare.png')
                    and any(f.startswith(prefix + '_') for prefix, _, _ in scenario.runs))
     for shot in shots:
+        if any(shot.startswith(prefix + '_') for prefix in scenario.dark):
+            continue
         image = small(os.path.join(out_dir, shot + '.png'))
         level = brightness(image)
         result.append((level > BLACK_LIMIT, '%s is not black (brightness %.1f)' % (shot, level)))

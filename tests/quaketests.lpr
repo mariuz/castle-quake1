@@ -12,7 +12,8 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets;
+  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
+  CastleUnicode, ZStream, StrUtils;
 
 var
   Checks, Failures: Integer;
@@ -947,6 +948,19 @@ begin
     Controllers[0].Pressed[gbSouth] := False;
     UpdateGamepad(2);
 
+    { Four players, three pads: the gamepad players take them in order }
+    SetVirtualPadCount(3);
+    SplitPlayerCount := 4;
+    Check((PlayerController(1) = nil) and (PlayerController(2) = Controllers[0]) and
+      (PlayerController(3) = Controllers[1]) and (PlayerController(4) = Controllers[2]),
+      'four players: pads 1, 2 and 3 for players 2, 3 and 4');
+    Check(PadPlayer(2) = 4, 'the third pad is player 4''s');
+    { Two players, three pads: the first is the keyboard player's, one is free }
+    SplitPlayerCount := 2;
+    Check((PlayerController(1) = Controllers[0]) and (PlayerController(2) = Controllers[1]) and
+      (PadPlayer(2) = 0), 'two players, three pads: the third is free (it joins with Start)');
+    SetVirtualPadCount(1);
+
     { Right stick right for 0.5 s: 160 deg/s turns 80 deg to the right }
     ResetCamera;
     SetVirtualSticks(TVector2.Zero, Vector2(1, 0));
@@ -1324,6 +1338,201 @@ begin
   end;
 end;
 
+{ A pak in memory with one file }
+function MakeTestPak(const Path, Content: AnsiString): TMemoryStream;
+var
+  Name: array[0..55] of AnsiChar;
+  V: LongInt;
+begin
+  Result := TMemoryStream.Create;
+  Result.WriteBuffer(AnsiString('PACK')[1], 4);
+  V := 12 + Length(Content);
+  Result.WriteBuffer(V, 4);
+  V := 64;
+  Result.WriteBuffer(V, 4);
+  Result.WriteBuffer(Content[1], Length(Content));
+  FillChar(Name, SizeOf(Name), 0);
+  Move(Path[1], Name[0], Length(Path));
+  Result.WriteBuffer(Name, SizeOf(Name));
+  V := 12;
+  Result.WriteBuffer(V, 4);
+  V := Length(Content);
+  Result.WriteBuffer(V, 4);
+  Result.Position := 0;
+end;
+
+{ Writes a zip of the files (Names[i], Datas[i]), deflated where Deflate[i] }
+procedure WriteTestZip(const FileName: String; const Names: array of AnsiString;
+  const Datas: array of AnsiString; const Deflate: array of Boolean);
+var
+  Zip, Central, PackedData: TMemoryStream;
+  Z: TCompressionStream;
+  I: Integer;
+  Offsets: array of LongWord;
+  Sizes: array of LongWord;
+  Methods: array of Word;
+  W: Word;
+  L: LongWord;
+
+  procedure W16(const S: TStream; const V: Word);
+  begin
+    S.WriteBuffer(V, 2);
+  end;
+
+  procedure W32(const S: TStream; const V: LongWord);
+  begin
+    S.WriteBuffer(V, 4);
+  end;
+
+begin
+  Zip := TMemoryStream.Create;
+  Central := TMemoryStream.Create;
+  try
+    SetLength(Offsets, Length(Names));
+    SetLength(Sizes, Length(Names));
+    SetLength(Methods, Length(Names));
+    for I := 0 to High(Names) do
+    begin
+      PackedData := TMemoryStream.Create;
+      try
+        if Deflate[I] then
+        begin
+          Z := TCompressionStream.Create(clDefault, PackedData, True);
+          try
+            Z.WriteBuffer(Datas[I][1], Length(Datas[I]));
+          finally
+            Z.Free;
+          end;
+          Methods[I] := 8;
+        end else
+        begin
+          PackedData.WriteBuffer(Datas[I][1], Length(Datas[I]));
+          Methods[I] := 0;
+        end;
+        Offsets[I] := Zip.Position;
+        Sizes[I] := PackedData.Size;
+        W32(Zip, $04034b50); W16(Zip, 20); W16(Zip, 0); W16(Zip, Methods[I]); W16(Zip, 0); W16(Zip, 0);
+        W32(Zip, 0); W32(Zip, Sizes[I]); W32(Zip, Length(Datas[I]));
+        W16(Zip, Length(Names[I])); W16(Zip, 0);
+        Zip.WriteBuffer(Names[I][1], Length(Names[I]));
+        PackedData.Position := 0;
+        Zip.CopyFrom(PackedData, PackedData.Size);
+      finally
+        PackedData.Free;
+      end;
+      W32(Central, $02014b50); W16(Central, 20); W16(Central, 20); W16(Central, 0); W16(Central, Methods[I]);
+      W16(Central, 0); W16(Central, 0); W32(Central, 0); W32(Central, Sizes[I]); W32(Central, Length(Datas[I]));
+      W16(Central, Length(Names[I])); W16(Central, 0); W16(Central, 0); W16(Central, 0); W16(Central, 0);
+      W32(Central, 0); W32(Central, Offsets[I]);
+      Central.WriteBuffer(Names[I][1], Length(Names[I]));
+    end;
+    L := Zip.Position;
+    Central.Position := 0;
+    Zip.CopyFrom(Central, Central.Size);
+    W := Length(Names);
+    W32(Zip, $06054b50); W16(Zip, 0); W16(Zip, 0); W16(Zip, W); W16(Zip, W);
+    W32(Zip, Central.Size); W32(Zip, L); W16(Zip, 0);
+    Zip.SaveToFile(FileName);
+  finally
+    Zip.Free;
+    Central.Free;
+  end;
+end;
+
+function PakText(const P: TQuakePak; const Path: String): AnsiString;
+var
+  S: TMemoryStream;
+begin
+  Result := '';
+  S := P.GetStream(Path);
+  if S = nil then
+    Exit('<none>');
+  try
+    SetLength(Result, S.Size);
+    if S.Size > 0 then
+      S.ReadBuffer(Result[1], S.Size);
+  finally
+    S.Free;
+  end;
+end;
+
+{ Archives read from disk when a file is asked for, a pak inside a zip
+  (stored: in place, deflated: unpacked to a file once), unmounting }
+procedure TestDiskArchives;
+var
+  Dir, ZipFile, Cache: String;
+  P: TQuakePak;
+  Inner0, Inner1: TMemoryStream;
+  S0, S1, Big: AnsiString;
+  Data: Pointer;
+  Size: Cardinal;
+begin
+  StartTest('Archives on disk and unmounting');
+  Dir := IncludeTrailingPathDelimiter(GetTempDir(False)) + 'quaketests_disk' + PathDelim;
+  ForceDirectories(Dir);
+  ZipFile := Dir + 'test.zip';
+  Cache := Dir + 'test_pak1.pak';
+  DeleteFile(Cache);
+  Inner0 := MakeTestPak('maps/inner0.bsp', 'INNER ZERO');
+  Inner1 := MakeTestPak('maps/inner1.bsp', 'INNER ONE');
+  try
+    SetLength(S0, Inner0.Size);
+    Inner0.ReadBuffer(S0[1], Inner0.Size);
+    SetLength(S1, Inner1.Size);
+    Inner1.ReadBuffer(S1[1], Inner1.Size);
+  finally
+    Inner0.Free;
+    Inner1.Free;
+  end;
+  Big := DupeString('deflate me ', 500);
+  WriteTestZip(ZipFile, ['readme.txt', 'progs/x.mdl', 'pak0.pak', 'pak1.pak'], ['stored text', Big, S0, S1],
+    [False, True, False, True]);
+
+  P := TQuakePak.Create;
+  try
+    P.AddPakStream('base', MakeTestPak('progs/x.mdl', 'BASE'));
+    CheckEqualsStr('BASE', PakText(P, 'progs/x.mdl'), 'the base pak''s file');
+    CheckEqualsStr('', P.VariantTag('progs/x.mdl'), 'a file of the start has no tag');
+    CheckEquals(0, P.DiskArchives, 'a pak in memory');
+    P.MountTag := 'm1';
+    Check(P.AddPk3(ZipFile), 'the zip mounts');
+    CheckEquals(1, P.DiskArchives, 'the zip is read from disk');
+    CheckEqualsStr('stored text', PakText(P, 'readme.txt'), 'a stored file of the zip');
+    Check(PakText(P, 'progs/x.mdl') = Big, 'a deflated file of the zip replaces the base one');
+    CheckEqualsStr('m1', P.VariantTag('progs/x.mdl'), 'its tag is the mount''s');
+    CheckEqualsStr('@m1/progs/x.mdl', P.VariantPath('progs/x.mdl'), 'its cache path');
+    Check(PakText(P, '@m1/progs/x.mdl') = Big, 'the cache path reads the file');
+    Check(P.AddPakFromArchive('m1:pak0.pak', 'pak0.pak', Dir + 'test_pak0.pak'), 'the stored pak mounts');
+    Check(not FileExists(Dir + 'test_pak0.pak'), 'a stored pak is read in place, not unpacked');
+    CheckEqualsStr('INNER ZERO', PakText(P, 'maps/inner0.bsp'), 'a file of the stored pak');
+    Check(P.AddPakFromArchive('m1:pak1.pak', 'pak1.pak', Cache), 'the deflated pak mounts');
+    Check(FileExists(Cache), 'a deflated pak is unpacked to its file');
+    CheckEqualsStr('INNER ONE', PakText(P, 'maps/inner1.bsp'), 'a file of the deflated pak');
+    CheckEquals(3, P.DiskArchives, 'the zip, the window into it and the unpacked pak are read from disk');
+    Data := P.GetData('maps/inner0.bsp', Size);
+    Check((Data <> nil) and (Size = 10) and (CompareByte(Data^, AnsiString('INNER ZERO')[1], 10) = 0),
+      'GetData of a pak read from disk');
+    Check(P.MemoryBytes < 1000, Format('only the base pak and that file in memory (%d bytes)', [P.MemoryBytes]));
+    P.MountTag := '';
+    CheckEquals(3, P.Unmount('m1'), 'the three archives unmount');
+    CheckEqualsStr('BASE', PakText(P, 'progs/x.mdl'), 'the base file comes back');
+    CheckEqualsStr('', P.VariantTag('progs/x.mdl'), 'with no tag');
+    Check(not P.FileExists('readme.txt') and not P.FileExists('maps/inner0.bsp') and
+      not P.FileExists('maps/inner1.bsp'), 'the mount''s files are gone');
+    CheckEquals(0, P.DiskArchives, 'no archive read from disk is left');
+    CheckEquals(0, P.Unmount('m1'), 'unmounting again does nothing');
+    { Mounting again uses the unpacked pak }
+    P.MountTag := 'm1';
+    Check(P.AddPk3(ZipFile) and P.AddPakFromArchive('m1:pak1.pak', 'pak1.pak', Cache), 'mounted again');
+    CheckEqualsStr('INNER ONE', PakText(P, 'maps/inner1.bsp'), 'the unpacked pak again');
+    P.MountTag := '';
+  finally
+    P.Free;
+  end;
+  DeleteFile(Cache);
+  DeleteFile(ZipFile);
+end;
+
 type
   { Accepts every client of the loopback test as edict 1 }
   TLoopbackAccept = class
@@ -1407,7 +1616,8 @@ var
   Header: TStringList;
   Text, Id, Code: String;
   L: TLanguageInfo;
-  Missing, Wrong: Integer;
+  Missing, Wrong, I: Integer;
+  Codes: TStringList;
 
   function ReadFile(const Name: String): String;
   var
@@ -1463,10 +1673,18 @@ begin
     Text := StringReplace(ReadFile(LangDir + 'castle-quake.pot'), 'msgstr ""', 'msgstr "x"', [rfReplaceAll]);
     ParsePo(Text, Pot);
     Check(Pot.Count > 200, Format('the template lists the texts (%d)', [Pot.Count]));
-    Text := ReadFile(LangDir + 'languages.txt');
-    for Code in ['de', 'es', 'fr', 'it'] do
+    { Every language languages.txt lists ("<code> <name>" lines) }
+    Codes := TStringList.Create;
+    try
+      Codes.Text := ReadFile(LangDir + 'languages.txt');
+      for I := Codes.Count - 1 downto 0 do
+        if (Trim(Codes[I]) = '') or (Trim(Codes[I])[1] = '#') then
+          Codes.Delete(I)
+        else
+          Codes[I] := Copy(Trim(Codes[I]), 1, Pos(' ', Trim(Codes[I])) - 1);
+      Check(Codes.Count >= 5, 'languages.txt lists the translations: ' + Codes.CommaText);
+    for Code in Codes do
     begin
-      Check(Pos(Code + ' ', Text) > 0, Code + ' is in languages.txt');
       Po.Clear;
       ParsePo(ReadFile(LangDir + Code + '.po'), Po);
       Missing := 0;
@@ -1479,6 +1697,9 @@ begin
       Check((Missing = 0) and (Wrong = 0) and (Po.Count = Pot.Count),
         Format('%s.po translates all %d texts (%d missing, %d with other format specifiers, %d entries)',
         [Code, Pot.Count, Missing, Wrong, Po.Count]));
+    end;
+    finally
+      Codes.Free;
     end;
 
     { The menu: whole items, "Label: value" and values in brackets }
@@ -1495,6 +1716,11 @@ begin
     Check(Pos('%d', Tr('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d')) > 0, 'the stats line keeps its numbers');
     UseTranslation('en', '');
     CheckEqualsStr('Options', Tr('Options'), 'English again');
+
+    { The UI font has what the translations write: Romanian's comma-below
+      letters (the engine's default font has none), Latin Extended-A }
+    for Code in ['ș', 'ț', 'Ș', 'Ț', 'ă', 'Ă', 'â', 'î', 'ł', 'ő', 'ğ', 'é', 'ß'] do
+      Check(Font_GameUi.Glyph(Ord(UTF8Decode(Code)[1]), False) <> nil, 'the UI font has ' + Code);
   finally
     Pot.Free;
     Po.Free;
@@ -1594,6 +1820,7 @@ begin
   TestCaptions;
   TestSaveList;
   TestLoopback;
+  TestDiskArchives;
   TestTranslate(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'lang') + PathDelim);
   TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +
     PathDelim + 'maps.txt'));

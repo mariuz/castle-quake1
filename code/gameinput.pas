@@ -104,9 +104,12 @@ procedure GamepadTurnCamera(const Camera: TCastleCamera; const SecondsPassed: Si
 procedure UpdateGamepad(const Player: Integer = 0);
 { Split-screen players: the Player argument of the helpers above is 0 for
   the one player (the first pad, the touch controls), 1 for the keyboard
-  and mouse player (the first pad only when two are connected, and the
-  touch controls) and 2 for the gamepad player (the last pad, no keyboard) }
+  and mouse player (and the touch controls; the first pad too when there
+  is one more pad than gamepad players) and 2..SplitPlayerCount for the
+  gamepad players (the next pads in order, no keyboard) }
 function PlayerController(const Player: Integer): TGameController;
+{ The split-screen player a pad belongs to (1..SplitPlayerCount), 0 none }
+function PadPlayer(const PadIndex: Integer): Integer;
 function GamepadConnected: Boolean;
 { The first controller's name, 'none' without one }
 function GamepadName: String;
@@ -140,9 +143,18 @@ procedure UseVirtualGamepad;
 procedure SetVirtualSticks(const Left, Right: TVector2);
 procedure SetVirtualRightTrigger(const Value: Single);
 procedure SetVirtualButton(const Button: TGameControllerButton; const Pressed: Boolean);
+{ Several virtual pads (split-screen tests): how many, and which one the
+  sticks, the trigger and the buttons above drive }
+procedure SetVirtualPadCount(const Count: Integer);
 { 'south', 'east', 'west', 'north', 'lb', 'rb', 'up', 'down', 'left',
   'right', 'start', 'back'; False when unknown }
 function GamepadButtonByName(const Name: String; out Button: TGameControllerButton): Boolean;
+
+var
+  { Split-screen: how many local players share the pads (2..4) }
+  SplitPlayerCount: Integer = 2;
+  { The virtual pad the demo script's GL, GR, GT and GB drive }
+  VirtualPadIndex: Integer;
 
 implementation
 
@@ -150,7 +162,7 @@ uses
   CastleInternalGameControllersExplicit;
 
 var
-  WasPressed, JustPressed: array[0..2, TGameControllerButton] of Boolean;
+  WasPressed, JustPressed: array[0..4, TGameControllerButton] of Boolean;
   ConfigLoaded: Boolean;
 
 function FirstController: TGameController;
@@ -162,22 +174,41 @@ begin
 end;
 
 function PlayerController(const Player: Integer): TGameController;
+var
+  Extra, Index: Integer;
 begin
   Result := nil;
-  case Player of
-    1: if Controllers.Count >= 2 then
-         Result := Controllers[0];
-    2: if Controllers.Count >= 1 then
-         Result := Controllers[Controllers.Count - 1];
-    else
-      Result := FirstController;
-  end;
+  if Player <= 0 then
+    Exit(FirstController);
+  { One pad more than the gamepad players: the first is the keyboard player's }
+  if Controllers.Count >= SplitPlayerCount then
+    Extra := 1
+  else
+    Extra := 0;
+  if Player = 1 then
+    Index := Extra - 1
+  else
+    Index := Player - 2 + Extra;
+  if (Index >= 0) and (Index < Controllers.Count) and (Player <= SplitPlayerCount) then
+    Result := Controllers[Index];
+end;
+
+function PadPlayer(const PadIndex: Integer): Integer;
+var
+  P: Integer;
+begin
+  Result := 0;
+  if (PadIndex < 0) or (PadIndex >= Controllers.Count) then
+    Exit;
+  for P := 1 to SplitPlayerCount do
+    if PlayerController(P) = Controllers[PadIndex] then
+      Exit(P);
 end;
 
 { The touch controls belong to the one player, or the keyboard player }
 function HasTouch(const Player: Integer): Boolean;
 begin
-  Result := Player <> 2;
+  Result := Player <= 1;
 end;
 
 function GamepadConnected: Boolean;
@@ -336,18 +367,25 @@ end;
 
 procedure SetVirtualSticks(const Left, Right: TVector2);
 begin
-  ExplicitBackend.SetAxisLeft(0, Left);
-  ExplicitBackend.SetAxisRight(0, Right);
+  ExplicitBackend.SetAxisLeft(VirtualPadIndex, Left);
+  ExplicitBackend.SetAxisRight(VirtualPadIndex, Right);
 end;
 
 procedure SetVirtualRightTrigger(const Value: Single);
 begin
-  ExplicitBackend.SetAxisRightTrigger(0, Value);
+  ExplicitBackend.SetAxisRightTrigger(VirtualPadIndex, Value);
 end;
 
 procedure SetVirtualButton(const Button: TGameControllerButton; const Pressed: Boolean);
 begin
-  ExplicitBackend.SetButton(0, Button, Pressed);
+  ExplicitBackend.SetButton(VirtualPadIndex, Button, Pressed);
+end;
+
+procedure SetVirtualPadCount(const Count: Integer);
+begin
+  ExplicitBackend.SetCount(EnsureRange(Count, 1, 8));
+  VirtualPadIndex := EnsureRange(VirtualPadIndex, 0, Controllers.Count - 1);
+  WritelnLog('GameInput', 'Virtual game controllers: %d', [Controllers.Count]);
 end;
 
 function GamepadButtonByName(const Name: String; out Button: TGameControllerButton): Boolean;
@@ -545,7 +583,7 @@ var
   Down: Boolean;
   P: Integer;
 begin
-  P := EnsureRange(Player, 0, 2);
+  P := EnsureRange(Player, 0, 4);
   for Button := Low(TGameControllerButton) to High(TGameControllerButton) do
   begin
     Down := GamepadButtonDown(Button, P);
@@ -564,7 +602,7 @@ end;
 
 function GamepadJustPressed(const Button: TGameControllerButton; const Player: Integer): Boolean;
 begin
-  Result := JustPressed[EnsureRange(Player, 0, 2), Button];
+  Result := JustPressed[EnsureRange(Player, 0, 4), Button];
 end;
 
 function ApplyDeadZone(const V: Single): Single;

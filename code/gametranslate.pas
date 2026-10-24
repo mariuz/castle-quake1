@@ -374,8 +374,9 @@ function SystemLanguage: String;
 {$ifdef MSWINDOWS}
 const
   { Primary language ids of the translations }
-  Codes: array[0..4] of record Id: Word; Code: String; end = (
-    (Id: $09; Code: 'en'), (Id: $07; Code: 'de'), (Id: $0C; Code: 'fr'), (Id: $0A; Code: 'es'), (Id: $10; Code: 'it'));
+  Codes: array[0..5] of record Id: Word; Code: String; end = (
+    (Id: $09; Code: 'en'), (Id: $07; Code: 'de'), (Id: $0C; Code: 'fr'), (Id: $0A; Code: 'es'), (Id: $10; Code: 'it'),
+    (Id: $18; Code: 'ro'));
 var
   I: Integer;
   Id: Word;

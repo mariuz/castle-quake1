@@ -9,7 +9,9 @@ from PIL import Image, ImageStat
 
 out_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
 failed = False
-for name in ('websmoke_1.png', 'websmoke_2.png', 'websmoke_rnd.png', 'websmoke_split.png'):
+for name in ('websmoke_1.png', 'websmoke_2.png', 'websmoke_rnd.png', 'websmoke_split.png', 'websmoke_bots.png'):
+    # A deathmatch spawn is random and can be a dark corner: only not blank
+    dark_ok = name == 'websmoke_bots.png'
     path = os.path.join(out_dir, name)
     if not os.path.exists(path):
         print('FAIL %s is missing' % name)
@@ -22,7 +24,7 @@ for name in ('websmoke_1.png', 'websmoke_2.png', 'websmoke_rnd.png', 'websmoke_s
     stat = ImageStat.Stat(view)
     brightness = sum(stat.mean) / 3
     spread = sum(stat.stddev) / 3
-    ok = brightness > 8 and spread > 8
+    ok = (spread > 8 and brightness > 8) or (dark_ok and spread > 3)
     print('%s %s (brightness %.1f, spread %.1f)' % ('ok  ' if ok else 'FAIL', name, brightness, spread))
     failed = failed or not ok
 sys.exit(1 if failed else 0)

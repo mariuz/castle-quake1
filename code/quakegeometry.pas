@@ -191,13 +191,15 @@ type
     FCameraLeaf: Integer;
     { The second camera's leaf of a split-screen UpdateVisibility (-2 none) }
     FSecondLeaf: Integer;
+    { The leaves of the third and later cameras of UpdateVisibilityAll }
+    FOtherLeaves: array of Integer;
     FVisLiquidSeeThrough: Boolean;
     FVisibleClusters, FVisibleShapes, FShapeCount: Integer;
     FAllVisible: Boolean;
     FFullbrightFaces: Integer; { faces whose lightmap found no room, while building a model }
     FEntityCount, FVisibleEntities: Integer;
     procedure SetLiquidAlpha(const Value: Single);
-    procedure UpdateVisibilityOf(const CameraPos, SecondPos: TVector3; const Two: Boolean);
+    procedure UpdateVisibilityOf(const Positions: array of TVector3);
     function CreateLightmapSet(const Atlas: TQuakeLightmapAtlas): TQuakeLightmapSet;
     procedure AddFace(const FaceIdx: Integer; const Batches: TQuakeGeomBatchDict;
       const Atlases: TQuakeLightmapAtlasList);
@@ -235,6 +237,8 @@ type
     procedure UpdateVisibility(const CameraPos: TVector3);
     { Split-screen: what either camera's PVS has (one world for both views) }
     procedure UpdateVisibility2(const CameraPos, SecondPos: TVector3);
+    { The same for any number of cameras (split-screen up to four) }
+    procedure UpdateVisibilityAll(const Positions: array of TVector3);
     { The eye the scrolling sky is projected from, for the next render (a
       second view sets its own before it draws) }
     procedure SetSkyEye(const EyePos: TVector3);
@@ -1627,12 +1631,18 @@ end;
 
 procedure TQuakeGeometry.UpdateVisibility(const CameraPos: TVector3);
 begin
-  UpdateVisibilityOf(CameraPos, CameraPos, False);
+  UpdateVisibilityOf([CameraPos]);
 end;
 
 procedure TQuakeGeometry.UpdateVisibility2(const CameraPos, SecondPos: TVector3);
 begin
-  UpdateVisibilityOf(CameraPos, SecondPos, True);
+  UpdateVisibilityOf([CameraPos, SecondPos]);
+end;
+
+procedure TQuakeGeometry.UpdateVisibilityAll(const Positions: array of TVector3);
+begin
+  if Length(Positions) > 0 then
+    UpdateVisibilityOf(Positions);
 end;
 
 procedure TQuakeGeometry.SetSkyEye(const EyePos: TVector3);
@@ -1643,9 +1653,11 @@ begin
     FSkyEyeFields[I].Send(EyePos);
 end;
 
-procedure TQuakeGeometry.UpdateVisibilityOf(const CameraPos, SecondPos: TVector3; const Two: Boolean);
+procedure TQuakeGeometry.UpdateVisibilityOf(const Positions: array of TVector3);
 var
   Leaf, Leaf2, L, L2, I, ByteCount: Integer;
+  Others: array of Integer;
+  Same: Boolean;
   AllVisible, LiquidSeeThrough, V: Boolean;
   Cluster: TQuakeVisCluster;
   Shape: TShapeNode;
@@ -1665,36 +1677,56 @@ begin
     FAllVisible := True;
     Exit;
   end;
-  if WorldPvsCulling then
-    Leaf := FBsp.PointLeaf(CgeToQuake(CameraPos))
-  else
-    Leaf := -1;
-  if not Two then
-    Leaf2 := -2
-  else
-  if WorldPvsCulling then
-    Leaf2 := FBsp.PointLeaf(CgeToQuake(SecondPos))
-  else
-    Leaf2 := -1;
+  { The cameras' leaves (-1 without culling); the first, the second (-2
+    without one) and the rest }
+  Others := nil;
+  SetLength(Others, Max(0, Length(Positions) - 2));
+  Leaf := -1;
+  Leaf2 := -2;
+  for I := 0 to High(Positions) do
+  begin
+    if WorldPvsCulling then
+      L := FBsp.PointLeaf(CgeToQuake(Positions[I]))
+    else
+      L := -1;
+    case I of
+      0: Leaf := L;
+      1: Leaf2 := L;
+      else Others[I - 2] := L;
+    end;
+  end;
   LiquidSeeThrough := FLiquidAlpha < 1;
-  if (Leaf = FCameraLeaf) and (Leaf2 = FSecondLeaf) and (LiquidSeeThrough = FVisLiquidSeeThrough) then
+  Same := (Leaf = FCameraLeaf) and (Leaf2 = FSecondLeaf) and (LiquidSeeThrough = FVisLiquidSeeThrough) and
+    (Length(Others) = Length(FOtherLeaves));
+  if Same then
+    for I := 0 to High(Others) do
+      if Others[I] <> FOtherLeaves[I] then
+        Same := False;
+  if Same then
     Exit;
   FCameraLeaf := Leaf;
   FSecondLeaf := Leaf2;
+  FOtherLeaves := Others;
   FVisLiquidSeeThrough := LiquidSeeThrough;
 
   { Outside the map (solid leaf 0) or without vis data everything is drawn }
   AllVisible := (Leaf <= 0) or not FBsp.LeafPVS(Leaf, FVisBits);
-  { The second camera adds its leaf's row }
-  if Two and not AllVisible then
+  { Every further camera adds its leaf's row }
+  for I := 1 to High(Positions) do
   begin
-    if (Leaf2 <= 0) or not FBsp.LeafPVS(Leaf2, FRowBits) then
+    if AllVisible then
+      Break;
+    if I = 1 then
+      L := Leaf2
+    else
+      L := Others[I - 2];
+    if (L <= 0) or not FBsp.LeafPVS(L, FRowBits) then
       AllVisible := True
     else
     begin
-      for I := 0 to Min(Length(FVisBits), Length(FRowBits)) - 1 do
-        FVisBits[I] := FVisBits[I] or FRowBits[I];
-      FVisBits[(Leaf2 - 1) div 8] := FVisBits[(Leaf2 - 1) div 8] or (1 shl ((Leaf2 - 1) and 7));
+      for L2 := 0 to Min(Length(FVisBits), Length(FRowBits)) - 1 do
+        FVisBits[L2] := FVisBits[L2] or FRowBits[L2];
+      FVisBits[(L - 1) div 8] := FVisBits[(L - 1) div 8] or (1 shl ((L - 1) and 7));
     end;
   end;
   if not AllVisible then

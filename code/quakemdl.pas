@@ -657,10 +657,10 @@ var
 begin
   NormPath := LowerCase(APath);
   Key := ChangeFileExt(ExtractFileName(NormPath), '');
-  { The original model of a file a later pak replaces (Pak.PreferOriginal)
-    is cached apart, with its own skin images }
-  if Pak.UsesOriginalCopy(NormPath) then
-    Key := Key + '_original';
+  { The original model of a file a later pak replaces (Pak.PreferOriginal),
+    or a mounted mod's, is cached apart, with its own skin images }
+  if Pak.VariantTag(NormPath) <> '' then
+    Key := Key + '_' + Pak.VariantTag(NormPath);
 
   if FCache.TryGetValue(Key, Result) then
     Exit;

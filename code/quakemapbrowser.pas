@@ -38,11 +38,18 @@ type
     FQueue: array of Integer;
     FStatus: String;
     FCatalogUrl: String;
+    { QuakePak.GameDir before the first mount }
+    FBaseGameDir: String;
     procedure StartDownload(const I: Integer);
     procedure AddWithNeeds(const I: Integer; var Order: specialize TArray<Integer>);
     procedure ParseLine(const Line: String);
     procedure FinishDownload;
     function GetMap(const I: Integer): TCatalogMap;
+    function MountOne(const I: Integer): Boolean;
+    { I and the mods it needs, recursively }
+    procedure AddClosure(const I: Integer; const List: TStrings);
+    { The file a mod's deflated pak is unpacked to, '' when there is none }
+    function PakCacheFile(const I: Integer; const Inner: String): String;
   public
     constructor Create;
     destructor Destroy; override;
@@ -71,8 +78,15 @@ type
     procedure Remove(const I: Integer);
     { Mounts the mods it needs, then its zip, on top of the paks (once each;
       a mod's own paks after its loose files) and sets QuakePak.GameDir to
-      its directory; False when something is not installed or not a zip }
+      its directory; False when something is not installed or not a zip.
+      The releases mounted before that it does not need are unmounted
+      first. The zips are read from disk when a file is asked for. }
     function Mount(const I: Integer): Boolean;
+    { Unmounts the releases mounted (the last first) but the ones in Keep
+      (ids, nil for none) and gives QuakePak.GameDir back when no mod is left }
+    procedure UnmountAllBut(const Keep: TStrings);
+    { The ids mounted, in mount order }
+    function MountedIds: String;
     { Indexes of the maps sorted (msInstalled: only the installed ones,
       by name), the ones whose title, author or id contain Filter }
     function Sorted(const Sort: TMapSort; const Filter: String = ''): specialize TArray<Integer>;
@@ -217,6 +231,7 @@ constructor TQuakeMapBrowser.Create;
 begin
   inherited Create;
   FMounted := TStringList.Create;
+  FBaseGameDir := #0;
   FDownloadIndex := -1;
   LoadCatalog;
 end;
@@ -579,10 +594,16 @@ end;
 
 procedure TQuakeMapBrowser.Remove(const I: Integer);
 var
-  FileName: String;
+  FileName, P: String;
 begin
   if not Installed(I) then
     Exit;
+  { Its zip is open while mounted }
+  if FMounted.IndexOf(FMaps[I].Id) >= 0 then
+    UnmountAllBut(nil);
+  for P in FMaps[I].Paks do
+    if PakCacheFile(I, P) <> '' then
+      DeleteFile(PakCacheFile(I, P));
   FileName := UriToFilenameSafe(ZipUrl(I));
   if (FileName <> '') and DeleteFile(FileName) then
   begin
@@ -592,38 +613,107 @@ begin
     FStatus := 'Cannot remove ' + FMaps[I].Title;
 end;
 
+function TQuakeMapBrowser.PakCacheFile(const I: Integer; const Inner: String): String;
+var
+  Base: String;
+begin
+  Base := LowerCase(ExtractFileName(StringReplace(Inner, '\', '/', [rfReplaceAll])));
+  Result := UriToFilenameSafe('castle-config:/quaddicted_' + LowerCase(FMaps[I].Id) + '_' + Base);
+end;
+
+procedure TQuakeMapBrowser.AddClosure(const I: Integer; const List: TStrings);
+var
+  N: String;
+begin
+  if (I < 0) or (List.IndexOf(FMaps[I].Id) >= 0) then
+    Exit;
+  List.Add(FMaps[I].Id);
+  for N in FMaps[I].Needs do
+    AddClosure(IndexOf(N), List);
+end;
+
+procedure TQuakeMapBrowser.UnmountAllBut(const Keep: TStrings);
+var
+  I, J: Integer;
+  ModLeft: Boolean;
+begin
+  for I := FMounted.Count - 1 downto 0 do
+    if (Keep = nil) or (Keep.IndexOf(FMounted[I]) < 0) then
+    begin
+      Pak.Unmount(FMounted[I]);
+      WritelnLog('MapBrowser', 'Unmounted "%s"', [FMounted[I]]);
+      FMounted.Delete(I);
+    end;
+  ModLeft := False;
+  for I := 0 to FMounted.Count - 1 do
+  begin
+    J := IndexOf(FMounted[I]);
+    if (J >= 0) and (FMaps[J].GameDir <> 'id1') then
+    begin
+      ModLeft := True;
+      QuakePak.GameDir := FMaps[J].GameDir;
+    end;
+  end;
+  if not ModLeft and (FBaseGameDir <> #0) then
+    QuakePak.GameDir := FBaseGameDir;
+end;
+
+function TQuakeMapBrowser.MountedIds: String;
+begin
+  Result := String.Join(', ', FMounted.ToStringArray);
+end;
+
 function TQuakeMapBrowser.Mount(const I: Integer): Boolean;
 var
-  N, P, Inner: String;
-  Data: TMemoryStream;
-  M: TCatalogMap;
+  Keep: TStringList;
 begin
   Result := False;
   if not Ready(I) then
+    Exit;
+  Keep := TStringList.Create;
+  try
+    AddClosure(I, Keep);
+    UnmountAllBut(Keep);
+  finally
+    Keep.Free;
+  end;
+  Result := MountOne(I);
+end;
+
+function TQuakeMapBrowser.MountOne(const I: Integer): Boolean;
+var
+  N, P, Inner: String;
+  M: TCatalogMap;
+begin
+  Result := False;
+  if I < 0 then
     Exit;
   M := FMaps[I];
   if FMounted.IndexOf(M.Id) >= 0 then
     Exit(True);
   { Its mods first, so its own files come above theirs }
   for N in M.Needs do
-    if not Mount(IndexOf(N)) then
+    if not MountOne(IndexOf(N)) then
       Exit;
-  if not Pak.AddPk3(ZipUrl(I), M.Mapping, M.GameDir) then
-    Exit;
-  { A mod's paks inside its zip (pak0 first), above its loose files like
-    in a game directory }
-  for P in M.Paks do
-    if MapArchivePath(M.Mapping, P, Inner, M.GameDir) and Pak.FileExists(Inner) then
-    begin
-      Data := Pak.GetStream(Inner);
-      if Data <> nil then
-        Pak.AddPakStream(M.Id + ':' + Inner, Data);
-    end;
+  if FMounted.Count = 0 then
+    FBaseGameDir := QuakePak.GameDir;
+  Pak.MountTag := M.Id;
+  try
+    if not Pak.AddPk3(ZipUrl(I), M.Mapping, M.GameDir) then
+      Exit;
+    { A mod's paks inside its zip (pak0 first), above its loose files like
+      in a game directory }
+    for P in M.Paks do
+      if MapArchivePath(M.Mapping, P, Inner, M.GameDir) and Pak.FileExists(Inner) then
+        Pak.AddPakFromArchive(M.Id + ':' + Inner, Inner, PakCacheFile(I, Inner));
+  finally
+    Pak.MountTag := '';
+  end;
   if M.GameDir <> 'id1' then
     QuakePak.GameDir := M.GameDir;
   FMounted.Add(M.Id);
-  WritelnLog('MapBrowser', 'Mounted "%s" (%s) in %s, start maps: %s', [M.Id, M.Title, M.GameDir,
-    String.Join(', ', M.StartMaps)]);
+  WritelnLog('MapBrowser', 'Mounted "%s" (%s) in %s, start maps: %s; %d archives read from disk, %d KB in memory',
+    [M.Id, M.Title, M.GameDir, String.Join(', ', M.StartMaps), Pak.DiskArchives, Pak.MemoryBytes div 1024]);
   Result := True;
 end;
 

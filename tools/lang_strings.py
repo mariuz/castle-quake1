@@ -24,6 +24,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LANG = os.path.join(ROOT, 'data', 'lang')
 POT = os.path.join(LANG, 'castle-quake.pot')
+# The characters the UI font has (tools/font/make_ui_font.sh makes it from them)
+FONT_CHARS = os.path.join(ROOT, 'tools', 'font', 'ui_font_chars.txt')
 # Values menu items are built from (Options, Controls)
 EXTRA = ['ON', 'OFF', 'Auto', 'Quake Lightmaps', 'Dynamic PBR', 'First-Person', 'Third-Person', 'Free-Fly',
          'South', 'East', 'behind', 'empty', 'Play', 'small', 'medium', 'large']
@@ -226,15 +228,19 @@ def main():
         missing = [s for s in ids if not entries.get(s)]
         extra = [s for s in entries if s not in ids]
         wrong = [s for s in ids if entries.get(s) and specifiers(entries[s]) != specifiers(s)]
-        print('%s: %d of %d texts, %d missing, %d not used, %d with other format specifiers'
-              % (name, len(ids) - len(missing), len(ids), len(missing), len(extra), len(wrong)))
+        glyphs = set(open(FONT_CHARS, encoding='utf-8').read()) | {'\n'} if os.path.exists(FONT_CHARS) else None
+        unshown = sorted(set(c for v in entries.values() for c in v if glyphs is not None and c not in glyphs))
+        print('%s: %d of %d texts, %d missing, %d not used, %d with other format specifiers, %d characters not in '
+              'the font' % (name, len(ids) - len(missing), len(ids), len(missing), len(extra), len(wrong), len(unshown)))
+        if unshown:
+            print('  not in the font: %s' % ' '.join('%s (U+%04X)' % (c, ord(c)) for c in unshown[:20]))
         for s in missing[:20]:
             print('  missing: %r' % s)
         for s in extra[:20]:
             print('  not used: %r' % s)
         for s in wrong[:20]:
             print('  specifiers: %r -> %r' % (s, entries[s]))
-        problems += len(missing) + len(extra) + len(wrong)
+        problems += len(missing) + len(extra) + len(wrong) + len(unshown)
     return min(problems, 100) if args.check else 0
 
 

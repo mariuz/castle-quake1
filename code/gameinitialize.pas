@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, QuakeWebStorage, QuakeWebSocketClient,
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
   QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
@@ -44,6 +44,8 @@ var
   CmdCoop: Boolean;
   { -splitscreen [stacked]: host with a second local player (coop) }
   CmdSplit, CmdSplitStacked: Boolean;
+  { -splitplayers N: split-screen with N local players (2..4) }
+  CmdSplitPlayers: Integer = 2;
   { -lang <code>: the language for this run (not saved) }
   CmdLang: String;
   CmdSkill: Integer;
@@ -262,11 +264,24 @@ begin
   end;
 end;
 
+{ The UI font: DejaVu Sans like CGE's default, with Latin Extended-A and
+  Romanian's comma-below letters (tools/font/make_ui_font.sh) }
+procedure UseUiFont;
+var
+  Font: TCastleFont;
+begin
+  Font := TCastleFont.Create(Application);
+  Font.Load(Font_GameUi);
+  UIFont := Font;
+  Window.Container.DefaultFont := Font;
+end;
+
 procedure ApplicationInitialize;
 var
   I: Integer;
   LoadedAny: Boolean;
 begin
+  UseUiFont;
   { Command line options }
   CmdSkill := 1;
   I := 1;
@@ -355,6 +370,13 @@ begin
     if ((Parameters[I] = '-lang') or (Parameters[I] = '--lang')) and (I + 1 <= Parameters.High) then
     begin
       CmdLang := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-splitplayers') or (Parameters[I] = '--splitplayers')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdSplit := True;
+      CmdCoop := True;
+      CmdSplitPlayers := StrToIntDef(Parameters[I + 1], 2);
       Inc(I);
     end else
     if (Parameters[I] = '-netloopback') or (Parameters[I] = '--netloopback') then
@@ -591,9 +613,14 @@ begin
     CmdSplit := True;
     CmdCoop := True;
     CmdSplitStacked := PageParameter('splitscreen') = 'stacked';
+    { ?splitscreen=3 or 4: that many local players }
+    CmdSplitPlayers := StrToIntDef(PageParameter('splitscreen'), 2);
   end;
   if PageParameter('host') <> '' then
     CmdHost := PageParameter('host');
+  { ?bots=N: deathmatch bots on the page's listen server }
+  if PageParameter('bots') <> '' then
+    CmdBots := StrToIntDef(PageParameter('bots'), 0);
   { ?lang=<code>: the language of this visit }
   if PageParameter('lang') <> '' then
     CmdLang := PageParameter('lang');
@@ -681,6 +708,7 @@ begin
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;
+    ViewDemo.SplitPlayers := CmdSplitPlayers;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
@@ -708,6 +736,7 @@ begin
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;
+    ViewDemo.SplitPlayers := CmdSplitPlayers;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;

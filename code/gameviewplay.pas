@@ -403,7 +403,8 @@ end;
 { The horde ended with the player's death: the score against the best one
   of the map (user config horde/<map>/...) }
 { The map browser from the console: maps lists, maps_install downloads (the
-  log says when it is installed), maps_play mounts and plays, maps_remove }
+  log says when it is installed), maps_play mounts and plays, maps_mount
+  only mounts, maps_remove }
 procedure TViewPlay.MapBrowserCommand(const Cmd, Args: String);
 var
   Words: TStringList;
@@ -467,6 +468,15 @@ begin
     begin
       MapBrowser.Remove(Index);
       FConsole.Print(MapBrowser.Status);
+    end else
+    if Cmd = 'maps_mount' then
+    begin
+      { Only mounts it (and unmounts what it does not need) }
+      if MapBrowser.Mount(Index) then
+        FConsole.Print('Mounted: ' + MapBrowser.MountedIds)
+      else
+        FConsole.Print(MapBrowser[Index].Title + ' is not installed');
+      WritelnLog('MapBrowser', 'Mounted now: %s (game directory %s)', [MapBrowser.MountedIds, QuakePak.GameDir]);
     end else
     begin
       if not MapBrowser.Mount(Index) then
@@ -674,8 +684,7 @@ procedure TViewPlay.ComparePvsRender;
 var
   Culled, Full: TRGBImage;
   WasCulling: Boolean;
-  X, Y, Differ, Total: Integer;
-  A, B: PVector3Byte;
+  Differ, Total, Alone: Integer;
   Status: String;
 
   function Render(const Culling: Boolean): TRGBImage;
@@ -696,24 +705,15 @@ begin
   Full := Render(False);
   try
     { Pixels where a channel differs by more than 24 of 255 }
-    Differ := 0;
     Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
-    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
-      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
-      begin
-        A := Culled.PixelPtr(X, Y);
-        B := Full.PixelPtr(X, Y);
-        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
-          Inc(Differ);
-      end;
-    WritelnLog('GameViewPlay', 'PVS compare: %d of %d pixels differ, %s',
-      [Differ, Total, Status]);
+    Differ := ComparePvsImages(Culled, Full, Alone);
+    WritelnLog('GameViewPlay', 'PVS compare: %d of %d pixels differ (%d alone), %s', [Differ, Total, Alone, Status]);
     if (Differ > 0) and (FAutoTestPrefix <> '') then
     begin
-      Inc(FAutoTestShots);
+      { Named after the next screenshot, whose number stays the same }
       {$ifndef WASI}
-      SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_pvs.png');
-      SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_full.png');
+      SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots + 1) + '_pvs.png');
+      SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots + 1) + '_full.png');
       {$endif}
     end;
   finally
@@ -1637,7 +1637,8 @@ begin
   if (Cmd = 'photo_fov') or (Cmd = 'photo_effect') or (Cmd = 'photo_scale') or (Cmd = 'photo_shot') then
     FConsole.Print(FPhoto.Command(Cmd, Args, PhotoPrefix))
   else
-  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') then
+  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') or
+     (Cmd = 'maps_mount') then
     MapBrowserCommand(Cmd, Args)
   else
   if Cmd = 'killall' then

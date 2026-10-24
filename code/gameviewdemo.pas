@@ -50,6 +50,34 @@ type
     OnBeforeDraw: TNotifyEvent;
   end;
 
+  { A further split-screen player (2..4): its own client and demo reader,
+    a camera in its own viewport sharing the first one's world, a HUD and
+    a weapon; the entities and sounds come from the first player's client }
+  TSplitPlayer = class
+  public
+    Index: Integer;
+    Viewport: TSplitViewport;
+    Camera: TCastleCamera;
+    Hud: TQuakeHud;
+    WeaponTransform: TCastleTransform;
+    Weapon: TDemoVisual;
+    Client: TQuakeNetClient;
+    Demo: TQuakeDemoReader;
+    InputSeq: Word;
+    InputTime: Single;
+    Impulse: Integer;
+    LevelStart: Single;
+    constructor Create(const AIndex: Integer);
+    destructor Destroy; override;
+    procedure HandleCenterPrint(const S: String);
+    procedure HandleDamage(const Armor, Blood: Integer; const From: TVector3);
+    procedure HandleIntermission;
+  end;
+
+const
+  MaxSplitPlayers = 4;
+
+type
   TViewDemo = class(TCastleView)
   private
     FViewport: TSplitViewport;
@@ -97,21 +125,14 @@ type
     FScriptMove: TVector3;
     FScriptJump: Single;
     FWasConnected: Boolean;
-    { Split-screen: the second local player has its own client, reader,
-      camera (in FViewport2, sharing FViewport's world), HUD and weapon;
-      the entities and sounds come from the first player's client, which
-      the listen server sends every entity }
+    { Split-screen: FSplitCount local players (2..4), the further ones in
+      FPlayers; the first player's client gets every entity from the
+      listen server, and the world drawn once serves all the views }
     FSplit: Boolean;
-    FViewport2: TSplitViewport;
-    FCamera2: TCastleCamera;
-    FHud2: TQuakeHud;
-    FWeaponTransform2: TCastleTransform;
-    FWeapon2: TDemoVisual;
-    FClient2: TQuakeNetClient;
-    FDemo2: TQuakeDemoReader;
-    FInputSeq2: Word;
-    FInputTime2: Single;
-    FImpulse2: Integer;
+    FSplitCount: Integer;
+    FPlayers: array[2..MaxSplitPlayers] of TSplitPlayer;
+    { The pads' Start of the last frame: a pad without a player joins }
+    FPadMenuDown: array[0..7] of Boolean;
     { The virtual gamepad of the script (GL, GR, GT, GB) }
     FPadLeft, FPadRight: TVector2;
     FPadButton: TGameControllerButton;
@@ -147,11 +168,12 @@ type
     procedure UpdateHudStats(const Reader: TQuakeDemoReader; const Hud: TQuakeHud; const Eye: TVector3;
       const Main: Boolean; const SecondsPassed: Single);
     procedure ApplySplitLayout;
-    procedure UpdatePlayer2(const SecondsPassed: Single);
-    procedure SendInput2(const SecondsPassed: Single);
-    procedure HandleCenterPrint2(const S: String);
-    procedure HandleDamage2(const Armor, Blood: Integer; const From: TVector3);
-    procedure HandleIntermission2;
+    procedure UpdateSplitPlayer(const P: TSplitPlayer; const SecondsPassed: Single);
+    procedure SendSplitInput(const P: TSplitPlayer; const SecondsPassed: Single);
+    { Connect the further players 2..FSplitCount that have no client yet }
+    procedure ConnectSplitPlayers;
+    { A pad without a player pressed Start: one more player (up to 4) }
+    procedure JoinFromPads;
     function PlayerOne: Integer;
     procedure ViewportBeforeDraw(Sender: TObject);
     procedure UpdateWorldVisibility;
@@ -206,6 +228,9 @@ type
       (the keyboard and mouse play the first), side by side or, with
       SplitStacked, one above the other }
     SplitScreen, SplitStacked: Boolean;
+    { How many local players split-screen starts with (2..4; more join
+      with Start on a further pad) }
+    SplitPlayers: Integer;
 
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -222,7 +247,7 @@ var
 implementation
 
 uses
-  GameViewMenu;
+  CastleRectangles, CastleGameControllers, GameViewMenu;
 
 const
   BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
@@ -248,10 +273,45 @@ begin
       Hidden[I].Visible := Was[I];
 end;
 
+{ TSplitPlayer }
+
+constructor TSplitPlayer.Create(const AIndex: Integer);
+begin
+  inherited Create;
+  Index := AIndex;
+end;
+
+destructor TSplitPlayer.Destroy;
+begin
+  if Client <> nil then
+    Client.Disconnect;
+  FreeAndNil(Client);
+  FreeAndNil(Demo);
+  inherited Destroy;
+end;
+
+procedure TSplitPlayer.HandleCenterPrint(const S: String);
+begin
+  Hud.ShowMessage(S, 2.5);
+end;
+
+procedure TSplitPlayer.HandleDamage(const Armor, Blood: Integer; const From: TVector3);
+begin
+  Hud.DamageFlash(Armor, Blood);
+end;
+
+procedure TSplitPlayer.HandleIntermission;
+begin
+  Hud.StartIntermission(Demo.LevelName, Math.Max(0.0, Demo.Time - LevelStart),
+    Demo.Stats[STAT_MONSTERS], Demo.Stats[STAT_TOTALMONSTERS],
+    Demo.Stats[STAT_SECRETS], Demo.Stats[STAT_TOTALSECRETS]);
+end;
+
 constructor TViewDemo.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   Predict := True;
+  SplitPlayers := 2;
   FDemo := TQuakeDemoReader.Create;
   FDemo.OnServerInfo := @HandleServerInfo;
   FDemo.OnSound := @HandleSound;
@@ -264,20 +324,19 @@ begin
   FDemo.OnLightStyle := @HandleLightStyle;
   FDemo.OnCdTrack := @HandleCdTrack;
   FDemo.OnIntermission := @HandleIntermission;
-  FDemo2 := TQuakeDemoReader.Create;
-  FDemo2.OnCenterPrint := @HandleCenterPrint2;
-  FDemo2.OnDamage := @HandleDamage2;
-  FDemo2.OnIntermission := @HandleIntermission2;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
   SetLength(FVisuals, MaxDemoEntities);
 end;
 
 destructor TViewDemo.Destroy;
+var
+  I: Integer;
 begin
   ClearLevel;
   FDemo.Free;
-  FDemo2.Free;
+  for I := 2 to MaxSplitPlayers do
+    FreeAndNil(FPlayers[I]);
   FAmbient.Free;
   FScript.Free;
   inherited Destroy;
@@ -287,6 +346,7 @@ procedure TViewDemo.Start;
 var
   I: Integer;
   Cmd: String;
+  P: TSplitPlayer;
 begin
   inherited Start;
 
@@ -302,25 +362,34 @@ begin
     ApplyVideoSettings(FViewport);
     InsertFront(FViewport);
 
-    { The second split-screen view: its own camera in the same world }
-    FViewport2 := TSplitViewport.Create(Self);
-    FViewport2.Name := 'viewport2';
-    FViewport2.Transparent := False;
-    FViewport2.BackgroundColor := FViewport.BackgroundColor;
-    FViewport2.Exists := False;
+    { The further split-screen views: each its own camera in the same
+      world, a weapon and a HUD }
     FViewport.OnBeforeDraw := @ViewportBeforeDraw;
-    FViewport2.OnBeforeDraw := @ViewportBeforeDraw;
-    FCamera2 := TCastleCamera.Create(Self);
-    FCamera2.Name := 'camera2';
-    FCamera2.ProjectionNear := 1.0;
-    FViewport.Items.Add(FCamera2);
-    FViewport2.Items := FViewport.Items;
-    FViewport2.Camera := FCamera2;
-    InsertFront(FViewport2);
-    FWeaponTransform2 := TCastleTransform.Create(Self);
-    FWeaponTransform2.Name := 'view_weapon2';
-    FWeaponTransform2.Rotation := Vector4(0, 1, 0, Pi / 2);
-    FCamera2.Add(FWeaponTransform2);
+    for I := 2 to MaxSplitPlayers do
+    begin
+      P := TSplitPlayer.Create(I);
+      FPlayers[I] := P;
+      P.Viewport := TSplitViewport.Create(Self);
+      P.Viewport.Name := 'viewport' + IntToStr(I);
+      P.Viewport.Transparent := False;
+      P.Viewport.BackgroundColor := FViewport.BackgroundColor;
+      P.Viewport.Exists := False;
+      P.Viewport.OnBeforeDraw := @ViewportBeforeDraw;
+      P.Camera := TCastleCamera.Create(Self);
+      P.Camera.Name := 'camera' + IntToStr(I);
+      P.Camera.ProjectionNear := 1.0;
+      FViewport.Items.Add(P.Camera);
+      P.Viewport.Items := FViewport.Items;
+      P.Viewport.Camera := P.Camera;
+      InsertFront(P.Viewport);
+      P.WeaponTransform := TCastleTransform.Create(Self);
+      P.WeaponTransform.Name := 'view_weapon' + IntToStr(I);
+      P.WeaponTransform.Rotation := Vector4(0, 1, 0, Pi / 2);
+      P.Camera.Add(P.WeaponTransform);
+      P.Hud := TQuakeHud.Create(Self);
+      P.Hud.Name := 'hud' + IntToStr(I);
+      P.Viewport.InsertFront(P.Hud);
+    end;
 
     FNavigation := TCastleWalkNavigation.Create(Self);
     FNavigation.MoveSpeed := 0;
@@ -347,9 +416,6 @@ begin
     FHud := TQuakeHud.Create(Self);
     FHud.CrosshairVisible := False;
     InsertFront(FHud);
-    FHud2 := TQuakeHud.Create(Self);
-    FHud2.Name := 'hud2';
-    FViewport2.InsertFront(FHud2);
   end;
   if FTouch = nil then
   begin
@@ -362,9 +428,19 @@ begin
   { Split-screen hosts here: a listen server and two clients, over UDP or
     (in the browser, -netloopback) in-process loopback sockets }
   FSplit := SplitScreen and (HostMap <> '');
+  if FSplit then
+    FSplitCount := EnsureRange(SplitPlayers, 2, MaxSplitPlayers)
+  else
+    FSplitCount := 1;
+  SplitPlayerCount := Max(2, FSplitCount);
+  FillChar(FPadMenuDown, SizeOf(FPadMenuDown), 0);
   ApplySplitLayout;
-  FHud2.StopIntermission;
-  FHud2.CrosshairVisible := True;
+  for I := 2 to MaxSplitPlayers do
+  begin
+    FPlayers[I].Hud.StopIntermission;
+    FPlayers[I].Hud.CrosshairVisible := True;
+    FPlayers[I].Impulse := 0;
+  end;
   FHud.StopIntermission;
   FHud.CrosshairVisible := NetMode;
   FNavigation.Exists := NetMode;
@@ -386,7 +462,6 @@ begin
   FScriptMove := TVector3.Zero;
   FScriptJump := 0;
   FWasConnected := False;
-  FImpulse2 := 0;
   FPadRelease := 0;
   FPadLeft := TVector2.Zero;
   FPadRight := TVector2.Zero;
@@ -467,21 +542,10 @@ begin
       FDemo.Finished := True;
     end else
       FHud.ShowMessage('Connecting to ' + NetHost + ':' + IntToStr(NetPort) + '...', 5);
-    { The second player joins the same listen server after the first }
-    FreeAndNil(FClient2);
-    if FSplit then
-    begin
-      FDemo2.StartNetwork;
-      FClient2 := TQuakeNetClient.Create;
-      if FClient2.Connect('127.0.0.1', NetPort) then
-      begin
-        if SplitStacked then
-          WritelnLog('GameViewDemo', 'Split-screen: player 2 joins on port %d (one above the other)', [NetPort])
-        else
-          WritelnLog('GameViewDemo', 'Split-screen: player 2 joins on port %d (side by side)', [NetPort]);
-      end else
-        FreeAndNil(FClient2);
-    end;
+    { The further players join the same listen server after the first }
+    for I := 2 to MaxSplitPlayers do
+      FreeAndNil(FPlayers[I].Client);
+    ConnectSplitPlayers;
   end else
   if not FDemo.Load(DemoName) then
   begin
@@ -491,20 +555,24 @@ begin
 end;
 
 procedure TViewDemo.Stop;
+var
+  I: Integer;
 begin
   if FClient <> nil then
   begin
     FClient.Disconnect;
     FreeAndNil(FClient);
   end;
-  if FClient2 <> nil then
-  begin
-    FClient2.Disconnect;
-    FreeAndNil(FClient2);
-  end;
+  for I := 2 to MaxSplitPlayers do
+    if (FPlayers[I] <> nil) and (FPlayers[I].Client <> nil) then
+    begin
+      FPlayers[I].Client.Disconnect;
+      FreeAndNil(FPlayers[I].Client);
+    end;
   if FSplit then
   begin
     FSplit := False;
+    FSplitCount := 1;
     ApplySplitLayout;
   end;
   FreeAndNil(ListenServer);
@@ -613,96 +681,107 @@ begin
   PredictInput(Input, SecondsPassed);
 end;
 
-{ The second split-screen player: the gamepad only (the last one connected) }
-procedure TViewDemo.SendInput2(const SecondsPassed: Single);
+{ A further split-screen player: its gamepad only (GameInput's player Index) }
+procedure TViewDemo.SendSplitInput(const P: TSplitPlayer; const SecondsPassed: Single);
 var
   Input: TNetInput;
   PadForward, PadSide: Single;
 begin
-  if GamepadJustPressed(GamepadNextWeapon, 2) then
-    FImpulse2 := 10;
-  if GamepadJustPressed(GamepadPrevWeapon, 2) then
-    FImpulse2 := 12;
-  FInputTime2 := FInputTime2 + SecondsPassed;
-  if FInputTime2 * 1000 < MinInputMsec then
+  if GamepadJustPressed(GamepadNextWeapon, P.Index) then
+    P.Impulse := 10;
+  if GamepadJustPressed(GamepadPrevWeapon, P.Index) then
+    P.Impulse := 12;
+  P.InputTime := P.InputTime + SecondsPassed;
+  if P.InputTime * 1000 < MinInputMsec then
     Exit;
   Input := Default(TNetInput);
-  Inc(FInputSeq2);
-  Input.Sequence := FInputSeq2;
-  Input.Msec := Min(Round(FInputTime2 * 1000), MaxInputMsec);
-  FInputTime2 := Max(0, FInputTime2 - Input.Msec / 1000);
-  Input.Angles := FDemo2.ViewAngles;
-  GamepadMove(PadForward, PadSide, 2);
+  Inc(P.InputSeq);
+  Input.Sequence := P.InputSeq;
+  Input.Msec := Min(Round(P.InputTime * 1000), MaxInputMsec);
+  P.InputTime := Max(0, P.InputTime - Input.Msec / 1000);
+  Input.Angles := P.Demo.ViewAngles;
+  GamepadMove(PadForward, PadSide, P.Index);
   Input.Move := Vector3(PadForward * ClForwardSpeed, PadSide * ClSideSpeed, 0);
-  if BindingHeld(qbJump, nil, 2) then
+  if BindingHeld(qbJump, nil, P.Index) then
     Input.Buttons := Input.Buttons or nbJump;
-  if BindingHeld(qbFire, nil, 2) then
+  if BindingHeld(qbFire, nil, P.Index) then
     Input.Buttons := Input.Buttons or nbFire;
-  Input.Impulse := EnsureRange(FImpulse2, 0, 255);
-  FImpulse2 := 0;
-  FClient2.SendInput(Input);
+  Input.Impulse := EnsureRange(P.Impulse, 0, 255);
+  P.Impulse := 0;
+  P.Client.SendInput(Input);
 end;
 
-{ The second player's camera turns with its pad, the server's angles win
+{ A further player's camera turns with its pad, the server's angles win
   (spawn, teleport), its input goes out and its view follows its entity }
-procedure TViewDemo.UpdatePlayer2(const SecondsPassed: Single);
+procedure TViewDemo.UpdateSplitPlayer(const P: TSplitPlayer; const SecondsPassed: Single);
 var
   CamDir, Eye, Dir: TVector3;
   Yaw, Pitch, Bob: Single;
   CD: TDemoClientData;
+  D: TQuakeDemoReader;
 begin
-  UpdateGamepad(2);
-  GamepadTurnCamera(FCamera2, SecondsPassed, 2);
-  CamDir := FCamera2.Direction;
+  D := P.Demo;
+  UpdateGamepad(P.Index);
+  GamepadTurnCamera(P.Camera, SecondsPassed, P.Index);
+  CamDir := P.Camera.Direction;
   Yaw := RadToDeg(ArcTan2(-CamDir.Z, CamDir.X));
   Pitch := -RadToDeg(ArcSin(Clamped(CamDir.Y, -1, 1)));
-  if FDemo2.AngleFixed then
+  if D.AngleFixed then
   begin
-    Yaw := FDemo2.ViewAngles.Y;
-    Pitch := FDemo2.ViewAngles.X;
-    FDemo2.AngleFixed := False;
+    Yaw := D.ViewAngles.Y;
+    Pitch := D.ViewAngles.X;
+    D.AngleFixed := False;
   end;
-  FDemo2.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
-  if (FClient2 <> nil) and (FDemo2.Signon = Signons) then
-    SendInput2(SecondsPassed);
+  D.ViewAngles := Vector3(EnsureRange(Pitch, -89, 89), Yaw, 0);
+  if (P.Client <> nil) and (D.Signon = Signons) then
+    SendSplitInput(P, SecondsPassed);
 
-  CD := FDemo2.ClientData;
-  if (FDemo2.ViewEntity > 0) and (FDemo2.ViewEntity < Length(FDemo2.Entities)) then
-    Eye := FDemo2.Entities[FDemo2.ViewEntity].State.Origin + Vector3(0, 0, CD.ViewHeight)
+  CD := D.ClientData;
+  if (D.ViewEntity > 0) and (D.ViewEntity < Length(D.Entities)) then
+    Eye := D.Entities[D.ViewEntity].State.Origin + Vector3(0, 0, CD.ViewHeight)
   else
     Eye := TVector3.Zero;
-  Pitch := EnsureRange(FDemo2.ViewAngles.X + CD.Punch.X, -89, 89);
-  Yaw := FDemo2.ViewAngles.Y;
+  Pitch := EnsureRange(D.ViewAngles.X + CD.Punch.X, -89, 89);
+  Yaw := D.ViewAngles.Y;
   Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(Pitch)), Sin(DegToRad(Yaw)) * Cos(DegToRad(Pitch)),
     -Sin(DegToRad(Pitch)));
-  if (FDemo2.Intermission = 0) and (FDemo2.ViewEntity > 0) then
-    Bob := CalcViewBob(FDemo2.Time, CD.Velocity)
+  if (D.Intermission = 0) and (D.ViewEntity > 0) then
+    Bob := CalcViewBob(D.Time, CD.Velocity)
   else
     Bob := 0;
-  FCamera2.SetWorldView(QuakeToCge(Eye + Vector3(0, 0, Bob)), QuakeToCge(Dir), Vector3(0, 1, 0));
-  FWeaponTransform2.Translation := Vector3(0, 0, -Bob * 0.4);
-  UpdateWeapon(FDemo2, FWeapon2, FWeaponTransform2);
+  P.Camera.SetWorldView(QuakeToCge(Eye + Vector3(0, 0, Bob)), QuakeToCge(Dir), Vector3(0, 1, 0));
+  P.WeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
+  UpdateWeapon(D, P.Weapon, P.WeaponTransform);
 end;
 
 { What the PVS shows, and the entities in it; split-screen: one world for
-  two cameras, so what either PVS has }
+  every camera, so what any of their PVS has }
 procedure TViewDemo.UpdateWorldVisibility;
+var
+  Eyes: array of TVector3;
+  I: Integer;
 begin
   if FSplit then
-    FGeometry.UpdateVisibility2(FViewport.Camera.Translation, FCamera2.Translation)
-  else
+  begin
+    Eyes := nil;
+    SetLength(Eyes, FSplitCount);
+    Eyes[0] := FViewport.Camera.Translation;
+    for I := 2 to FSplitCount do
+      Eyes[I - 1] := FPlayers[I].Camera.Translation;
+    FGeometry.UpdateVisibilityAll(Eyes);
+  end else
     FGeometry.UpdateVisibility(FViewport.Camera.Translation);
   CullVisuals;
 end;
 
 { The NC action: this frame drawn with the PVS culling and without it; no
-  pixel may differ (in split-screen both views are in the window) }
+  pixel may differ but a lone one in a crack between faces (in
+  split-screen every view is in the window) }
 procedure TViewDemo.ComparePvsRender;
 var
   Culled, Full: TRGBImage;
   WasCulling: Boolean;
-  X, Y, Differ, Total: Integer;
-  A, B: PVector3Byte;
+  Differ, Total, Alone: Integer;
   Status: String;
 
   function Render(const Culling: Boolean): TRGBImage;
@@ -710,9 +789,9 @@ var
     WorldPvsCulling := Culling;
     UpdateWorldVisibility;
     if Culling then
-      Status := Format('leaves %d and %d, clusters %d/%d, entities %d/%d', [FGeometry.CameraLeaf,
+      Status := Format('leaves %d and %d, clusters %d/%d, entities %d/%d, %d views', [FGeometry.CameraLeaf,
         FGeometry.SecondLeaf, FGeometry.VisibleClusters, FGeometry.ClusterCount, FGeometry.VisibleEntities,
-        FGeometry.EntityCount]);
+        FGeometry.EntityCount, FSplitCount]);
     Result := Container.SaveScreen;
   end;
 
@@ -724,23 +803,15 @@ begin
   Full := Render(False);
   try
     { Pixels where a channel differs by more than 24 of 255 }
-    Differ := 0;
     Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
-    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
-      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
-      begin
-        A := Culled.PixelPtr(X, Y);
-        B := Full.PixelPtr(X, Y);
-        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
-          Inc(Differ);
-      end;
-    WritelnLog('GameViewDemo', 'PVS compare: %d of %d pixels differ, %s', [Differ, Total, Status]);
+    Differ := ComparePvsImages(Culled, Full, Alone);
+    WritelnLog('GameViewDemo', 'PVS compare: %d of %d pixels differ (%d alone), %s', [Differ, Total, Alone, Status]);
     if (Differ > 0) and (AutoTestPrefix <> '') then
     begin
-      Inc(FShots);
+      { Named after the next screenshot, whose number stays the same }
       {$ifndef WASI}
-      SaveImage(Culled, AutoTestPrefix + '_' + IntToStr(FShots) + '_pvs.png');
-      SaveImage(Full, AutoTestPrefix + '_' + IntToStr(FShots) + '_full.png');
+      SaveImage(Culled, AutoTestPrefix + '_' + IntToStr(FShots + 1) + '_pvs.png');
+      SaveImage(Full, AutoTestPrefix + '_' + IntToStr(FShots + 1) + '_full.png');
       {$endif}
     end;
   finally
@@ -766,8 +837,23 @@ begin
     Result := 0;
 end;
 
-{ One viewport over the window, or two: side by side (the first player on
-  the left) or one above the other (the first on top), each with its HUD }
+function SplitLayoutName(const Count: Integer; const Stacked: Boolean): String;
+begin
+  case Count of
+    2: if Stacked then
+         Result := 'one above the other'
+       else
+         Result := 'side by side';
+    3: Result := 'one on top, two below';
+    else
+      Result := 'a 2 x 2 grid';
+  end;
+end;
+
+{ One viewport over the window, or one per player: two side by side (the
+  first player on the left) or one above the other (the first on top),
+  three with the first on top and two below, four in a 2 x 2 grid; each
+  view has its HUD }
 procedure TViewDemo.ApplySplitLayout;
 
   procedure MoveHud(const Hud: TQuakeHud; const NewParent: TCastleUserInterface);
@@ -779,32 +865,52 @@ procedure TViewDemo.ApplySplitLayout;
     NewParent.InsertFront(Hud);
   end;
 
+  procedure Place(const V: TSplitViewport; const W, H: Single; const HP: THorizontalPosition;
+    const VP: TVerticalPosition);
+  begin
+    V.FullSize := False;
+    V.WidthFraction := W;
+    V.HeightFraction := H;
+    V.Anchor(HP);
+    V.Anchor(VP);
+  end;
+
+var
+  I: Integer;
 begin
-  FViewport2.Exists := FSplit;
+  { At program exit Stop can come after the destructor freed the players }
+  if (FViewport = nil) or (FPlayers[2] = nil) then
+    Exit;
+  for I := 2 to MaxSplitPlayers do
+  begin
+    FPlayers[I].Viewport.Exists := FSplit and (I <= FSplitCount);
+    SetLength(FPlayers[I].Viewport.Hidden, 0);
+  end;
   FViewport.FullSize := not FSplit;
   if FSplit then
   begin
-    FViewport2.FullSize := False;
-    if SplitStacked then
-    begin
-      FViewport.WidthFraction := 1;
-      FViewport.HeightFraction := 0.5;
-      FViewport.Anchor(hpLeft);
-      FViewport.Anchor(vpTop);
-      FViewport2.WidthFraction := 1;
-      FViewport2.HeightFraction := 0.5;
-      FViewport2.Anchor(hpLeft);
-      FViewport2.Anchor(vpBottom);
-    end else
-    begin
-      FViewport.WidthFraction := 0.5;
-      FViewport.HeightFraction := 1;
-      FViewport.Anchor(hpLeft);
-      FViewport.Anchor(vpBottom);
-      FViewport2.WidthFraction := 0.5;
-      FViewport2.HeightFraction := 1;
-      FViewport2.Anchor(hpRight);
-      FViewport2.Anchor(vpBottom);
+    case FSplitCount of
+      2: if SplitStacked then
+         begin
+           Place(FViewport, 1, 0.5, hpLeft, vpTop);
+           Place(FPlayers[2].Viewport, 1, 0.5, hpLeft, vpBottom);
+         end else
+         begin
+           Place(FViewport, 0.5, 1, hpLeft, vpBottom);
+           Place(FPlayers[2].Viewport, 0.5, 1, hpRight, vpBottom);
+         end;
+      3: begin
+           Place(FViewport, 1, 0.5, hpLeft, vpTop);
+           Place(FPlayers[2].Viewport, 0.5, 0.5, hpLeft, vpBottom);
+           Place(FPlayers[3].Viewport, 0.5, 0.5, hpRight, vpBottom);
+         end;
+      else
+        begin
+          Place(FViewport, 0.5, 0.5, hpLeft, vpTop);
+          Place(FPlayers[2].Viewport, 0.5, 0.5, hpRight, vpTop);
+          Place(FPlayers[3].Viewport, 0.5, 0.5, hpLeft, vpBottom);
+          Place(FPlayers[4].Viewport, 0.5, 0.5, hpRight, vpBottom);
+        end;
     end;
     MoveHud(FHud, FViewport);
   end else
@@ -820,7 +926,57 @@ begin
     end;
   end;
   SetLength(FViewport.Hidden, 0);
-  SetLength(FViewport2.Hidden, 0);
+end;
+
+procedure TViewDemo.ConnectSplitPlayers;
+var
+  I: Integer;
+  P: TSplitPlayer;
+begin
+  if not FSplit then
+    Exit;
+  for I := 2 to FSplitCount do
+  begin
+    P := FPlayers[I];
+    if P.Client <> nil then
+      Continue;
+    P.Demo.Free;
+    P.Demo := TQuakeDemoReader.Create;
+    P.Demo.OnCenterPrint := @P.HandleCenterPrint;
+    P.Demo.OnDamage := @P.HandleDamage;
+    P.Demo.OnIntermission := @P.HandleIntermission;
+    P.Demo.StartNetwork;
+    P.InputSeq := 0;
+    P.InputTime := 0;
+    P.LevelStart := FLevelStart;
+    P.Client := TQuakeNetClient.Create;
+    if P.Client.Connect('127.0.0.1', NetPort) then
+      WritelnLog('GameViewDemo', 'Split-screen: player %d joins on port %d (%s)',
+        [I, NetPort, SplitLayoutName(FSplitCount, SplitStacked)])
+    else
+      FreeAndNil(P.Client);
+  end;
+end;
+
+procedure TViewDemo.JoinFromPads;
+var
+  I: Integer;
+  Down: Boolean;
+begin
+  for I := 0 to Min(Controllers.Count, Length(FPadMenuDown)) - 1 do
+  begin
+    Down := Controllers[I].Pressed[gbMenu];
+    if Down and not FPadMenuDown[I] and (PadPlayer(I) = 0) and (FSplitCount < MaxSplitPlayers) then
+    begin
+      Inc(FSplitCount);
+      SplitPlayerCount := FSplitCount;
+      WritelnLog('GameViewDemo', 'Split-screen: pad %d (%s) pressed Start: player %d', [I, Controllers[I].Name,
+        FSplitCount]);
+      ApplySplitLayout;
+      ConnectSplitPlayers;
+    end;
+    FPadMenuDown[I] := Down;
+  end;
 end;
 
 procedure TViewDemo.RefreshPredictSolids;
@@ -923,6 +1079,7 @@ end;
 procedure TViewDemo.UpdateNetwork(const SecondsPassed: Single);
 var
   Data: TNetBytes;
+  I: Integer;
 begin
   if FWsRelay <> nil then
     FWsRelay.Update;
@@ -941,12 +1098,13 @@ begin
   FClient.Update(SecondsPassed);
   while FClient.PollBlock(Data) do
     FDemo.PushBlock(Data);
-  if FClient2 <> nil then
-  begin
-    FClient2.Update(SecondsPassed);
-    while FClient2.PollBlock(Data) do
-      FDemo2.PushBlock(Data);
-  end;
+  for I := 2 to FSplitCount do
+    if FPlayers[I].Client <> nil then
+    begin
+      FPlayers[I].Client.Update(SecondsPassed);
+      while FPlayers[I].Client.PollBlock(Data) do
+        FPlayers[I].Demo.PushBlock(Data);
+    end;
   if FClient.State = csConnected then
     FWasConnected := True
   else
@@ -1004,11 +1162,15 @@ begin
     FreeVisual(FStaticVisuals[I]);
   SetLength(FStaticVisuals, 0);
   FreeVisual(FWeapon);
-  FreeVisual(FWeapon2);
+  for I := 2 to MaxSplitPlayers do
+    if FPlayers[I] <> nil then
+    begin
+      FreeVisual(FPlayers[I].Weapon);
+      if FPlayers[I].Viewport <> nil then
+        SetLength(FPlayers[I].Viewport.Hidden, 0);
+    end;
   if FViewport <> nil then
     SetLength(FViewport.Hidden, 0);
-  if FViewport2 <> nil then
-    SetLength(FViewport2.Hidden, 0);
   for I := 0 to High(FBeams) do
   begin
     FBeams[I].Time := 0;
@@ -1265,23 +1427,6 @@ end;
 procedure TViewDemo.HandleCenterPrint(const S: String);
 begin
   FHud.ShowMessage(S, 2.5);
-end;
-
-procedure TViewDemo.HandleCenterPrint2(const S: String);
-begin
-  FHud2.ShowMessage(S, 2.5);
-end;
-
-procedure TViewDemo.HandleDamage2(const Armor, Blood: Integer; const From: TVector3);
-begin
-  FHud2.DamageFlash(Armor, Blood);
-end;
-
-procedure TViewDemo.HandleIntermission2;
-begin
-  FHud2.StartIntermission(FDemo2.LevelName, Math.Max(0.0, FDemo2.Time - FLevelStart),
-    FDemo2.Stats[STAT_MONSTERS], FDemo2.Stats[STAT_TOTALMONSTERS],
-    FDemo2.Stats[STAT_SECRETS], FDemo2.Stats[STAT_TOTALSECRETS]);
 end;
 
 procedure TViewDemo.HandleCdTrack(const Track, LoopTrack: Integer);
@@ -1587,6 +1732,8 @@ procedure TViewDemo.CaptureScreenshot;
 var
   OutPath: String;
   Img: TCastleImage;
+  I: Integer;
+  D: TQuakeDemoReader;
 begin
   Inc(FShots);
   OutPath := AutoTestPrefix + '_' + IntToStr(FShots) + '.png';
@@ -1608,14 +1755,19 @@ begin
           [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
            FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
            FDemo.Protocol]);
-      if FSplit and (FDemo2.ViewEntity > 0) and (FDemo2.ViewEntity < Length(FDemo2.Entities)) then
-        WritelnLog('GameViewDemo', 'Player 2: view entity %d at %.1f %.1f %.1f, yaw %.0f, health %d, ammo %d, ' +
-          'weapon %d, signon %d, viewports %.0fx%.0f and %.0fx%.0f',
-          [FDemo2.ViewEntity, FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.X,
-           FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.Y, FDemo2.Entities[FDemo2.ViewEntity].Msg[0].Origin.Z,
-           FDemo2.ViewAngles.Y, FDemo2.ClientData.Health, FDemo2.ClientData.Ammo, FDemo2.ClientData.ActiveWeapon,
-           FDemo2.Signon, FViewport.EffectiveWidth, FViewport.EffectiveHeight,
-           FViewport2.EffectiveWidth, FViewport2.EffectiveHeight]);
+      { The further players: their entity, and the first view's and their own size }
+      for I := 2 to FSplitCount do
+      begin
+        D := FPlayers[I].Demo;
+        if (D <> nil) and (D.ViewEntity > 0) and (D.ViewEntity < Length(D.Entities)) then
+          WritelnLog('GameViewDemo', 'Player %d: view entity %d at %.1f %.1f %.1f, yaw %.0f, health %d, ammo %d, ' +
+            'weapon %d, signon %d, viewports %.0fx%.0f and %.0fx%.0f',
+            [I, D.ViewEntity, D.Entities[D.ViewEntity].Msg[0].Origin.X,
+             D.Entities[D.ViewEntity].Msg[0].Origin.Y, D.Entities[D.ViewEntity].Msg[0].Origin.Z,
+             D.ViewAngles.Y, D.ClientData.Health, D.ClientData.Ammo, D.ClientData.ActiveWeapon,
+             D.Signon, FViewport.EffectiveWidth, FViewport.EffectiveHeight,
+             FPlayers[I].Viewport.EffectiveWidth, FPlayers[I].Viewport.EffectiveHeight]);
+      end;
       if FSplit and (FGeometry <> nil) then
         WritelnLog('GameViewDemo', 'Split-screen PVS: leaves %d and %d, %d of %d clusters, %d of %d entities drawn',
           [FGeometry.CameraLeaf, FGeometry.SecondLeaf, FGeometry.VisibleClusters, FGeometry.ClusterCount,
@@ -1717,6 +1869,15 @@ begin
     if Action = 'PN' then
       SetVirtualPadName(Param)
     else
+    if Action = 'PADS' then { How many virtual pads (split-screen players) }
+      SetVirtualPadCount(StrToIntDef(Param, 1))
+    else
+    if Action = 'PAD' then { The virtual pad GL, GR, GT and GB drive }
+    begin
+      VirtualPadIndex := EnsureRange(StrToIntDef(Param, 0), 0, Max(0, Controllers.Count - 1));
+      FPadLeft := TVector2.Zero;
+      FPadRight := TVector2.Zero;
+    end else
     if Action = 'CMD' then
     begin
       { Photo mode's console commands: photo [0|1], photo_fov, photo_effect,
@@ -1743,11 +1904,14 @@ begin
 end;
 
 procedure TViewDemo.Leave;
+var
+  I: Integer;
 begin
   if FClient <> nil then
     FClient.Disconnect;
-  if FClient2 <> nil then
-    FClient2.Disconnect;
+  for I := 2 to FSplitCount do
+    if FPlayers[I].Client <> nil then
+      FPlayers[I].Client.Disconnect;
   if AutoTestPrefix <> '' then
     Application.Terminate
   else
@@ -1756,16 +1920,17 @@ end;
 
 procedure TViewDemo.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 var
-  I, J: Integer;
+  I, J, N: Integer;
   Eye, Dir, CamDir: TVector3;
   Pitch, Yaw, Bob: Single;
   CD: TDemoClientData;
   Cmd: String;
+  P: TSplitPlayer;
 begin
   inherited Update(SecondsPassed, HandleInput);
   ApplyVideoSettings(FViewport);
-  if FSplit then
-    ApplyVideoSettings(FViewport2);
+  for I := 2 to FSplitCount do
+    ApplyVideoSettings(FPlayers[I].Viewport);
   FPhoto.ApplyView;
   if FPadRelease > 0 then
   begin
@@ -1801,13 +1966,18 @@ begin
   end;
 
   FDemo.Advance(SecondsPassed);
-  if FSplit then
-    FDemo2.Advance(SecondsPassed);
+  for I := 2 to FSplitCount do
+    if FPlayers[I].Demo <> nil then
+      FPlayers[I].Demo.Advance(SecondsPassed);
   if not FLoaded then
     Exit;
   ApplyEnvironment;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
+  begin
     FLevelStart := FDemo.Time;
+    for I := 2 to MaxSplitPlayers do
+      FPlayers[I].LevelStart := FLevelStart;
+  end;
 
   { Touch controls only in a network game; their menu button leaves it }
   FTouch.UpdateShown(NetMode);
@@ -1899,8 +2069,12 @@ begin
   if FWeaponTransform <> nil then
     FWeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
   UpdateWeapon(FDemo, FWeapon, FWeaponTransform);
+  { A further pad's Start adds a player; the further players' views }
   if FSplit then
-    UpdatePlayer2(SecondsPassed);
+    JoinFromPads;
+  for I := 2 to FSplitCount do
+    if FPlayers[I].Demo <> nil then
+      UpdateSplitPlayer(FPlayers[I], SecondsPassed);
 
   for I := 0 to High(FBeams) do
     if FBeams[I].Time > 0 then
@@ -1919,16 +2093,30 @@ begin
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
   if FSplit then
   begin
-    UpdateHudStats(FDemo2, FHud2, FCamera2.Translation, False, SecondsPassed);
-    FViewport2.Fog := FViewport.Fog;
-    FViewport2.Background := FViewport.Background;
-    { Each view hides its own player's body and the other's weapon }
-    SetLength(FViewport.Hidden, 2);
-    FViewport.Hidden[0] := FWeaponTransform2;
-    FViewport.Hidden[1] := VisualTransform(FDemo.ViewEntity);
-    SetLength(FViewport2.Hidden, 2);
-    FViewport2.Hidden[0] := FWeaponTransform;
-    FViewport2.Hidden[1] := VisualTransform(FDemo2.ViewEntity);
+    { Each view hides its own player's body and the others' weapons }
+    SetLength(FViewport.Hidden, FSplitCount);
+    FViewport.Hidden[0] := VisualTransform(FDemo.ViewEntity);
+    for I := 2 to FSplitCount do
+      FViewport.Hidden[I - 1] := FPlayers[I].WeaponTransform;
+    for I := 2 to FSplitCount do
+    begin
+      P := FPlayers[I];
+      if P.Demo = nil then
+        Continue;
+      UpdateHudStats(P.Demo, P.Hud, P.Camera.Translation, False, SecondsPassed);
+      P.Viewport.Fog := FViewport.Fog;
+      P.Viewport.Background := FViewport.Background;
+      SetLength(P.Viewport.Hidden, FSplitCount);
+      P.Viewport.Hidden[0] := VisualTransform(P.Demo.ViewEntity);
+      P.Viewport.Hidden[1] := FWeaponTransform;
+      N := 2;
+      for J := 2 to FSplitCount do
+        if J <> I then
+        begin
+          P.Viewport.Hidden[N] := FPlayers[J].WeaponTransform;
+          Inc(N);
+        end;
+    end;
   end;
 end;
 
