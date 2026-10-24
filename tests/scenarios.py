@@ -41,8 +41,9 @@ UPDATE = False             # --update: also rewrite tests/budgets.json
 
 class Scenario:
     def __init__(self, name, runs, checks, references, threshold=DEFAULT_THRESHOLD, prepare=None,
-                 frame_checks=None):
+                 frame_checks=None, dark=()):
         self.name = name
+        self.dark = dark              # runs whose screenshots may be dark (a random deathmatch spawn)
         self.prepare = prepare        # function(out_dir) run before the processes, or None
         self.frame_checks = frame_checks  # function(out_dir) -> [(ok, description)] on the screenshots, or None
         self.runs = runs              # [(prefix, args, delay before start)]
@@ -306,11 +307,22 @@ def dist(a, b):
 
 SPLIT_RE = re.compile(r'Player 2: view entity (\d+) at (\S+) (\S+) (\S+), yaw (-?\d+), health (-?\d+), '
                       r'ammo (\d+), weapon \d+, signon \d+, viewports (\d+)x(\d+) and (\d+)x(\d+)')
+PLAYER_RE = re.compile(r'Player (\d): view entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+), yaw (-?\d+), .*'
+                       r'viewports (\d+)x(\d+) and (\d+)x(\d+)')
+
+
+def players(log):
+    """{player: [(position, yaw, first view size, own view size) per screenshot]}"""
+    result = {}
+    for m in PLAYER_RE.findall(log):
+        result.setdefault(int(m[0]), []).append(((float(m[1]), float(m[2]), float(m[3])), int(m[4]),
+                                                (int(m[5]), int(m[6])), (int(m[7]), int(m[8]))))
+    return result
 
 
 def check_split(logs):
     result = common_checks(logs, 'sides') + common_checks(logs, 'stacked')
-    for prefix in ('sides', 'stacked', 'loop'):
+    for prefix in ('sides', 'stacked', 'loop', 'four', 'join'):
         log = logs[prefix]
         result.append(('Split-screen: player 2 joins' in log, '%s: the second player joins the listen server' % prefix))
     log = logs['sides']
@@ -344,6 +356,36 @@ def check_split(logs):
     result.append((len(p2) == 2 and dist(tuple(float(x) for x in p2[0][1:4]), tuple(float(x) for x in p2[1][1:4])) > 200,
                    'loop: the second player walks over the loopback'))
     result.append(('PVS compare: 0 of' in log, 'loop: culling changes no pixel'))
+    # Four players in a 2 x 2 grid: pad 1 walks player 3, pad 2 turns player 4
+    log = logs['four']
+    result += common_checks(logs, 'four')
+    pl = players(log)
+    result.append(('Split-screen: player 4 joins' in log and sorted(pl) == [2, 3, 4] and
+                   all(len(v) == 2 for v in pl.values()), 'four: players 2, 3 and 4 join and are logged'))
+    if sorted(pl) == [2, 3, 4] and all(len(v) == 2 for v in pl.values()):
+        result.append((dist(pl[3][0][0], pl[3][1][0]) > 200 and dist(pl[2][0][0], pl[2][1][0]) < 8 and
+                       dist(pl[4][0][0], pl[4][1][0]) < 8, 'four: the second pad walks only player 3 (%.0f units)'
+                       % dist(pl[3][0][0], pl[3][1][0])))
+        result.append((pl[4][0][1] != pl[4][1][1] and pl[3][0][1] == pl[3][1][1],
+                       'four: the third pad turns only player 4 (yaw %d -> %d)' % (pl[4][0][1], pl[4][1][1])))
+        sizes = set(v[0][3] for v in pl.values()) | set(v[0][2] for v in pl.values())
+        result.append((len(sizes) == 1, 'four: four views of the same size (%s)' % sizes))
+    result.append((re.search(r'PVS compare: 0 of \d+ pixels differ, .*, 4 views', log) is not None,
+                   'four: culling changes no pixel of the four views'))
+    # A third pad's Start adds player 3 to a two-player game
+    log = logs['join']
+    result += common_checks(logs, 'join')
+    pl = players(log)
+    result.append(('pressed Start: player 3' in log and 'player 3 joins on port' in log and
+                   '(one on top, two below)' in log, 'join: Start on a free pad adds player 3'))
+    result.append((3 in pl and dist(pl[3][0][0], pl[3][-1][0]) > 200 if 3 in pl else False,
+                   'join: the new player walks with its pad'))
+    if 3 in pl:
+        first, own = pl[3][-1][2], pl[3][-1][3]
+        result.append((first[0] == 2 * own[0] and first[1] == own[1],
+                       'join: player 1 on top, two below (%dx%d and %dx%d)' % (first + own)))
+    result.append((re.search(r'PVS compare: 0 of \d+ pixels differ, .*, 3 views', log) is not None,
+                   'join: culling changes no pixel of the three views'))
     log = logs['stacked']
     p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
     p2 = SPLIT_RE.findall(log)
@@ -1090,7 +1132,7 @@ SCENARIOS = [
                                    'W:6,S,Q'], 5),
                       ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
                                  'W:22,S,Q'], 0)],
-             check_bots, []),
+             check_bots, [], dark=('bloop',)),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
@@ -1156,6 +1198,14 @@ SCENARIOS = [
                              # clients on in-process loopback sockets
                              ('loop', ['-netloopback', '-splitscreen', '--autotest', 'host:e1m1', '{out}/loop',
                                        '--demo', 'W:4,S,GL:0;1,W:2,GL:0;0,W:0.5,NC,S,Q'], 0),
+                             # Four players from the start (three virtual pads)
+                             ('four', ['-splitplayers', '4', '--autotest', 'host:e1m1', '{out}/four', '--demo',
+                                       'PADS:3,W:4,S,PAD:1,GL:0;1,W:2,GL:0;0,PAD:2,GR:1;0,W:0.5,GR:0;0,W:0.3,NC,S,Q',
+                                       '-port', '26362'], 0),
+                             # Two players, a third pad presses Start and joins
+                             ('join', ['-splitscreen', '--autotest', 'host:e1m1', '{out}/join', '--demo',
+                                       'PADS:3,W:4,S,PAD:2,GB:start,W:2,S,GL:0;1,W:1.5,GL:0;0,W:0.3,NC,S,Q',
+                                       '-port', '26363'], 0),
                              ('stacked', ['-splitscreen', 'stacked', '--autotest', 'host:e1m1', '{out}/stacked',
                                           '--demo', 'W:4,S,V:1;0;0,W:1,V:0;0;0,GT:1,W:0.6,GT:0,W:0.5,S,Q',
                                           '-port', '26361'], 0)],
@@ -1200,6 +1250,8 @@ def image_checks(out_dir, scenario, update):
                    if f.endswith('.png') and not f.endswith('_compare.png')
                    and any(f.startswith(prefix + '_') for prefix, _, _ in scenario.runs))
     for shot in shots:
+        if any(shot.startswith(prefix + '_') for prefix in scenario.dark):
+            continue
         image = small(os.path.join(out_dir, shot + '.png'))
         level = brightness(image)
         result.append((level > BLACK_LIMIT, '%s is not black (brightness %.1f)' % (shot, level)))

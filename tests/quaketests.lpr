@@ -947,6 +947,19 @@ begin
     Controllers[0].Pressed[gbSouth] := False;
     UpdateGamepad(2);
 
+    { Four players, three pads: the gamepad players take them in order }
+    SetVirtualPadCount(3);
+    SplitPlayerCount := 4;
+    Check((PlayerController(1) = nil) and (PlayerController(2) = Controllers[0]) and
+      (PlayerController(3) = Controllers[1]) and (PlayerController(4) = Controllers[2]),
+      'four players: pads 1, 2 and 3 for players 2, 3 and 4');
+    Check(PadPlayer(2) = 4, 'the third pad is player 4''s');
+    { Two players, three pads: the first is the keyboard player's, one is free }
+    SplitPlayerCount := 2;
+    Check((PlayerController(1) = Controllers[0]) and (PlayerController(2) = Controllers[1]) and
+      (PadPlayer(2) = 0), 'two players, three pads: the third is free (it joins with Start)');
+    SetVirtualPadCount(1);
+
     { Right stick right for 0.5 s: 160 deg/s turns 80 deg to the right }
     ResetCamera;
     SetVirtualSticks(TVector2.Zero, Vector2(1, 0));

@@ -44,6 +44,8 @@ var
   CmdCoop: Boolean;
   { -splitscreen [stacked]: host with a second local player (coop) }
   CmdSplit, CmdSplitStacked: Boolean;
+  { -splitplayers N: split-screen with N local players (2..4) }
+  CmdSplitPlayers: Integer = 2;
   { -lang <code>: the language for this run (not saved) }
   CmdLang: String;
   CmdSkill: Integer;
@@ -357,6 +359,13 @@ begin
       CmdLang := Parameters[I + 1];
       Inc(I);
     end else
+    if ((Parameters[I] = '-splitplayers') or (Parameters[I] = '--splitplayers')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdSplit := True;
+      CmdCoop := True;
+      CmdSplitPlayers := StrToIntDef(Parameters[I + 1], 2);
+      Inc(I);
+    end else
     if (Parameters[I] = '-netloopback') or (Parameters[I] = '--netloopback') then
       NetLoopback := True
     else
@@ -591,6 +600,8 @@ begin
     CmdSplit := True;
     CmdCoop := True;
     CmdSplitStacked := PageParameter('splitscreen') = 'stacked';
+    { ?splitscreen=3 or 4: that many local players }
+    CmdSplitPlayers := StrToIntDef(PageParameter('splitscreen'), 2);
   end;
   if PageParameter('host') <> '' then
     CmdHost := PageParameter('host');
@@ -684,6 +695,7 @@ begin
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;
+    ViewDemo.SplitPlayers := CmdSplitPlayers;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
@@ -711,6 +723,7 @@ begin
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;
+    ViewDemo.SplitPlayers := CmdSplitPlayers;
     ViewDemo.HostSkill := CmdSkill;
     ViewDemo.HostBots := CmdBots;
     ViewDemo.NetPort := CmdPort;
