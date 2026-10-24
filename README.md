@@ -57,6 +57,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - LAN games: Multiplayer > Find LAN Games lists the games hosted on the local network (map, players, deathmatch or coop) and joins one with a press.
 - Coop bots: `-host e1m1 -coop -bots 2` (or Multiplayer > Coop with 2 bots) adds bots that follow you through the level and fight its monsters.
 - Deathmatch rules: `-fraglimit N`, `-timelimit M` and `-maps e1m1,e1m2,...` end a level at a limit and play the maps in turn.
+- Scoreboard: Tab shows the players and bots by frags (and your ping) in a network game; a deathmatch intermission shows it too.
 - Chat: in a network game T opens a line to say something to everyone.
 - Recording network games: `-record <name>` with `-host` or `-connect` saves the game you play as a demo that plays back like any other.
 - Spectators: `-connect host -spectate` (or Multiplayer > Spectate) watches a network game without playing: fire follows the next player, jump flies freely.

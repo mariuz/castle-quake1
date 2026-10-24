@@ -1075,3 +1075,9 @@ msgstr "Discussion"
 
 msgid "say:"
 msgstr "dire :"
+
+msgid "Scoreboard"
+msgstr "Tableau des scores"
+
+msgid "   (you, ping %d ms)"
+msgstr "   (vous, ping %d ms)"

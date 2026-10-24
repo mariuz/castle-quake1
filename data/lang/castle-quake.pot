@@ -109,6 +109,10 @@ msgstr ""
 msgid "Chat"
 msgstr ""
 
+#: code/gameinput.pas
+msgid "Scoreboard"
+msgstr ""
+
 #: code/gamephoto.pas
 msgid "Field of view %d"
 msgstr ""
@@ -151,6 +155,10 @@ msgstr ""
 
 #: code/gamephoto.pas
 msgid "Ambient occlusion"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "   (you, ping %d ms)"
 msgstr ""
 
 #: code/gameviewdemo.pas

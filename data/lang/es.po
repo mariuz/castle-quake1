@@ -1075,3 +1075,9 @@ msgstr "Chat"
 
 msgid "say:"
 msgstr "decir:"
+
+msgid "Scoreboard"
+msgstr "Marcador"
+
+msgid "   (you, ping %d ms)"
+msgstr "   (tú, ping %d ms)"

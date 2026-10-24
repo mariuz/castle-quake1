@@ -160,7 +160,16 @@ type
     { Typing a line of chat (the chat binding), and what was typed }
     FChatting: Boolean;
     FChatText: String;
+    { Ping: when each input left (by its sequence), the last acked one, a
+      smoothed round trip in ms; the scoreboard shown at the intermission }
+    FNetClock: Double;
+    FInputSent: array[0..255] of Double;
+    FPingAck: Integer;
+    FPing: Single;
+    FIntermissionBoard: Boolean;
     procedure ShowChatLine;
+    function ScoreboardText: String;
+    function ScoreboardLog: String;
     procedure ClearLevel;
     { Demo playback controls }
     procedure MeasureDemoLength;
@@ -567,6 +576,10 @@ begin
     FClient.Spectator := Spectate;
     FChatting := False;
     FChatText := '';
+    FNetClock := 0;
+    FPingAck := -1;
+    FPing := 0;
+    FIntermissionBoard := False;
     FSpecFree := False;
     FSpecJump := False;
     FSpecFollowed := 0;
@@ -699,6 +712,7 @@ begin
   Input := Default(TNetInput);
   Inc(FInputSeq);
   Input.Sequence := FInputSeq;
+  FInputSent[FInputSeq and 255] := FNetClock;
   Input.Msec := Min(Round(FInputTime * 1000), MaxInputMsec);
   FInputTime := Max(0, FInputTime - Input.Msec / 1000);
   Input.Angles := FDemo.ViewAngles;
@@ -1514,6 +1528,62 @@ begin
   end;
 end;
 
+{ The players by frags, the most first: name and frags }
+function SortedPlayers(const D: TQuakeDemoReader): specialize TArray<Integer>;
+var
+  I, J, N, T: Integer;
+begin
+  Result := nil;
+  SetLength(Result, Length(D.Names));
+  N := 0;
+  for I := 0 to High(D.Names) do
+    if D.Names[I] <> '' then
+    begin
+      Result[N] := I;
+      Inc(N);
+    end;
+  SetLength(Result, N);
+  for I := 1 to N - 1 do
+  begin
+    T := Result[I];
+    J := I;
+    while (J > 0) and (D.Frags[Result[J - 1]] < D.Frags[T]) do
+    begin
+      Result[J] := Result[J - 1];
+      Dec(J);
+    end;
+    Result[J] := T;
+  end;
+end;
+
+function TViewDemo.ScoreboardText: String;
+var
+  I: Integer;
+begin
+  Result := Tr('Scoreboard');
+  for I in SortedPlayers(FDemo) do
+  begin
+    Result := Result + LineEnding + Format('%3d   %s', [FDemo.Frags[I], FDemo.Names[I]]);
+    if (I = FDemo.ViewEntity - 1) and not Spectate then
+      Result := Result + Format(Tr('   (you, ping %d ms)'), [Round(FPing)]);
+  end;
+end;
+
+function TViewDemo.ScoreboardLog: String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I in SortedPlayers(FDemo) do
+  begin
+    if Result <> '' then
+      Result := Result + ', ';
+    Result := Result + Format('%s %d', [FDemo.Names[I], FDemo.Frags[I]]);
+    if (I = FDemo.ViewEntity - 1) and not Spectate then
+      Result := Result + Format(' (you, ping %d ms)', [Round(FPing)]);
+  end;
+end;
+
 procedure TViewDemo.ShowChatLine;
 begin
   FHud.ShowMessage(Tr('say:') + ' ' + FChatText + '_', 30);
@@ -2001,6 +2071,9 @@ begin
       else
         FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
     end else
+    if (Action = 'SB') and NetMode then { Log the scoreboard (and show it a moment) }
+      WritelnLog('GameViewDemo', 'Scoreboard: %s', [ScoreboardLog])
+    else
     if (Action = 'SAY') and NetMode then { A line of chat }
     begin
       if FClient <> nil then
@@ -2180,6 +2253,29 @@ begin
       slow frame does not lose them }
     FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
     FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
+    { The round trip of the input the last frame acknowledged }
+    FNetClock := FNetClock + SecondsPassed;
+    if (FClient <> nil) and FClient.HasAckedInput and (FClient.AckedInput <> FPingAck) then
+    begin
+      FPingAck := FClient.AckedInput;
+      if FPing = 0 then
+        FPing := (FNetClock - FInputSent[FPingAck and 255]) * 1000
+      else
+        FPing := FPing * 0.9 + (FNetClock - FInputSent[FPingAck and 255]) * 1000 * 0.1;
+    end;
+    { The scoreboard: while its binding is held, and at the intermission }
+    if (FDemo.Intermission <> 0) and (FDemo.GameType = 1) and not FIntermissionBoard then
+    begin
+      FIntermissionBoard := True;
+      WritelnLog('GameViewDemo', 'Scoreboard at the intermission: %s', [ScoreboardLog]);
+    end else
+    if FDemo.Intermission = 0 then
+      FIntermissionBoard := False;
+    if ((FDemo.Intermission <> 0) and (FDemo.GameType = 1)) or
+       (not FChatting and BindingHeld(qbScoreboard, Container, PlayerOne)) then
+      FHud.ShowScoreboard(ScoreboardText)
+    else
+      FHud.ShowScoreboard('');
     if FDemo.FragsChanged then
     begin
       FDemo.FragsChanged := False;

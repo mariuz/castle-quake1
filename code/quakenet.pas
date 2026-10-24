@@ -174,7 +174,9 @@ type
     procedure WriteVector(const V: TVector3);
     { svc messages }
     procedure Time(const T: Single);
-    procedure ServerInfo(const LevelName: String; const Models, Sounds: TStrings; const MaxClients: Integer);
+    { GameType: 0 coop, 1 deathmatch (GAME_COOP, GAME_DEATHMATCH) }
+    procedure ServerInfo(const LevelName: String; const Models, Sounds: TStrings; const MaxClients: Integer;
+      const GameType: Integer = 1);
     procedure SetView(const E: Integer);
     procedure SignonNum(const N: Integer);
     procedure LightStyle(const Index: Integer; const Pattern: String);
@@ -922,7 +924,7 @@ begin
 end;
 
 procedure TQuakeNetMessage.ServerInfo(const LevelName: String; const Models, Sounds: TStrings;
-  const MaxClients: Integer);
+  const MaxClients: Integer; const GameType: Integer);
 var
   I: Integer;
 begin
@@ -932,7 +934,7 @@ begin
   if NetGameProtocol = 999 then
     WriteLong(NetRMQProtocolFlags);
   WriteByte(MaxClients);
-  WriteByte(1); { gametype: deathmatch }
+  WriteByte(GameType); { 0 coop, 1 deathmatch }
   WriteString(LevelName);
   for I := 0 to Models.Count - 1 do
     WriteString(Models[I]);

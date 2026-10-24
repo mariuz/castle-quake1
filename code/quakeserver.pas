@@ -467,7 +467,7 @@ begin
   World := FGame.Bsp.FindEntity('worldspawn');
   if World <> nil then
     LevelName := World.GetField('message', FMapName);
-  Msg.ServerInfo(LevelName, FModels, FSounds, FGame.MaxClients);
+  Msg.ServerInfo(LevelName, FModels, FSounds, FGame.MaxClients, Ord(FGame.Deathmatch <> 0));
   for I := 0 to 63 do
     if FGame.LightStyleValue(I) <> '' then
       Msg.LightStyle(I, FGame.LightStyleValue(I));

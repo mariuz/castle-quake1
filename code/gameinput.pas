@@ -17,14 +17,14 @@ type
     qbForward, qbBackward, qbStrafeLeft, qbStrafeRight, qbWalk, qbJump, qbFire, qbUse,
     qbWeapon1, qbWeapon2, qbWeapon3, qbWeapon4, qbWeapon5, qbWeapon6, qbWeapon7, qbWeapon8,
     qbNextWeapon, qbPrevWeapon, qbQuickSave, qbQuickLoad, qbConsole, qbCamera, qbShadows, qbScreenshot,
-    qbPhotoMode, qbChat);
+    qbPhotoMode, qbChat, qbScoreboard);
 
 const
   BindingCaptions: array[TQuakeBinding] of String = (
     'Move forward', 'Move backward', 'Strafe left', 'Strafe right', 'Walk (slow)', 'Jump', 'Fire', 'Use',
     'Axe', 'Shotgun', 'Super shotgun', 'Nailgun', 'Super nailgun', 'Grenade launcher', 'Rocket launcher',
     'Thunderbolt', 'Next weapon', 'Previous weapon', 'Quick save', 'Quick load', 'Console', 'Camera view',
-    'Shadows', 'Screenshot', 'Photo mode', 'Chat');
+    'Shadows', 'Screenshot', 'Photo mode', 'Chat', 'Scoreboard');
   { The gamepad: the left stick moves, the right stick turns, these
     buttons are the bindings }
   GamepadJump = gbSouth;
@@ -456,6 +456,7 @@ begin
   Bindings[qbScreenshot] := MakeBinding(qbScreenshot, keyF12);
   Bindings[qbPhotoMode] := MakeBinding(qbPhotoMode, keyP);
   Bindings[qbChat] := MakeBinding(qbChat, keyT);
+  Bindings[qbScoreboard] := MakeBinding(qbScoreboard, keyTab);
   try
     UserConfig.Load;
     ConfigLoaded := True;

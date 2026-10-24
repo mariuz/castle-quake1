@@ -295,6 +295,8 @@ type
     SkyboxChanged, FogChanged: Boolean;
     LevelName: String;
     MaxClients: Integer;
+    { From the serverinfo: 0 coop / single player, 1 deathmatch }
+    GameType: Integer;
     Models, Sounds: TStringList;        { 1-based like the protocol: index 0 unused }
     Entities: array of TDemoEntity;
     Statics: array of TDemoEntityState;
@@ -780,7 +782,7 @@ begin
   ClearState;
   ProtocolFlags := Flags;
   MaxClients := ReadByte;
-  ReadByte; { gametype }
+  GameType := ReadByte;
   LevelName := ReadString;
   repeat
     S := ReadString;

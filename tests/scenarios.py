@@ -393,6 +393,15 @@ def check_dmrules(logs):
     result.append(('Level change to "start"' in h, 'the server changes the level'))
     result.append(('Loaded map "maps/start.bsp"' in c.split('Level "the Slipgate Complex"')[-1],
                    'the client follows to the next map'))
+    m = re.search(r'Scoreboard: (.*)', c)
+    board = m.group(1) if m else ''
+    entries = re.findall(r'(\w+) (-?\d+)( \(you, ping (\d+) ms\))?', board)
+    frags = [int(e[1]) for e in entries]
+    result.append((len(entries) == 3 and frags == sorted(frags, reverse=True) and 'Wolf' in board and
+                   sum(1 for e in entries if e[2]) == 1,
+                   'the scoreboard lists the host, the bot and the client by frags (%s)' % board))
+    result.append((re.search(r'Scoreboard at the intermission: .*Wolf', h) is not None,
+                   'the deathmatch intermission shows the scoreboard'))
     return result
 
 
@@ -1398,7 +1407,7 @@ SCENARIOS = [
                                     '{out}/dhost', '--demo', 'W:16,S,X,W:1,X,W:5,S,Q', '-port', '26007', '-bots', '1'],
                           0),
                          ('dclient', ['--autotest', 'connect:127.0.0.1:26007', '{out}/dclient', '--demo',
-                                      'W:20,S,Q'], 2)],
+                                      'W:4,SB,W:16,S,Q'], 2)],
              check_dmrules, [], dark=('dhost', 'dclient')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
