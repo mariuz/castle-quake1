@@ -11,7 +11,8 @@
 // 4. A random map (random42) is built in the browser and played.
 // 5. Split-screen coop hosted in the page (loopback sockets), the virtual
 //    gamepad walking the second player.
-// 6. A touch screen page: the first touch shows the touch controls, a drag
+// 6. Deathmatch against three bots on the page's listen server.
+// 7. A touch screen page: the first touch shows the touch controls, a drag
 //    on the move stick walks the player forward (between two screenshots
 //    the eye moves) and the touches do not reach the engine as clicks.
 // Fails (exit code 1) on a page error, a WebAssembly crash or a missing log
@@ -121,7 +122,20 @@ async function run(page, url, expected, seconds, shot) {
   report('split-screen coop on a loopback listen server', split);
   console.log('split: player 2 walked ' + moved.toFixed(0) + ' units');
 
-  // 6. Touch: a tap shows the controls, a held drag on the move stick walks
+  // 6. Deathmatch against three bots on the page's listen server
+  const bots = await run(page, withParams(base, { autotest: 'host:e1m1', bots: '3', demo: 'W:22,S' }), [
+    /Loopback socket on port 26000/,
+    /Bot "\w+" joined as client 3/,
+    /Bots: \w+ -?\d+ frags \(health/,
+  ], 180, 'websmoke_bots.png');
+  const botLines = bots.lines.filter(l => /Bots: \w+ -?\d+ frags/.test(l));
+  const botWalked = botLines.length ? [...botLines[botLines.length - 1].matchAll(/([\d.]+) units/g)].map(m => Number(m[1])) : [];
+  if (!(botWalked.length === 3 && Math.min(...botWalked) > 500))
+    bots.errors.push(`the bots did not walk (${botWalked.join(', ')} units)`);
+  report('deathmatch against bots on a loopback listen server', bots);
+  console.log('bots: walked ' + botWalked.join(', ') + ' units');
+
+  // 7. Touch: a tap shows the controls, a held drag on the move stick walks
   const touchPage = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
   const touchLines = [];
   const touchErrors = [];

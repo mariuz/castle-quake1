@@ -921,6 +921,18 @@ def check_bots(logs):
     result.append((frags != 0 or 'fighting' in ' '.join(lines), 'the bots fight (%d frags in the logs)' % frags))
     shots = NET_SHOT_RE.findall(logs['bclient'])
     result.append((len(shots) == 1 and shots[0][0] == '4', 'the client plays with the bots'))
+    # The browser's way: the listen server on loopback sockets, its own
+    # player joining in-process
+    h = logs['bloop']
+    result += common_checks(logs, 'bloop')
+    result.append(('Loopback socket on port 26000' in h and len(re.findall(r'Bot "(\w+)" joined', h)) == 3,
+                   'bloop: three bots join a loopback listen server'))
+    lines = re.findall(r'Bots: (.*)', h)
+    moved = [float(x) for x in re.findall(r'([\d.]+) units', lines[-1] if lines else '')]
+    result.append((len(moved) == 3 and min(moved) > 1000, 'bloop: the bots walk the map (%s units)' %
+                   ', '.join('%.0f' % x for x in moved)))
+    shots = NET_SHOT_RE.findall(h)
+    result.append((len(shots) == 1 and shots[0][0] == '4', 'bloop: the host plays with them over the loopback'))
     return result
 
 
@@ -1075,7 +1087,9 @@ SCENARIOS = [
     Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
                                  '-port', '26320'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
-                                   'W:6,S,Q'], 5)],
+                                   'W:6,S,Q'], 5),
+                      ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
+                                 'W:22,S,Q'], 0)],
              check_bots, []),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder

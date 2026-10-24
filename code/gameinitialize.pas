@@ -594,6 +594,9 @@ begin
   end;
   if PageParameter('host') <> '' then
     CmdHost := PageParameter('host');
+  { ?bots=N: deathmatch bots on the page's listen server }
+  if PageParameter('bots') <> '' then
+    CmdBots := StrToIntDef(PageParameter('bots'), 0);
   { ?lang=<code>: the language of this visit }
   if PageParameter('lang') <> '' then
     CmdLang := PageParameter('lang');
