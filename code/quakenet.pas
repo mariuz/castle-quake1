@@ -52,6 +52,8 @@ const
   { LAN discovery: anyone asks, a server answers with what it plays }
   pkInfoQuery = 14; { -> server: seq = protocol version }
   pkInfo = 15;      { server -> asker: seq = protocol version, "map<tab>title<tab>players<tab>max<tab>mode" }
+  pkChat = 16;      { client -> server: a line of chat (say) }
+  MaxChatLength = 120;
   { The ports a LAN query goes to (DefaultNetPort and the next ones) }
   LanQueryPorts = 4;
   LanSearchTime = 3.0;      { how long a search waits for answers }
@@ -172,7 +174,9 @@ type
     procedure WriteVector(const V: TVector3);
     { svc messages }
     procedure Time(const T: Single);
-    procedure ServerInfo(const LevelName: String; const Models, Sounds: TStrings; const MaxClients: Integer);
+    { GameType: 0 coop, 1 deathmatch (GAME_COOP, GAME_DEATHMATCH) }
+    procedure ServerInfo(const LevelName: String; const Models, Sounds: TStrings; const MaxClients: Integer;
+      const GameType: Integer = 1);
     procedure SetView(const E: Integer);
     procedure SignonNum(const N: Integer);
     procedure LightStyle(const Index: Integer; const Pattern: String);
@@ -247,6 +251,8 @@ type
     procedure Disconnect;
     procedure Update(const SecondsPassed: Single);
     procedure SendInput(const Input: TNetInput);
+    { A line of chat to everyone in the game }
+    procedure SendChat(const Text: String);
     { The next received svc block (reliable data and frames, in order) }
     function PollBlock(out Data: TNetBytes): Boolean;
     property State: TNetClientState read FState;
@@ -279,6 +285,8 @@ type
   TNetConnectEvent = function(const Client: Integer): Integer of object; { returns the edict, 0 to refuse }
   { What a server tells a LAN query: "map<tab>title<tab>players<tab>max<tab>mode" }
   TNetInfoEvent = function: String of object;
+  { A client said something }
+  TNetChatEvent = procedure(const Client: Integer; const Text: String) of object;
   TNetClientEvent = procedure(const Client: Integer) of object;
   TNetSignonEvent = procedure(const Client: Integer; const Msg: TQuakeNetMessage) of object;
 
@@ -302,6 +310,7 @@ type
     OnDisconnect: TNetClientEvent;
     OnSignon: TNetSignonEvent;
     OnInfo: TNetInfoEvent;
+    OnChat: TNetChatEvent;
 
     constructor Create(const Port: Word);
     destructor Destroy; override;
@@ -915,7 +924,7 @@ begin
 end;
 
 procedure TQuakeNetMessage.ServerInfo(const LevelName: String; const Models, Sounds: TStrings;
-  const MaxClients: Integer);
+  const MaxClients: Integer; const GameType: Integer);
 var
   I: Integer;
 begin
@@ -925,7 +934,7 @@ begin
   if NetGameProtocol = 999 then
     WriteLong(NetRMQProtocolFlags);
   WriteByte(MaxClients);
-  WriteByte(1); { gametype: deathmatch }
+  WriteByte(GameType); { 0 coop, 1 deathmatch }
   WriteString(LevelName);
   for I := 0 to Models.Count - 1 do
     WriteString(Models[I]);
@@ -1824,6 +1833,21 @@ begin
   SendPacket(P);
 end;
 
+procedure TQuakeNetClient.SendChat(const Text: String);
+var
+  P: TNetBytes;
+  T: String;
+  I: Integer;
+begin
+  T := Copy(Trim(Text), 1, MaxChatLength);
+  if (FState <> csConnected) or (T = '') then
+    Exit;
+  P := PacketHeader(pkChat, 0, Length(T));
+  for I := 1 to Length(T) do
+    P[2 + I] := Ord(T[I]);
+  SendPacket(P);
+end;
+
 function TQuakeNetClient.PollBlock(out Data: TNetBytes): Boolean;
 var
   Block: TNetBlock;
@@ -2061,6 +2085,12 @@ begin
       pkDisconnect:
         if C > 0 then
           DropClient(C, False);
+      pkChat:
+        if (C > 0) and Assigned(OnChat) then
+        begin
+          FClients[C].SinceSeen := 0;
+          OnChat(C, Copy(BytesName(Data, 3), 1, MaxChatLength));
+        end;
       pkPunch:
         { A client behind a NAT is coming: a few packets to it open the way }
         if (FRegisterName <> '') and TQuakeNetSocket.SameAddress(Addr, FRendezvous) and

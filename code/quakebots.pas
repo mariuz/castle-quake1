@@ -915,7 +915,7 @@ begin
           FGame.EntityOrigin(FBots[I].E)).Length, FGame.ClientName(FBots[I].Leader)]);
       S := S + Format('%s %d frags (health %d, %.0f units, goal %s%s%s)', [FBots[I].Name,
         FGame.PlayerFrags(FBots[I].E), FGame.PlayerHealth(FBots[I].E), FBots[I].Travelled, FBots[I].GoalName,
-        IfThen(FBots[I].Enemy > 0, ', fighting ' + IfThen(FGame.Coop <> 0, FGame.EntityClassName(FBots[I].Enemy), ''),
+        IfThen(FBots[I].Enemy > 0, ', fighting' + IfThen(FGame.Coop <> 0, ' ' + FGame.EntityClassName(FBots[I].Enemy), ''),
         ''), Lead]);
     end;
     if FGame.Coop <> 0 then

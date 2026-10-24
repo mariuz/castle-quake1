@@ -1066,3 +1066,18 @@ msgstr "Observando a %s (disparo: siguiente jugador, salto: volar)"
 
 msgid "Coop with 2 bots"
 msgstr "Cooperativo con 2 bots"
+
+msgid "Recording %s"
+msgstr "Grabando %s"
+
+msgid "Chat"
+msgstr "Chat"
+
+msgid "say:"
+msgstr "decir:"
+
+msgid "Scoreboard"
+msgstr "Marcador"
+
+msgid "   (you, ping %d ms)"
+msgstr "   (tú, ping %d ms)"

@@ -25,6 +25,34 @@
       "VerticalAnchorSelf": "vpTop"
     },
     {
+      "$$ClassName": "TCastleLabel",
+      "Name": "ScoreboardLabel",
+      "Exists": false,
+      "Text": [
+        ""
+      ],
+      "Frame": true,
+      "FrameColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 0.0,
+        "Green": 0.0,
+        "Blue": 0.0,
+        "Alpha": 0.7
+      },
+      "PaddingHorizontal": 24.0,
+      "PaddingVertical": 12.0,
+      "ColorPersistent": {
+        "$$ClassName": "TCastleColorPersistent",
+        "Red": 1.0,
+        "Green": 1.0,
+        "Blue": 1.0
+      },
+      "HorizontalAnchorParent": "hpMiddle",
+      "HorizontalAnchorSelf": "hpMiddle",
+      "VerticalAnchorParent": "vpMiddle",
+      "VerticalAnchorSelf": "vpMiddle"
+    },
+    {
       "$$ClassName": "TCastleRectangleControl",
       "Name": "CaptionsPanel",
       "ColorPersistent": {

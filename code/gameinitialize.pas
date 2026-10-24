@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeServer, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
   QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
@@ -37,6 +37,8 @@ var
   CmdConnect: String;
   { -spectate: join (-connect, connect:<host>) as a spectator }
   CmdSpectate: Boolean;
+  { -record <name>: record the network game (host or client) to castle-config:/<name>.dem }
+  CmdRecord: String;
   CmdRegister: String;
   CmdRendezvous: Boolean;
   CmdWebSocket: Integer;
@@ -224,6 +226,7 @@ begin
   View.NetHost := Host;
   View.NetPort := Port;
   View.Spectate := CmdSpectate;
+  View.RecordName := CmdRecord;
 end;
 
 { -register "name@rendezvous[:port]" into the host view }
@@ -388,6 +391,26 @@ begin
     if (Parameters[I] = '-spectate') or (Parameters[I] = '--spectate') then
       CmdSpectate := True
     else
+    if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-timelimit') or (Parameters[I] = '--timelimit')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerTimeLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-maps') or (Parameters[I] = '--maps')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerMapRotation := Parameters[I + 1];
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-record') or (Parameters[I] = '--record')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdRecord := Parameters[I + 1];
+      Inc(I);
+    end else
     if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
     begin
       CmdSplit := True;
@@ -713,6 +736,7 @@ begin
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 5)) = 'host:') then
   begin
     ViewDemo.HostMap := Copy(AutoTestMap, 6, MaxInt);
+    ViewDemo.RecordName := CmdRecord;
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;
@@ -741,6 +765,7 @@ begin
   if CmdHost <> '' then
   begin
     ViewDemo.HostMap := CmdHost;
+    ViewDemo.RecordName := CmdRecord;
     ViewDemo.HostCoop := CmdCoop;
     ViewDemo.SplitScreen := CmdSplit;
     ViewDemo.SplitStacked := CmdSplitStacked;

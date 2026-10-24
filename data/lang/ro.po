@@ -1066,3 +1066,18 @@ msgstr "Îl privești pe %s (foc: jucătorul următor, salt: zbor)"
 
 msgid "Coop with 2 bots"
 msgstr "Cooperativ cu 2 boți"
+
+msgid "Recording %s"
+msgstr "Se înregistrează %s"
+
+msgid "Chat"
+msgstr "Chat"
+
+msgid "say:"
+msgstr "spune:"
+
+msgid "Scoreboard"
+msgstr "Clasament"
+
+msgid "   (you, ping %d ms)"
+msgstr "   (tu, ping %d ms)"

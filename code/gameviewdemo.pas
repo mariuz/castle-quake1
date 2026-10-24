@@ -153,6 +153,23 @@ type
     FSpecFree, FSpecJump: Boolean;
     FFlyEye, FSpecMove: TVector3;
     FSpecFollowed: Integer;
+    { Recording a network game: the demo being written, its name and blocks }
+    FRecord: TMemoryStream;
+    FRecordName: String;
+    FRecordBlocks: Integer;
+    { Typing a line of chat (the chat binding), and what was typed }
+    FChatting: Boolean;
+    FChatText: String;
+    { Ping: when each input left (by its sequence), the last acked one, a
+      smoothed round trip in ms; the scoreboard shown at the intermission }
+    FNetClock: Double;
+    FInputSent: array[0..255] of Double;
+    FPingAck: Integer;
+    FPing: Single;
+    FIntermissionBoard: Boolean;
+    procedure ShowChatLine;
+    function ScoreboardText: String;
+    function ScoreboardLog: String;
     procedure ClearLevel;
     { Demo playback controls }
     procedure MeasureDemoLength;
@@ -160,6 +177,11 @@ type
     procedure SetDemoSpeed(const Speed: Single);
     procedure ToggleDemoPause;
     procedure ShowDemoStatus;
+    { Network recording: from the level's signon on, every block received }
+    procedure StartNetRecord(const AName: String);
+    procedure StopNetRecord;
+    procedure WriteRecordBlock(const Data: TBytes);
+    procedure HandleNetBlock(const Data: TBytes);
     procedure LoadLevel;
     procedure ApplyEnvironment;
     procedure HandleServerInfo;
@@ -248,6 +270,9 @@ type
     { Join the network game as a spectator (-spectate): no player of its
       own; fire follows the next player, jump flies freely or follows again }
     Spectate: Boolean;
+    { Record the network game to castle-config:/<RecordName>.dem from the
+      moment the connection is complete (-record <name>) }
+    RecordName: String;
     { How many local players split-screen starts with (2..4; more join
       with Start on a further pad) }
     SplitPlayers: Integer;
@@ -267,7 +292,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, GameViewMenu, GameTranslate;
+  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate;
 
 const
   BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
@@ -343,6 +368,7 @@ begin
   FDemo.OnDamage := @HandleDamage;
   FDemo.OnLightStyle := @HandleLightStyle;
   FDemo.OnCdTrack := @HandleCdTrack;
+  FDemo.OnNetBlock := @HandleNetBlock;
   FDemo.OnIntermission := @HandleIntermission;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
@@ -548,6 +574,12 @@ begin
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
     FClient.Spectator := Spectate;
+    FChatting := False;
+    FChatText := '';
+    FNetClock := 0;
+    FPingAck := -1;
+    FPing := 0;
+    FIntermissionBoard := False;
     FSpecFree := False;
     FSpecJump := False;
     FSpecFollowed := 0;
@@ -591,6 +623,7 @@ procedure TViewDemo.Stop;
 var
   I: Integer;
 begin
+  StopNetRecord;
   if FClient <> nil then
   begin
     FClient.Disconnect;
@@ -679,10 +712,11 @@ begin
   Input := Default(TNetInput);
   Inc(FInputSeq);
   Input.Sequence := FInputSeq;
+  FInputSent[FInputSeq and 255] := FNetClock;
   Input.Msec := Min(Round(FInputTime * 1000), MaxInputMsec);
   FInputTime := Max(0, FInputTime - Input.Msec / 1000);
   Input.Angles := FDemo.ViewAngles;
-  if AutoTestPrefix = '' then
+  if (AutoTestPrefix = '') and not FChatting then
   begin
     if BindingHeld(qbForward, Container, PlayerOne) then
       Input.Move.X := Input.Move.X + ClForwardSpeed;
@@ -1485,6 +1519,74 @@ begin
   if FSeeking then
     Exit;
   WritelnLog('Demo', Trim(S));
+  { In a network game the server's prints (chat, obituaries) show }
+  if NetMode and (Trim(S) <> '') and not FChatting then
+  begin
+    FHud.ShowMessage(Trim(S), 4);
+    if Pos(': ', S) > 0 then
+      Sounds.Play('sound/misc/talk.wav');
+  end;
+end;
+
+{ The players by frags, the most first: name and frags }
+function SortedPlayers(const D: TQuakeDemoReader): specialize TArray<Integer>;
+var
+  I, J, N, T: Integer;
+begin
+  Result := nil;
+  SetLength(Result, Length(D.Names));
+  N := 0;
+  for I := 0 to High(D.Names) do
+    if D.Names[I] <> '' then
+    begin
+      Result[N] := I;
+      Inc(N);
+    end;
+  SetLength(Result, N);
+  for I := 1 to N - 1 do
+  begin
+    T := Result[I];
+    J := I;
+    while (J > 0) and (D.Frags[Result[J - 1]] < D.Frags[T]) do
+    begin
+      Result[J] := Result[J - 1];
+      Dec(J);
+    end;
+    Result[J] := T;
+  end;
+end;
+
+function TViewDemo.ScoreboardText: String;
+var
+  I: Integer;
+begin
+  Result := Tr('Scoreboard');
+  for I in SortedPlayers(FDemo) do
+  begin
+    Result := Result + LineEnding + Format('%3d   %s', [FDemo.Frags[I], FDemo.Names[I]]);
+    if (I = FDemo.ViewEntity - 1) and not Spectate then
+      Result := Result + Format(Tr('   (you, ping %d ms)'), [Round(FPing)]);
+  end;
+end;
+
+function TViewDemo.ScoreboardLog: String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I in SortedPlayers(FDemo) do
+  begin
+    if Result <> '' then
+      Result := Result + ', ';
+    Result := Result + Format('%s %d', [FDemo.Names[I], FDemo.Frags[I]]);
+    if (I = FDemo.ViewEntity - 1) and not Spectate then
+      Result := Result + Format(' (you, ping %d ms)', [Round(FPing)]);
+  end;
+end;
+
+procedure TViewDemo.ShowChatLine;
+begin
+  FHud.ShowMessage(Tr('say:') + ' ' + FChatText + '_', 30);
 end;
 
 procedure TViewDemo.HandleCenterPrint(const S: String);
@@ -1969,6 +2071,21 @@ begin
       else
         FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
     end else
+    if (Action = 'SB') and NetMode then { Log the scoreboard (and show it a moment) }
+      WritelnLog('GameViewDemo', 'Scoreboard: %s', [ScoreboardLog])
+    else
+    if (Action = 'SAY') and NetMode then { A line of chat }
+    begin
+      if FClient <> nil then
+        FClient.SendChat(Param);
+    end else
+    if (Action = 'R') and NetMode then { Record the network game (R:name), stop (R) }
+    begin
+      if Param <> '' then
+        StartNetRecord(Param)
+      else
+        StopNetRecord;
+    end else
     if Action = 'DP' then { Demo playback: pause / go on }
       ToggleDemoPause
     else
@@ -1988,6 +2105,7 @@ begin
     else
     if Action = 'Q' then
     begin
+      StopNetRecord;
       Application.Terminate;
       Exit;
     end;
@@ -1999,6 +2117,7 @@ procedure TViewDemo.Leave;
 var
   I: Integer;
 begin
+  StopNetRecord;
   if FClient <> nil then
     FClient.Disconnect;
   for I := 2 to FSplitCount do
@@ -2086,6 +2205,11 @@ begin
   if not FLoaded then
     Exit;
   ApplyEnvironment;
+  if NetMode and (RecordName <> '') and (FRecord = nil) and (FDemo.Signon = Signons) then
+  begin
+    StartNetRecord(RecordName);
+    RecordName := '';
+  end;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
   begin
     FLevelStart := FDemo.Time;
@@ -2129,6 +2253,29 @@ begin
       slow frame does not lose them }
     FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
     FFireHeld := Math.Max(0.0, FFireHeld - SecondsPassed);
+    { The round trip of the input the last frame acknowledged }
+    FNetClock := FNetClock + SecondsPassed;
+    if (FClient <> nil) and FClient.HasAckedInput and (FClient.AckedInput <> FPingAck) then
+    begin
+      FPingAck := FClient.AckedInput;
+      if FPing = 0 then
+        FPing := (FNetClock - FInputSent[FPingAck and 255]) * 1000
+      else
+        FPing := FPing * 0.9 + (FNetClock - FInputSent[FPingAck and 255]) * 1000 * 0.1;
+    end;
+    { The scoreboard: while its binding is held, and at the intermission }
+    if (FDemo.Intermission <> 0) and (FDemo.GameType = 1) and not FIntermissionBoard then
+    begin
+      FIntermissionBoard := True;
+      WritelnLog('GameViewDemo', 'Scoreboard at the intermission: %s', [ScoreboardLog]);
+    end else
+    if FDemo.Intermission = 0 then
+      FIntermissionBoard := False;
+    if ((FDemo.Intermission <> 0) and (FDemo.GameType = 1)) or
+       (not FChatting and BindingHeld(qbScoreboard, Container, PlayerOne)) then
+      FHud.ShowScoreboard(ScoreboardText)
+    else
+      FHud.ShowScoreboard('');
     if FDemo.FragsChanged then
     begin
       FDemo.FragsChanged := False;
@@ -2273,6 +2420,45 @@ begin
     Exit;
   if NetMode then
   begin
+    { Typing chat: Enter sends, Escape drops it, the rest is the text }
+    if FChatting then
+    begin
+      if Event.EventType = itKey then
+      begin
+        if Event.IsKey(keyEnter) then
+        begin
+          FChatting := False;
+          if FClient <> nil then
+            FClient.SendChat(FChatText);
+          FHud.ShowMessage('', 0.1);
+        end else
+        if Event.IsKey(keyEscape) then
+        begin
+          FChatting := False;
+          FHud.ShowMessage('', 0.1);
+        end else
+        if Event.IsKey(keyBackSpace) then
+        begin
+          if FChatText <> '' then
+            SetLength(FChatText, Length(FChatText) - 1);
+          ShowChatLine;
+        end else
+        if (Length(Event.KeyString) = 1) and (Event.KeyString[1] >= ' ') and (Event.KeyString[1] < #127) and
+           (Length(FChatText) < MaxChatLength) then
+        begin
+          FChatText := FChatText + Event.KeyString;
+          ShowChatLine;
+        end;
+      end;
+      Exit(True);
+    end;
+    if BindingEvent(qbChat, Event) and (FClient <> nil) then
+    begin
+      FChatting := True;
+      FChatText := '';
+      ShowChatLine;
+      Exit(True);
+    end;
     if Event.IsKey(keyEscape) then
     begin
       Leave;
@@ -2345,6 +2531,73 @@ begin
     Leave;
     Exit(True);
   end;
+end;
+
+procedure TViewDemo.WriteRecordBlock(const Data: TBytes);
+var
+  Len: LongInt;
+  Angles: TVector3;
+begin
+  { A demo block: its length, the view angles, the server's messages }
+  Len := Length(Data);
+  Angles := FDemo.ViewAngles;
+  FRecord.WriteBuffer(Len, SizeOf(Len));
+  FRecord.WriteBuffer(Angles, SizeOf(Angles));
+  if Len > 0 then
+    FRecord.WriteBuffer(Data[0], Len);
+  Inc(FRecordBlocks);
+end;
+
+procedure TViewDemo.StartNetRecord(const AName: String);
+var
+  Header: String;
+  I: Integer;
+begin
+  if not NetMode or (AName = '') then
+    Exit;
+  StopNetRecord;
+  FRecord := TMemoryStream.Create;
+  FRecordName := AName;
+  FRecordBlocks := 0;
+  Header := '-1' + #10;
+  FRecord.WriteBuffer(Header[1], Length(Header));
+  { The level so far: its signon, then everything that comes }
+  for I := 0 to FDemo.SignonBlockCount - 1 do
+    WriteRecordBlock(FDemo.SignonBlock(I));
+  WritelnLog('GameViewDemo', 'Recording the network game to "%s" (%d signon blocks)',
+    [FRecordName, FDemo.SignonBlockCount]);
+  FHud.ShowMessage(Format(Tr('Recording %s'), [FRecordName]), 2);
+end;
+
+procedure TViewDemo.HandleNetBlock(const Data: TBytes);
+begin
+  if FRecord <> nil then
+    WriteRecordBlock(Data);
+end;
+
+procedure TViewDemo.StopNetRecord;
+var
+  Url: String;
+  Dest: TStream;
+begin
+  if FRecord = nil then
+    Exit;
+  Url := 'castle-config:/' + FRecordName + '.dem';
+  try
+    Dest := UrlSaveStream(Url);
+    try
+      FRecord.Position := 0;
+      Dest.CopyFrom(FRecord, FRecord.Size);
+    finally
+      Dest.Free;
+    end;
+    WritelnLog('GameViewDemo', 'Recorded the network game to "%s": %d blocks, %d bytes',
+      [Url, FRecordBlocks, FRecord.Size]);
+  except
+    on E: Exception do
+      WritelnWarning('GameViewDemo', 'Cannot write demo "%s": %s', [Url, E.Message]);
+  end;
+  FreeAndNil(FRecord);
 end;
 
 function DemoClockText(const Seconds: Single): String;

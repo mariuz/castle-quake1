@@ -45,6 +45,7 @@ type
     { The editor design (data/ui/hud.castle-user-interface) }
     FDesign: TCastleUserInterface;
     FMessageLabel: TCastleLabel;
+    FScoreboardLabel: TCastleLabel;
     FStatsLabel: TCastleLabel;
     FArmorValue, FHealthValue, FAmmoValue, FKeysLabel: TCastleLabel;
     FStatusFrame, FAirBar, FAirFill: TCastleUserInterface;
@@ -98,6 +99,9 @@ type
 
     { Display a centered notification message }
     procedure ShowMessage(const S: String; const Duration: Single = 3.0);
+
+    { The scoreboard in the middle of the screen (lines), '' hides it }
+    procedure ShowScoreboard(const Lines: String);
 
     { Red flash after the player is hurt (V_ParseDamage).
       Armor and Blood are the amounts absorbed by armor and taken from health. }
@@ -160,6 +164,7 @@ begin
   FDesign := UserInterfaceLoad('castle-data:/ui/hud.castle-user-interface', Self);
   InsertFront(FDesign);
   FMessageLabel := FindRequiredComponent('MessageLabel') as TCastleLabel;
+  FScoreboardLabel := FindRequiredComponent('ScoreboardLabel') as TCastleLabel;
   FStatsLabel := FindRequiredComponent('StatsLabel') as TCastleLabel;
   FArmorValue := FindRequiredComponent('ArmorValue') as TCastleLabel;
   FHealthValue := FindRequiredComponent('HealthValue') as TCastleLabel;
@@ -220,6 +225,13 @@ begin
     OnMessage(S);
   FMessageLabel.Caption := S;
   FMessageTimer := Duration;
+end;
+
+procedure TQuakeHud.ShowScoreboard(const Lines: String);
+begin
+  FScoreboardLabel.Exists := Lines <> '';
+  if FScoreboardLabel.Caption <> Lines then
+    FScoreboardLabel.Caption := Lines;
 end;
 
 procedure TQuakeHud.DamageFlash(const Armor, Blood: Integer);
@@ -613,27 +625,32 @@ begin
   else
     DrawText(160, 30, Tr('COMPLETED'), True);
 
-  if not DrawPic(0, 56, 'gfx/inter.lmp') then
+  { A network game's scoreboard takes the place of the tallies (as the
+    deathmatch overlay does in Quake) }
+  if not FScoreboardLabel.Exists then
   begin
-    DrawText(40, 64, Tr('Time'));
-    DrawText(40, 104, Tr('Secrets'));
-    DrawText(40, 144, Tr('Kills'));
+    if not DrawPic(0, 56, 'gfx/inter.lmp') then
+    begin
+      DrawText(40, 64, Tr('Time'));
+      DrawText(40, 104, Tr('Secrets'));
+      DrawText(40, 144, Tr('Kills'));
+    end;
+
+    { Time as minutes:seconds }
+    Secs := Shown[0];
+    DrawNumber(160, 64, Secs div 60, 3);
+    DrawSeparator(234, 64, 'num_colon', ':');
+    DrawNumber(246, 64, (Secs mod 60) div 10, 1);
+    DrawNumber(266, 64, Secs mod 10, 1);
+
+    DrawNumber(160, 104, Shown[1], 3);
+    DrawSeparator(232, 104, 'num_slash', '/');
+    DrawNumber(240, 104, FInterTotalSecrets, 3);
+
+    DrawNumber(160, 144, Shown[2], 3);
+    DrawSeparator(232, 144, 'num_slash', '/');
+    DrawNumber(240, 144, FInterTotalKills, 3);
   end;
-
-  { Time as minutes:seconds }
-  Secs := Shown[0];
-  DrawNumber(160, 64, Secs div 60, 3);
-  DrawSeparator(234, 64, 'num_colon', ':');
-  DrawNumber(246, 64, (Secs mod 60) div 10, 1);
-  DrawNumber(266, 64, Secs mod 10, 1);
-
-  DrawNumber(160, 104, Shown[1], 3);
-  DrawSeparator(232, 104, 'num_slash', '/');
-  DrawNumber(240, 104, FInterTotalSecrets, 3);
-
-  DrawNumber(160, 144, Shown[2], 3);
-  DrawSeparator(232, 144, 'num_slash', '/');
-  DrawNumber(240, 144, FInterTotalKills, 3);
 
   if FInterReady and (FInterStage > 2) then
   begin

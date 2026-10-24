@@ -350,6 +350,61 @@ def check_coopbots(logs):
     return result
 
 
+def check_netrecord(logs):
+    result = common_checks(logs, 'rhost') + common_checks(logs, 'rclient') + common_checks(logs, 'rplay')
+    c, p = logs['rclient'], logs['rplay']
+    m = re.search(r'Recording the network game to "netdemo" \((\d+) signon blocks\)', c)
+    result.append((m is not None and int(m.group(1)) > 0,
+                   'a recording started mid-game begins with the level\'s signon (%s blocks)' % (m.group(1) if m else '-')))
+    m = re.search(r'Recorded the network game to "castle-config:/netdemo.dem": (\d+) blocks', c)
+    result.append((m is not None and int(m.group(1)) > 50, 'the recording is saved (%s blocks)' % (m.group(1) if m else '-')))
+    m = re.search(r'Demo "castle-config:/netdemo.dem": ([\d.]+) s', p)
+    result.append((m is not None and float(m.group(1)) > 3, 'it plays back as a demo (%s s)' % (m.group(1) if m else '-')))
+    shots = DEMO_SHOT_RE.findall(p)
+    views = re.findall(r'View entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) \(protocol 15\)', p)
+    result.append((len(views) == 2 and dist(tuple(map(float, views[0])), tuple(map(float, views[1]))) > 100,
+                   'the recorded player walks in the playback (%s)' % ' -> '.join(' '.join(v) for v in views)))
+    ammo = re.findall(r'Saved screenshot to ".*rplay_\d\.png" \(signon 4, health -?\d+, ammo (\d+)', p)
+    result.append((len(ammo) == 2 and int(ammo[1]) < int(ammo[0]), 'and fires (ammo %s)' % ' -> '.join(ammo)))
+    return result
+
+
+def check_chat(logs):
+    result = common_checks(logs, 'chost') + common_checks(logs, 'cclient')
+    h, c = logs['chost'], logs['cclient']
+    m = re.search(r'Chat: (\w+): hello there', h)
+    result.append((m is not None, 'the server gets the client\'s chat (%s)' % (m.group(1) if m else '-')))
+    who = m.group(1) if m else 'player'
+    result.append(((who + ': hello there') in c.split('Chat:')[-1] and re.search(r'Demo: \w+: hello there', c) is not None,
+                   'the client gets it back'))
+    result.append((re.search(r'Demo: \w+: hello there', h) is not None, 'the host\'s player gets it'))
+    result.append((re.search(r'Demo: \w+: gg', c) is not None, 'and the host\'s answer reaches the client'))
+    return result
+
+
+def check_dmrules(logs):
+    result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
+    h, c = logs['dhost'], logs['dclient']
+    result.append(('Rules: fraglimit 0, timelimit 0.2 minutes, maps e1m1,start' in h, 'the host has the rules'))
+    m = re.search(r'Map rotation: "(\w+)" after "e1m1" \(the progs asked for "(\w+)"\)', h)
+    result.append((m is not None and m.group(1) == 'start',
+                   'the time limit ends E1M1 and the rotation picks the next map (%s, not %s)'
+                   % (m.group(1), m.group(2)) if m else 'the time limit ends E1M1 and the rotation picks the next map'))
+    result.append(('Level change to "start"' in h, 'the server changes the level'))
+    result.append(('Loaded map "maps/start.bsp"' in c.split('Level "the Slipgate Complex"')[-1],
+                   'the client follows to the next map'))
+    m = re.search(r'Scoreboard: (.*)', c)
+    board = m.group(1) if m else ''
+    entries = re.findall(r'(\w+) (-?\d+)( \(you, ping (\d+) ms\))?', board)
+    frags = [int(e[1]) for e in entries]
+    result.append((len(entries) == 3 and frags == sorted(frags, reverse=True) and 'Wolf' in board and
+                   sum(1 for e in entries if e[2]) == 1,
+                   'the scoreboard lists the host, the bot and the client by frags (%s)' % board))
+    result.append((re.search(r'Scoreboard at the intermission: .*Wolf', h) is not None,
+                   'the deathmatch intermission shows the scoreboard'))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1317,7 +1372,7 @@ SCENARIOS = [
     Scenario('lan', [('lhost', ['--autotest', 'host:e1m1', '{out}/lhost', '--demo', 'W:14,S,Q', '-port', '26002'], 0),
                      ('lfind', ['--autotest', 'e1m1', '{out}/lfind', '--demo',
                                 'W:1,CMD:lan,W:3.5,CMD:lan_join 1,W:4,S,Q'], 3)],
-             check_lan, [], dark=('lhost',)),
+             check_lan, [], dark=('lhost', 'lfind')),
     # A spectator joins a deathmatch with two bots: it follows a player,
     # fire follows the next one, jump flies freely
     Scenario('spectate', [('shost', ['--autotest', 'host:e1m1', '{out}/shost', '--demo', 'W:16,S,Q', '-port', '26003',
@@ -1330,6 +1385,30 @@ SCENARIOS = [
     Scenario('coopbots', [('cbhost', ['-coop', '-bots', '2', '--autotest', 'host:e1m3', '{out}/cbhost', '--demo',
                                       'W:31,S,Q', '-port', '26004'], 0)],
              check_coopbots, [], dark=('cbhost',)),
+    # Recording a network game: the client starts recording mid-game
+    # (R:netdemo), walks and fires, stops; the demo then plays back
+    Scenario('netrecord', [('rhost', ['--autotest', 'host:e1m1', '{out}/rhost', '--demo', 'W:14,S,Q', '-port', '26005',
+                                      '-bots', '1'], 0),
+                           ('rclient', ['--autotest', 'connect:127.0.0.1:26005', '{out}/rclient', '--demo',
+                                        'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
+                           ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
+                                      'W:2,S,W:2,S,Q'], 16)],
+             check_netrecord, [], dark=('rhost',)),
+    # Chat: a client says something, everyone gets it; the host answers
+    Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
+                                 '26006'], 0),
+                      ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
+                                   'W:2,SAY:hello there,W:6,S,Q'], 2)],
+             check_chat, [], dark=('chost', 'cclient')),
+    # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
+    # intermission and the rotation (e1m1,start) picks the next map; the
+    # client follows
+    Scenario('dmrules', [('dhost', ['-timelimit', '0.2', '-maps', 'e1m1,start', '--autotest', 'host:e1m1',
+                                    '{out}/dhost', '--demo', 'W:16,S,X,W:1,X,W:5,S,Q', '-port', '26007', '-bots', '1'],
+                          0),
+                         ('dclient', ['--autotest', 'connect:127.0.0.1:26007', '{out}/dclient', '--demo',
+                                      'W:4,SB,W:16,S,Q'], 2)],
+             check_dmrules, [], dark=('dhost', 'dclient')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
