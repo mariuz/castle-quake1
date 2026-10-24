@@ -154,6 +154,10 @@ msgid "Spectating %s (fire: next player, jump: fly)"
 msgstr ""
 
 #: code/gameviewdemo.pas
+msgid "Recording %s"
+msgstr ""
+
+#: code/gameviewdemo.pas
 msgid "Demo %s / %s, paused"
 msgstr ""
 

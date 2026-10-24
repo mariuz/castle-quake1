@@ -153,6 +153,10 @@ type
     FSpecFree, FSpecJump: Boolean;
     FFlyEye, FSpecMove: TVector3;
     FSpecFollowed: Integer;
+    { Recording a network game: the demo being written, its name and blocks }
+    FRecord: TMemoryStream;
+    FRecordName: String;
+    FRecordBlocks: Integer;
     procedure ClearLevel;
     { Demo playback controls }
     procedure MeasureDemoLength;
@@ -160,6 +164,11 @@ type
     procedure SetDemoSpeed(const Speed: Single);
     procedure ToggleDemoPause;
     procedure ShowDemoStatus;
+    { Network recording: from the level's signon on, every block received }
+    procedure StartNetRecord(const AName: String);
+    procedure StopNetRecord;
+    procedure WriteRecordBlock(const Data: TBytes);
+    procedure HandleNetBlock(const Data: TBytes);
     procedure LoadLevel;
     procedure ApplyEnvironment;
     procedure HandleServerInfo;
@@ -248,6 +257,9 @@ type
     { Join the network game as a spectator (-spectate): no player of its
       own; fire follows the next player, jump flies freely or follows again }
     Spectate: Boolean;
+    { Record the network game to castle-config:/<RecordName>.dem from the
+      moment the connection is complete (-record <name>) }
+    RecordName: String;
     { How many local players split-screen starts with (2..4; more join
       with Start on a further pad) }
     SplitPlayers: Integer;
@@ -267,7 +279,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, GameViewMenu, GameTranslate;
+  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate;
 
 const
   BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
@@ -343,6 +355,7 @@ begin
   FDemo.OnDamage := @HandleDamage;
   FDemo.OnLightStyle := @HandleLightStyle;
   FDemo.OnCdTrack := @HandleCdTrack;
+  FDemo.OnNetBlock := @HandleNetBlock;
   FDemo.OnIntermission := @HandleIntermission;
   FAmbient := TQuakeAmbientSounds.Create;
   FScript := TStringList.Create;
@@ -591,6 +604,7 @@ procedure TViewDemo.Stop;
 var
   I: Integer;
 begin
+  StopNetRecord;
   if FClient <> nil then
   begin
     FClient.Disconnect;
@@ -1969,6 +1983,13 @@ begin
       else
         FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
     end else
+    if (Action = 'R') and NetMode then { Record the network game (R:name), stop (R) }
+    begin
+      if Param <> '' then
+        StartNetRecord(Param)
+      else
+        StopNetRecord;
+    end else
     if Action = 'DP' then { Demo playback: pause / go on }
       ToggleDemoPause
     else
@@ -1988,6 +2009,7 @@ begin
     else
     if Action = 'Q' then
     begin
+      StopNetRecord;
       Application.Terminate;
       Exit;
     end;
@@ -1999,6 +2021,7 @@ procedure TViewDemo.Leave;
 var
   I: Integer;
 begin
+  StopNetRecord;
   if FClient <> nil then
     FClient.Disconnect;
   for I := 2 to FSplitCount do
@@ -2086,6 +2109,11 @@ begin
   if not FLoaded then
     Exit;
   ApplyEnvironment;
+  if NetMode and (RecordName <> '') and (FRecord = nil) and (FDemo.Signon = Signons) then
+  begin
+    StartNetRecord(RecordName);
+    RecordName := '';
+  end;
   if (FLevelStart < 0) and (FDemo.Signon = Signons) then
   begin
     FLevelStart := FDemo.Time;
@@ -2345,6 +2373,73 @@ begin
     Leave;
     Exit(True);
   end;
+end;
+
+procedure TViewDemo.WriteRecordBlock(const Data: TBytes);
+var
+  Len: LongInt;
+  Angles: TVector3;
+begin
+  { A demo block: its length, the view angles, the server's messages }
+  Len := Length(Data);
+  Angles := FDemo.ViewAngles;
+  FRecord.WriteBuffer(Len, SizeOf(Len));
+  FRecord.WriteBuffer(Angles, SizeOf(Angles));
+  if Len > 0 then
+    FRecord.WriteBuffer(Data[0], Len);
+  Inc(FRecordBlocks);
+end;
+
+procedure TViewDemo.StartNetRecord(const AName: String);
+var
+  Header: String;
+  I: Integer;
+begin
+  if not NetMode or (AName = '') then
+    Exit;
+  StopNetRecord;
+  FRecord := TMemoryStream.Create;
+  FRecordName := AName;
+  FRecordBlocks := 0;
+  Header := '-1' + #10;
+  FRecord.WriteBuffer(Header[1], Length(Header));
+  { The level so far: its signon, then everything that comes }
+  for I := 0 to FDemo.SignonBlockCount - 1 do
+    WriteRecordBlock(FDemo.SignonBlock(I));
+  WritelnLog('GameViewDemo', 'Recording the network game to "%s" (%d signon blocks)',
+    [FRecordName, FDemo.SignonBlockCount]);
+  FHud.ShowMessage(Format(Tr('Recording %s'), [FRecordName]), 2);
+end;
+
+procedure TViewDemo.HandleNetBlock(const Data: TBytes);
+begin
+  if FRecord <> nil then
+    WriteRecordBlock(Data);
+end;
+
+procedure TViewDemo.StopNetRecord;
+var
+  Url: String;
+  Dest: TStream;
+begin
+  if FRecord = nil then
+    Exit;
+  Url := 'castle-config:/' + FRecordName + '.dem';
+  try
+    Dest := UrlSaveStream(Url);
+    try
+      FRecord.Position := 0;
+      Dest.CopyFrom(FRecord, FRecord.Size);
+    finally
+      Dest.Free;
+    end;
+    WritelnLog('GameViewDemo', 'Recorded the network game to "%s": %d blocks, %d bytes',
+      [Url, FRecordBlocks, FRecord.Size]);
+  except
+    on E: Exception do
+      WritelnWarning('GameViewDemo', 'Cannot write demo "%s": %s', [Url, E.Message]);
+  end;
+  FreeAndNil(FRecord);
 end;
 
 function DemoClockText(const Seconds: Single): String;

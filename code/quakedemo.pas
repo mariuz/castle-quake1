@@ -238,6 +238,7 @@ type
   TDemoLightStyleEvent = procedure(const Index: Integer; const Pattern: String) of object;
   TDemoCdTrackEvent = procedure(const Track, LoopTrack: Integer) of object;
   TDemoSimpleEvent = procedure of object;
+  TDemoBlockEvent = procedure(const Data: TBytes) of object;
 
   { Plays a .dem back: call Advance every frame, then read the entities
     and view. OnServerInfo tells the owner to load Models[1]. }
@@ -251,6 +252,10 @@ type
     FNetwork: Boolean;
     FNetBlocks: specialize TQueue<TBytes>;
     FNetCurrent: TBytes;
+    { Network: the blocks of the level's signon (from its serverinfo until
+      the connection is complete), what a recording started later needs }
+    FSignonBlocks: specialize TList<TBytes>;
+    FSawServerInfo, FCapturingSignon: Boolean;
     function ReadByte: Integer;
     function ReadChar: Integer;
     function ReadShort: Integer;
@@ -317,6 +322,8 @@ type
     OnLightStyle: TDemoLightStyleEvent;
     OnIntermission: TDemoSimpleEvent;
     OnCdTrack: TDemoCdTrackEvent;
+    { Network: every block once it was parsed (a recording writes it) }
+    OnNetBlock: TDemoBlockEvent;
 
     constructor Create;
     destructor Destroy; override;
@@ -330,6 +337,9 @@ type
     procedure StartNetwork;
     procedure PushBlock(const Data: TBytes);
     property Network: Boolean read FNetwork;
+    { Network: the blocks of the current level's signon }
+    function SignonBlockCount: Integer;
+    function SignonBlock(const I: Integer): TBytes;
 
     { CL_ReadFromServer: read the messages that are due and interpolate }
     procedure Advance(const SecondsPassed: Single);
@@ -480,6 +490,7 @@ constructor TQuakeDemoReader.Create;
 begin
   inherited Create;
   FNetBlocks := specialize TQueue<TBytes>.Create;
+  FSignonBlocks := specialize TList<TBytes>.Create;
   FData := TMemoryStream.Create;
   Models := TStringList.Create;
   Sounds := TStringList.Create;
@@ -490,6 +501,7 @@ end;
 destructor TQuakeDemoReader.Destroy;
 begin
   FNetBlocks.Free;
+  FSignonBlocks.Free;
   FData.Free;
   Models.Free;
   Sounds.Free;
@@ -753,6 +765,7 @@ var
   S: String;
   Flags: Integer;
 begin
+  FSawServerInfo := True;
   Protocol := ReadLong;
   if (Protocol <> ProtocolNetQuake) and (Protocol <> ProtocolFitzQuake) and (Protocol <> ProtocolRMQ) then
   begin
@@ -1386,12 +1399,25 @@ begin
   end;
 end;
 
+function TQuakeDemoReader.SignonBlockCount: Integer;
+begin
+  Result := FSignonBlocks.Count;
+end;
+
+function TQuakeDemoReader.SignonBlock(const I: Integer): TBytes;
+begin
+  Result := FSignonBlocks[I];
+end;
+
 procedure TQuakeDemoReader.StartNetwork;
 var
   I: Integer;
 begin
   FNetwork := True;
   FNetBlocks.Clear;
+  FSignonBlocks.Clear;
+  FSawServerInfo := False;
+  FCapturingSignon := False;
   FDisconnected := False;
   Finished := False;
   ClearState;
@@ -1419,7 +1445,23 @@ begin
     { Everything the server sent so far }
     while ReadBlock do
     begin
+      FSawServerInfo := False;
       ParseMessages;
+      { A level's signon starts at its serverinfo and ends when the
+        connection is complete: kept for a recording started later }
+      if FSawServerInfo then
+      begin
+        FSignonBlocks.Clear;
+        FCapturingSignon := True;
+      end;
+      if FCapturingSignon then
+      begin
+        FSignonBlocks.Add(FNetCurrent);
+        if Signon = Signons then
+          FCapturingSignon := False;
+      end;
+      if Assigned(OnNetBlock) then
+        OnNetBlock(FNetCurrent);
       if FDisconnected then
       begin
         Finished := True;

@@ -1066,3 +1066,6 @@ msgstr "Du schaust %s zu (Feuer: nächster Spieler, Springen: fliegen)"
 
 msgid "Coop with 2 bots"
 msgstr "Koop mit 2 Bots"
+
+msgid "Recording %s"
+msgstr "Aufnahme %s"

@@ -350,6 +350,25 @@ def check_coopbots(logs):
     return result
 
 
+def check_netrecord(logs):
+    result = common_checks(logs, 'rhost') + common_checks(logs, 'rclient') + common_checks(logs, 'rplay')
+    c, p = logs['rclient'], logs['rplay']
+    m = re.search(r'Recording the network game to "netdemo" \((\d+) signon blocks\)', c)
+    result.append((m is not None and int(m.group(1)) > 0,
+                   'a recording started mid-game begins with the level\'s signon (%s blocks)' % (m.group(1) if m else '-')))
+    m = re.search(r'Recorded the network game to "castle-config:/netdemo.dem": (\d+) blocks', c)
+    result.append((m is not None and int(m.group(1)) > 50, 'the recording is saved (%s blocks)' % (m.group(1) if m else '-')))
+    m = re.search(r'Demo "castle-config:/netdemo.dem": ([\d.]+) s', p)
+    result.append((m is not None and float(m.group(1)) > 3, 'it plays back as a demo (%s s)' % (m.group(1) if m else '-')))
+    shots = DEMO_SHOT_RE.findall(p)
+    views = re.findall(r'View entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) \(protocol 15\)', p)
+    result.append((len(views) == 2 and dist(tuple(map(float, views[0])), tuple(map(float, views[1]))) > 100,
+                   'the recorded player walks in the playback (%s)' % ' -> '.join(' '.join(v) for v in views)))
+    ammo = re.findall(r'Saved screenshot to ".*rplay_\d\.png" \(signon 4, health -?\d+, ammo (\d+)', p)
+    result.append((len(ammo) == 2 and int(ammo[1]) < int(ammo[0]), 'and fires (ammo %s)' % ' -> '.join(ammo)))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1330,6 +1349,15 @@ SCENARIOS = [
     Scenario('coopbots', [('cbhost', ['-coop', '-bots', '2', '--autotest', 'host:e1m3', '{out}/cbhost', '--demo',
                                       'W:31,S,Q', '-port', '26004'], 0)],
              check_coopbots, [], dark=('cbhost',)),
+    # Recording a network game: the client starts recording mid-game
+    # (R:netdemo), walks and fires, stops; the demo then plays back
+    Scenario('netrecord', [('rhost', ['--autotest', 'host:e1m1', '{out}/rhost', '--demo', 'W:14,S,Q', '-port', '26005',
+                                      '-bots', '1'], 0),
+                           ('rclient', ['--autotest', 'connect:127.0.0.1:26005', '{out}/rclient', '--demo',
+                                        'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
+                           ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
+                                      'W:2,S,W:2,S,Q'], 16)],
+             check_netrecord, [], dark=('rhost',)),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
