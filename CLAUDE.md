@@ -51,7 +51,7 @@ Demo script actions:
 - `R:name` record a demo to `castle-config:/<name>.dem`, `R` stops it
 - `B:1` / `B:0` world lighting: Quake lightmaps or dynamic PBR (reloads the map)
 - `N:0` / `N:1` PVS culling off (draw the whole world, like `r_novis 1`) / on
-- `NC` render the current frame with PVS culling on and off and log how many pixels differ (`PVS compare:`; differing images are saved as `<prefix>_<n>_pvs.png` / `_full.png`)
+- `NC` render the current frame with PVS culling on and off and log how many pixels differ and how many of them have no differing neighbour (`PVS compare: D of T pixels differ (A alone)`; a lone pixel is a crack between two faces showing what lies behind it, so the tests fail only on pixels that are not alone; differing images are saved as `<prefix>_<n>_pvs.png` / `_full.png`, n the next screenshot's number)
 - `Z` log the frame count, average and longest frame time since the previous `Z` with the PVS counts (camera leaf, clusters, shapes and entities drawn); screenshots log a `PVS:` line too
 - `CMD:<command>` run a console command (e.g. `CMD:fov 110`, `CMD:gamma 0.7`, `CMD:fog 0.05`)
 - `I` log the viewport's transform tree with the component names (what the F8 inspector shows)

@@ -684,8 +684,7 @@ procedure TViewPlay.ComparePvsRender;
 var
   Culled, Full: TRGBImage;
   WasCulling: Boolean;
-  X, Y, Differ, Total: Integer;
-  A, B: PVector3Byte;
+  Differ, Total, Alone: Integer;
   Status: String;
 
   function Render(const Culling: Boolean): TRGBImage;
@@ -706,24 +705,15 @@ begin
   Full := Render(False);
   try
     { Pixels where a channel differs by more than 24 of 255 }
-    Differ := 0;
     Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
-    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
-      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
-      begin
-        A := Culled.PixelPtr(X, Y);
-        B := Full.PixelPtr(X, Y);
-        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
-          Inc(Differ);
-      end;
-    WritelnLog('GameViewPlay', 'PVS compare: %d of %d pixels differ, %s',
-      [Differ, Total, Status]);
+    Differ := ComparePvsImages(Culled, Full, Alone);
+    WritelnLog('GameViewPlay', 'PVS compare: %d of %d pixels differ (%d alone), %s', [Differ, Total, Alone, Status]);
     if (Differ > 0) and (FAutoTestPrefix <> '') then
     begin
-      Inc(FAutoTestShots);
+      { Named after the next screenshot, whose number stays the same }
       {$ifndef WASI}
-      SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_pvs.png');
-      SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots) + '_full.png');
+      SaveImage(Culled, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots + 1) + '_pvs.png');
+      SaveImage(Full, FAutoTestPrefix + '_' + IntToStr(FAutoTestShots + 1) + '_full.png');
       {$endif}
     end;
   finally

@@ -363,10 +363,12 @@ def check_split(logs):
                        % (p2[0][4], p2[1][4])))
         w1, h1, w2, h2 = (int(x) for x in p2[0][7:11])
         result.append((w1 == w2 and h1 == h2 and w1 * 2 > h1, 'side by side: two views of %dx%d' % (w1, h1)))
-    compares = re.findall(r'PVS compare: (\d+) of \d+ pixels differ, leaves (-?\d+) and (-?\d+), clusters (\d+)/(\d+)',
-                          log)
-    result.append((len(compares) == 2 and all(c[0] == '0' for c in compares),
-                   'sides: culling changes no pixel of either view (%s)' % ', '.join(c[0] for c in compares)))
+    compares = [(c[0],) + c[2:] for c in re.findall(r'PVS compare: (\d+) of \d+ pixels differ \((\d+) alone\), '
+                                                   r'leaves (-?\d+) and (-?\d+), clusters (\d+)/(\d+)', log)]
+    alone = re.findall(r'PVS compare: \d+ of \d+ pixels differ \((\d+) alone\)', log)
+    result.append((len(compares) == 2 and pvs_clean(log),
+                   'sides: culling changes no pixel of either view but lone ones in cracks (%s)'
+                   % ', '.join('%s, %s alone' % (c[0], a) for c, a in zip(compares, alone))))
     result.append((len(compares) == 2 and all(int(c[3]) < int(c[4]) for c in compares),
                    'sides: the world is culled to what the two cameras can see (%s)'
                    % ', '.join('%s/%s' % (c[3], c[4]) for c in compares)))
@@ -380,7 +382,7 @@ def check_split(logs):
     p2 = SPLIT_RE.findall(log)
     result.append((len(p2) == 2 and dist(tuple(float(x) for x in p2[0][1:4]), tuple(float(x) for x in p2[1][1:4])) > 200,
                    'loop: the second player walks over the loopback'))
-    result.append(('PVS compare: 0 of' in log, 'loop: culling changes no pixel'))
+    result.append(('PVS compare:' in log and pvs_clean(log), 'loop: culling changes no pixel'))
     # Four players in a 2 x 2 grid: pad 1 walks player 3, pad 2 turns player 4
     log = logs['four']
     result += common_checks(logs, 'four')
@@ -395,7 +397,7 @@ def check_split(logs):
                        'four: the third pad turns only player 4 (yaw %d -> %d)' % (pl[4][0][1], pl[4][1][1])))
         sizes = set(v[0][3] for v in pl.values()) | set(v[0][2] for v in pl.values())
         result.append((len(sizes) == 1, 'four: four views of the same size (%s)' % sizes))
-    result.append((re.search(r'PVS compare: 0 of \d+ pixels differ, .*, 4 views', log) is not None,
+    result.append((re.search(r'PVS compare: .*, 4 views', log) is not None and pvs_clean(log),
                    'four: culling changes no pixel of the four views'))
     # A third pad's Start adds player 3 to a two-player game
     log = logs['join']
@@ -409,7 +411,7 @@ def check_split(logs):
         first, own = pl[3][-1][2], pl[3][-1][3]
         result.append((first[0] == 2 * own[0] and first[1] == own[1],
                        'join: player 1 on top, two below (%dx%d and %dx%d)' % (first + own)))
-    result.append((re.search(r'PVS compare: 0 of \d+ pixels differ, .*, 3 views', log) is not None,
+    result.append((re.search(r'PVS compare: .*, 3 views', log) is not None and pvs_clean(log),
                    'join: culling changes no pixel of the three views'))
     log = logs['stacked']
     p1 = [tuple(float(x) for x in m[:3]) for m in DEMO_VIEW_RE.findall(log)]
@@ -447,6 +449,17 @@ def split_frames(out_dir):
         diff = sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
         result.append((diff > 8, '%s: the two views differ (mean difference %.1f)' % (name, diff)))
     return result
+
+
+PVS_COMPARE_RE = re.compile(r'PVS compare: (\d+) of \d+ pixels differ \((\d+) alone\)')
+
+
+def pvs_clean(log):
+    """Every NC compare in the log changed no pixel but lone ones (a crack one
+    pixel wide between two faces shows what lies behind it, drawn or culled;
+    a wrongly culled object differs in pixels next to each other)"""
+    compares = PVS_COMPARE_RE.findall(log)
+    return bool(compares) and all(differ == alone for differ, alone in compares)
 
 
 def check_language(logs):

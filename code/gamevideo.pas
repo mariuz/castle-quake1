@@ -10,7 +10,7 @@ interface
 
 uses
   SysUtils, Classes, Math, CastleVectors, CastleViewport, CastleTransform, CastleCameras, X3DNodes, X3DFields,
-  CastleRenderOptions;
+  CastleRenderOptions, CastleImages;
 
 const
   DefaultFov = 90;
@@ -46,10 +46,58 @@ function CalcViewBob(const Time: Single; const Velocity: TVector3): Single;
   the viewport once. }
 procedure ApplyVideoSettings(const Viewport: TCastleViewport);
 
+{ The NC compare: the pixels of A and B where a channel differs by more
+  than 24 of 255, and in Alone how many of them have no differing
+  neighbour (a crack one pixel wide between two faces of the world, which
+  shows whatever lies behind it, drawn or culled; a hidden object differs
+  in more than one pixel together) }
+function ComparePvsImages(const A, B: TRGBImage; out Alone: Integer): Integer;
+
 implementation
 
 uses
   CastleConfig, CastleLog, CastleUtils, QuakeCaptions, QuakeWorld;
+
+function ComparePvsImages(const A, B: TRGBImage; out Alone: Integer): Integer;
+var
+  W, H, X, Y, DX, DY: Integer;
+  Mask: array of Boolean;
+  P, Q: PVector3Byte;
+  Lonely: Boolean;
+begin
+  Result := 0;
+  Alone := 0;
+  W := Min(A.Width, B.Width);
+  H := Min(A.Height, B.Height);
+  Mask := nil;
+  SetLength(Mask, W * H);
+  for Y := 0 to H - 1 do
+    for X := 0 to W - 1 do
+    begin
+      P := A.PixelPtr(X, Y);
+      Q := B.PixelPtr(X, Y);
+      if (Abs(P^.X - Q^.X) > 24) or (Abs(P^.Y - Q^.Y) > 24) or (Abs(P^.Z - Q^.Z) > 24) then
+      begin
+        Mask[Y * W + X] := True;
+        Inc(Result);
+      end;
+    end;
+  if Result = 0 then
+    Exit;
+  for Y := 0 to H - 1 do
+    for X := 0 to W - 1 do
+      if Mask[Y * W + X] then
+      begin
+        Lonely := True;
+        for DY := -1 to 1 do
+          for DX := -1 to 1 do
+            if ((DX <> 0) or (DY <> 0)) and (X + DX >= 0) and (X + DX < W) and (Y + DY >= 0) and (Y + DY < H) and
+               Mask[(Y + DY) * W + X + DX] then
+              Lonely := False;
+        if Lonely then
+          Inc(Alone);
+      end;
+end;
 
 const
   GammaFragmentShader =

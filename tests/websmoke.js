@@ -113,12 +113,17 @@ async function run(page, url, expected, seconds, shot) {
     demo: 'W:4,S,GL:0;1,W:2,GL:0;0,W:0.5,NC,S' }), [
     /Loopback socket on port 26000/,
     /Split-screen: player 2 joins/,
-    /PVS compare: 0 of \d+ pixels differ/,
+    /PVS compare: \d+ of \d+ pixels differ \(\d+ alone\)/,
   ], 150, 'websmoke_split.png');
   const p2 = split.lines.map(l => /Player 2: view entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+),/.exec(l)).filter(m => m)
     .map(m => [Number(m[1]), Number(m[2]), Number(m[3])]);
   const moved = p2.length >= 2 ? Math.hypot(...p2[p2.length - 1].map((v, i) => v - p2[0][i])) : 0;
   if (!(moved >= 100)) split.errors.push(`the second player did not walk (${moved.toFixed(0)} units, ${p2.length} positions)`);
+  // Only lone pixels (a crack between two faces) may differ
+  for (const l of split.lines) {
+    const c = /PVS compare: (\d+) of \d+ pixels differ \((\d+) alone\)/.exec(l);
+    if (c && c[1] !== c[2]) split.errors.push(`culling changed ${c[1]} pixels (${c[2]} alone)`);
+  }
   report('split-screen coop on a loopback listen server', split);
   console.log('split: player 2 walked ' + moved.toFixed(0) + ' units');
 

@@ -775,13 +775,13 @@ begin
 end;
 
 { The NC action: this frame drawn with the PVS culling and without it; no
-  pixel may differ (in split-screen every view is in the window) }
+  pixel may differ but a lone one in a crack between faces (in
+  split-screen every view is in the window) }
 procedure TViewDemo.ComparePvsRender;
 var
   Culled, Full: TRGBImage;
   WasCulling: Boolean;
-  X, Y, Differ, Total: Integer;
-  A, B: PVector3Byte;
+  Differ, Total, Alone: Integer;
   Status: String;
 
   function Render(const Culling: Boolean): TRGBImage;
@@ -803,23 +803,15 @@ begin
   Full := Render(False);
   try
     { Pixels where a channel differs by more than 24 of 255 }
-    Differ := 0;
     Total := Min(Culled.Width, Full.Width) * Min(Culled.Height, Full.Height);
-    for Y := 0 to Min(Culled.Height, Full.Height) - 1 do
-      for X := 0 to Min(Culled.Width, Full.Width) - 1 do
-      begin
-        A := Culled.PixelPtr(X, Y);
-        B := Full.PixelPtr(X, Y);
-        if (Abs(A^.X - B^.X) > 24) or (Abs(A^.Y - B^.Y) > 24) or (Abs(A^.Z - B^.Z) > 24) then
-          Inc(Differ);
-      end;
-    WritelnLog('GameViewDemo', 'PVS compare: %d of %d pixels differ, %s', [Differ, Total, Status]);
+    Differ := ComparePvsImages(Culled, Full, Alone);
+    WritelnLog('GameViewDemo', 'PVS compare: %d of %d pixels differ (%d alone), %s', [Differ, Total, Alone, Status]);
     if (Differ > 0) and (AutoTestPrefix <> '') then
     begin
-      Inc(FShots);
+      { Named after the next screenshot, whose number stays the same }
       {$ifndef WASI}
-      SaveImage(Culled, AutoTestPrefix + '_' + IntToStr(FShots) + '_pvs.png');
-      SaveImage(Full, AutoTestPrefix + '_' + IntToStr(FShots) + '_full.png');
+      SaveImage(Culled, AutoTestPrefix + '_' + IntToStr(FShots + 1) + '_pvs.png');
+      SaveImage(Full, AutoTestPrefix + '_' + IntToStr(FShots + 1) + '_full.png');
       {$endif}
     end;
   finally
