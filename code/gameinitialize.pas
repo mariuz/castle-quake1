@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeServer, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
   QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
@@ -391,6 +391,21 @@ begin
     if (Parameters[I] = '-spectate') or (Parameters[I] = '--spectate') then
       CmdSpectate := True
     else
+    if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-timelimit') or (Parameters[I] = '--timelimit')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerTimeLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-maps') or (Parameters[I] = '--maps')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerMapRotation := Parameters[I + 1];
+      Inc(I);
+    end else
     if ((Parameters[I] = '-record') or (Parameters[I] = '--record')) and (I + 1 <= Parameters.High) then
     begin
       CmdRecord := Parameters[I + 1];

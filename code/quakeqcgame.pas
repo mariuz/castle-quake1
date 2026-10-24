@@ -97,6 +97,7 @@ type
     FMaxClients: Integer;
     FDeathmatch: Integer;
     FCoop: Integer;
+    FFragLimit, FTimeLimit: Single;
     FTime: Single;
     FMapName: String;
     FSkill: Integer;
@@ -234,6 +235,9 @@ type
     property MaxClients: Integer read FMaxClients write FMaxClients;
     property Deathmatch: Integer read FDeathmatch write FDeathmatch;
     property Coop: Integer read FCoop write FCoop;
+    { The progs' fraglimit and timelimit (minutes): 0 for none }
+    property FragLimit: Single read FFragLimit write FFragLimit;
+    property TimeLimit: Single read FTimeLimit write FTimeLimit;
     property Time: Single read FTime;
     property MapName: String read FMapName;
     property Skill: Integer read FSkill;
@@ -1663,6 +1667,10 @@ begin
     Result := FCoop
   else if Name = 'sv_gravity' then
     Result := SvGravity
+  else if Name = 'fraglimit' then
+    Result := FFragLimit
+  else if Name = 'timelimit' then
+    Result := FTimeLimit
   else if Name = 'registered' then
     Result := 1
   else

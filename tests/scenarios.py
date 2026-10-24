@@ -382,6 +382,20 @@ def check_chat(logs):
     return result
 
 
+def check_dmrules(logs):
+    result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
+    h, c = logs['dhost'], logs['dclient']
+    result.append(('Rules: fraglimit 0, timelimit 0.2 minutes, maps e1m1,start' in h, 'the host has the rules'))
+    m = re.search(r'Map rotation: "(\w+)" after "e1m1" \(the progs asked for "(\w+)"\)', h)
+    result.append((m is not None and m.group(1) == 'start',
+                   'the time limit ends E1M1 and the rotation picks the next map (%s, not %s)'
+                   % (m.group(1), m.group(2)) if m else 'the time limit ends E1M1 and the rotation picks the next map'))
+    result.append(('Level change to "start"' in h, 'the server changes the level'))
+    result.append(('Loaded map "maps/start.bsp"' in c.split('Level "the Slipgate Complex"')[-1],
+                   'the client follows to the next map'))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1377,6 +1391,15 @@ SCENARIOS = [
                       ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
                                    'W:2,SAY:hello there,W:6,S,Q'], 2)],
              check_chat, [], dark=('chost', 'cclient')),
+    # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
+    # intermission and the rotation (e1m1,start) picks the next map; the
+    # client follows
+    Scenario('dmrules', [('dhost', ['-timelimit', '0.2', '-maps', 'e1m1,start', '--autotest', 'host:e1m1',
+                                    '{out}/dhost', '--demo', 'W:16,S,X,W:1,X,W:5,S,Q', '-port', '26007', '-bots', '1'],
+                          0),
+                         ('dclient', ['--autotest', 'connect:127.0.0.1:26007', '{out}/dclient', '--demo',
+                                      'W:20,S,Q'], 2)],
+             check_dmrules, [], dark=('dhost', 'dclient')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',

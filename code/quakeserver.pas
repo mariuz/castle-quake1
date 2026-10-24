@@ -12,7 +12,7 @@ unit QuakeServer;
 interface
 
 uses
-  SysUtils, Classes, Math, Generics.Collections,
+  SysUtils, Classes, Math, StrUtils, Generics.Collections,
   CastleVectors, CastleLog,
   QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots;
 
@@ -30,6 +30,8 @@ type
     FLastFrags: array[1..MaxQcClients] of Integer;
     { A spectator's buttons of its last input (fire: the next player) }
     FSpectatorButtons: array[1..MaxNetClients] of Byte;
+    { Deathmatch: the maps to play in turn (empty: the progs choose) }
+    FRotation: TStringList;
     FModels, FSounds: TStringList;
     { The level's worldspawn sky and fog, sent in the signon (protocol 666) }
     FSkybox: String;
@@ -56,7 +58,7 @@ type
     procedure WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer; const SeeAll: Boolean);
     procedure WriteClientData(const Msg: TQuakeNetMessage; const E: Integer);
     procedure SendFrames;
-    procedure ChangeLevel(const Map: String);
+    procedure ChangeLevel(const AMap: String);
     procedure BuildLists;
     { Net events }
     function HandleConnect(const C: Integer): Integer;
@@ -101,6 +103,14 @@ var
   { The listen server of this process, when hosting }
   ListenServer: TQuakeServer;
 
+var
+  { Deathmatch rules of a hosted game (-fraglimit, -timelimit in minutes,
+    -maps a,b,c): the progs end a level at a limit, the next one is the
+    map after the current one in the rotation }
+  ServerFragLimit: Single = 0;
+  ServerTimeLimit: Single = 0;
+  ServerMapRotation: String = '';
+
 implementation
 
 const
@@ -133,6 +143,7 @@ begin
   FGame := TQuakeQcGame.Create;
   FBots := TQuakeBots.Create(FGame);
   FGame.MaxClients := EnsureRange(AMaxClients, 1, Min(MaxQcClients, MaxNetClients));
+  FRotation := TStringList.Create;
   if ACoop then
   begin
     FGame.Deathmatch := 0;
@@ -141,6 +152,9 @@ begin
   begin
     FGame.Deathmatch := 1;
     FGame.Coop := 0;
+    FGame.FragLimit := ServerFragLimit;
+    FGame.TimeLimit := ServerTimeLimit;
+    FRotation.CommaText := LowerCase(ServerMapRotation);
   end;
   FGame.OnSound := @HandleSound;
   FGame.OnPrint := @HandlePrint;
@@ -161,6 +175,9 @@ begin
   if FNet.Valid then
     WritelnLog('QuakeServer', 'Hosting "%s" on port %d for %d players (%s, skill %d)',
       [AMapName, Port, FGame.MaxClients, BoolToStr(ACoop, 'coop', 'deathmatch'), FSkill]);
+  if FNet.Valid and not ACoop and ((FGame.FragLimit > 0) or (FGame.TimeLimit > 0) or (FRotation.Count > 0)) then
+    WritelnLog('QuakeServer', 'Rules: fraglimit %s, timelimit %s minutes, maps %s', [FormatFloat('0.##', FGame.FragLimit),
+      FormatFloat('0.##', FGame.TimeLimit), IfThen(FRotation.Count > 0, FRotation.CommaText, '(the progs choose)')]);
 end;
 
 destructor TQuakeServer.Destroy;
@@ -180,6 +197,7 @@ begin
   FOut.Free;
   FModels.Free;
   FSounds.Free;
+  FRotation.Free;
   inherited Destroy;
 end;
 
@@ -684,10 +702,19 @@ begin
   end;
 end;
 
-procedure TQuakeServer.ChangeLevel(const Map: String);
+procedure TQuakeServer.ChangeLevel(const AMap: String);
 var
-  C: Integer;
+  C, I: Integer;
+  Map: String;
 begin
+  Map := AMap;
+  { Deathmatch with a rotation: the map after this one, round }
+  if FRotation.Count > 0 then
+  begin
+    I := FRotation.IndexOf(LowerCase(FMapName));
+    Map := FRotation[(I + 1) mod FRotation.Count];
+    WritelnLog('QuakeServer', 'Map rotation: "%s" after "%s" (the progs asked for "%s")', [Map, FMapName, AMap]);
+  end;
   WritelnLog('QuakeServer', 'Level change to "%s"', [Map]);
   FGame.LevelChange := '';
   if not FGame.LoadLevel(Map, FSkill, True) then
