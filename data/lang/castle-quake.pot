@@ -149,6 +149,18 @@ msgstr ""
 msgid "Ambient occlusion"
 msgstr ""
 
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s, paused"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s at %s x speed"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s"
+msgstr ""
+
 #: code/gameviewplay.pas
 msgid "Welcome to Castle Quake: "
 msgstr ""

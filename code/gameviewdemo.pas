@@ -142,7 +142,18 @@ type
     FScriptIndex: Integer;
     FScriptTimer: Single;
     FShots: Integer;
+    { Demo playback: paused, its speed, the playback clock (seconds of the
+      demo played, FDemoLength for all of it) and a seek in progress
+      (events muted) }
+    FDemoPaused, FSeeking: Boolean;
+    FDemoSpeed, FPlayClock, FDemoLength: Single;
     procedure ClearLevel;
+    { Demo playback controls }
+    procedure MeasureDemoLength;
+    procedure SeekDemo(const Target: Single);
+    procedure SetDemoSpeed(const Speed: Single);
+    procedure ToggleDemoPause;
+    procedure ShowDemoStatus;
     procedure LoadLevel;
     procedure ApplyEnvironment;
     procedure HandleServerInfo;
@@ -247,7 +258,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, GameViewMenu;
+  CastleRectangles, CastleGameControllers, GameViewMenu, GameTranslate;
 
 const
   BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
@@ -547,10 +558,18 @@ begin
       FreeAndNil(FPlayers[I].Client);
     ConnectSplitPlayers;
   end else
-  if not FDemo.Load(DemoName) then
   begin
-    FHud.ShowMessage('Cannot play demo ' + DemoName, 3);
-    FDemo.Finished := True;
+    FDemoPaused := False;
+    FSeeking := False;
+    FDemoSpeed := 1;
+    FPlayClock := 0;
+    FDemoLength := 0;
+    if not FDemo.Load(DemoName) then
+    begin
+      FHud.ShowMessage('Cannot play demo ' + DemoName, 3);
+      FDemo.Finished := True;
+    end else
+      MeasureDemoLength;
   end;
 end;
 
@@ -1278,6 +1297,9 @@ var
   Path: String;
   T: TCastleTransform;
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   Path := FDemo.SoundName(SoundIndex);
   if Path = '' then
     Exit;
@@ -1345,6 +1367,9 @@ procedure TViewDemo.HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVect
 var
   P: TVector3;
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   { CL_ParseTEnt }
   P := QuakeToCge(Pos);
   case Kind of
@@ -1404,6 +1429,9 @@ procedure TViewDemo.HandleParticle(const Org, Dir: TVector3; const Count, Color:
 var
   C: TVector4Byte;
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   if Count = 255 then
   begin
     Particles.SpawnExplosion(QuakeToCge(Org));
@@ -1421,11 +1449,17 @@ end;
 
 procedure TViewDemo.HandlePrint(const S: String);
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   WritelnLog('Demo', Trim(S));
 end;
 
 procedure TViewDemo.HandleCenterPrint(const S: String);
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   FHud.ShowMessage(S, 2.5);
 end;
 
@@ -1442,6 +1476,9 @@ end;
 
 procedure TViewDemo.HandleDamage(const Armor, Blood: Integer; const From: TVector3);
 begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking then
+    Exit;
   FHud.DamageFlash(Armor, Blood);
 end;
 
@@ -1890,6 +1927,19 @@ begin
       else
         FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
     end else
+    if Action = 'DP' then { Demo playback: pause / go on }
+      ToggleDemoPause
+    else
+    if Action = 'DS' then { Demo playback speed }
+      SetDemoSpeed(StrToFloatDef(Param, 1))
+    else
+    if Action = 'DK' then { Seek: to a second of the demo, or +N / -N from here }
+    begin
+      if (Param <> '') and (Param[1] in ['+', '-']) then
+        SeekDemo(FPlayClock + StrToFloatDef(Param, 0))
+      else
+        SeekDemo(StrToFloatDef(Param, 0));
+    end else
     if (Action = 'M') and FPhoto.Active then
       FViewport.Camera.Translation := FViewport.Camera.Translation +
         FViewport.Camera.Direction * StrToFloatDef(Param, 50)
@@ -1921,6 +1971,7 @@ end;
 procedure TViewDemo.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 var
   I, J, N: Integer;
+  Dt: Single;
   Eye, Dir, CamDir: TVector3;
   Pitch, Yaw, Bob: Single;
   CD: TDemoClientData;
@@ -1965,10 +2016,31 @@ begin
     Exit;
   end;
 
-  FDemo.Advance(SecondsPassed);
+  { A demo plays at its speed (0 while paused) }
+  Dt := SecondsPassed;
+  if not NetMode then
+  begin
+    UpdateGamepad;
+    if GamepadJustPressed(GamepadConfirmButton) then
+      ToggleDemoPause
+    else if GamepadJustPressed(gbLeftBumper) then
+      SeekDemo(FPlayClock - 10)
+    else if GamepadJustPressed(gbRightBumper) then
+      SeekDemo(FPlayClock + 10)
+    else if GamepadJustPressed(gbDPadUp) then
+      SetDemoSpeed(FDemoSpeed * 2)
+    else if GamepadJustPressed(gbDPadDown) then
+      SetDemoSpeed(FDemoSpeed / 2);
+    if FDemoPaused then
+      Dt := 0
+    else
+      Dt := SecondsPassed * FDemoSpeed;
+    FPlayClock := FPlayClock + Dt;
+  end;
+  FDemo.Advance(Dt);
   for I := 2 to FSplitCount do
     if FPlayers[I].Demo <> nil then
-      FPlayers[I].Demo.Advance(SecondsPassed);
+      FPlayers[I].Demo.Advance(Dt);
   if not FLoaded then
     Exit;
   ApplyEnvironment;
@@ -2034,7 +2106,7 @@ begin
     FSubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
     if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit) then
-      ShowVisual(FVisuals[I], FDemo.Entities[I].State, SecondsPassed)
+      ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt)
     else
       HideVisual(FVisuals[I]);
   for I := 1 to High(FSubmodels) do
@@ -2045,7 +2117,7 @@ begin
   if Length(FStaticVisuals) < Length(FDemo.Statics) then
     SetLength(FStaticVisuals, Length(FDemo.Statics));
   for I := 0 to High(FDemo.Statics) do
-    ShowVisual(FStaticVisuals[I], FDemo.Statics[I], SecondsPassed);
+    ShowVisual(FStaticVisuals[I], FDemo.Statics[I], Dt);
 
   { The view: the view entity's eyes, looking along the recorded angles }
   CD := FDemo.ClientData;
@@ -2079,17 +2151,17 @@ begin
   for I := 0 to High(FBeams) do
     if FBeams[I].Time > 0 then
     begin
-      FBeams[I].Time := FBeams[I].Time - SecondsPassed;
+      FBeams[I].Time := FBeams[I].Time - Dt;
       if FBeams[I].Time <= 0 then
         for J := 0 to High(FBeams[I].Segments) do
           FBeams[I].Segments[J].Exists := False;
     end;
 
-  FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
+  FGeometry.Update(Dt, FViewport.Camera.Translation);
   UpdateWorldVisibility;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
-  Particles.Update(SecondsPassed);
-  Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
+  Particles.Update(Dt);
+  Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
   if FSplit then
   begin
@@ -2182,11 +2254,144 @@ begin
     SetPhotoMode(True);
     Exit(True);
   end;
-  if Event.IsKey(keyEscape) or Event.IsKey(keyEnter) or Event.IsKey(keySpace) then
+  { Demo playback: Space pauses, left / right seek 10 s, up / down change the speed }
+  if Event.IsKey(keySpace) then
+  begin
+    ToggleDemoPause;
+    Exit(True);
+  end;
+  if Event.IsKey(keyArrowLeft) or Event.IsKey(keyArrowRight) then
+  begin
+    if Event.IsKey(keyArrowLeft) then
+      SeekDemo(FPlayClock - 10)
+    else
+      SeekDemo(FPlayClock + 10);
+    Exit(True);
+  end;
+  if Event.IsKey(keyArrowUp) or Event.IsKey(keyArrowDown) then
+  begin
+    if Event.IsKey(keyArrowUp) then
+      SetDemoSpeed(FDemoSpeed * 2)
+    else
+      SetDemoSpeed(FDemoSpeed / 2);
+    Exit(True);
+  end;
+  if Event.IsKey(keyEscape) or Event.IsKey(keyEnter) then
   begin
     Leave;
     Exit(True);
   end;
+end;
+
+function DemoClockText(const Seconds: Single): String;
+var
+  T: Integer;
+begin
+  T := Max(0, Trunc(Seconds));
+  Result := Format('%d:%.2d', [T div 60, T mod 60]);
+end;
+
+procedure TViewDemo.MeasureDemoLength;
+const
+  Step = 0.05;
+var
+  Probe: TQuakeDemoReader;
+begin
+  { A second reader without events plays the demo through once }
+  Probe := TQuakeDemoReader.Create;
+  try
+    if Probe.Load(DemoName) then
+      while not Probe.Finished and (FDemoLength < 4 * 3600) do
+      begin
+        Probe.Advance(Step);
+        FDemoLength := FDemoLength + Step;
+      end;
+  finally
+    Probe.Free;
+  end;
+  WritelnLog('GameViewDemo', 'Demo "%s": %.1f s', [DemoName, FDemoLength]);
+end;
+
+procedure TViewDemo.ShowDemoStatus;
+var
+  S: String;
+begin
+  if FDemoPaused then
+    S := Format(Tr('Demo %s / %s, paused'), [DemoClockText(FPlayClock), DemoClockText(FDemoLength)])
+  else if FDemoSpeed <> 1 then
+    S := Format(Tr('Demo %s / %s at %s x speed'), [DemoClockText(FPlayClock), DemoClockText(FDemoLength),
+      FormatFloat('0.##', FDemoSpeed)])
+  else
+    S := Format(Tr('Demo %s / %s'), [DemoClockText(FPlayClock), DemoClockText(FDemoLength)]);
+  FHud.ShowMessage(S, 2);
+end;
+
+procedure TViewDemo.ToggleDemoPause;
+begin
+  if NetMode then
+    Exit;
+  FDemoPaused := not FDemoPaused;
+  if FDemoPaused then
+    WritelnLog('GameViewDemo', 'Demo paused at %.2f of %.1f (time %.2f)', [FPlayClock, FDemoLength, FDemo.Time])
+  else
+    WritelnLog('GameViewDemo', 'Demo goes on at %.2f (time %.2f)', [FPlayClock, FDemo.Time]);
+  ShowDemoStatus;
+end;
+
+procedure TViewDemo.SetDemoSpeed(const Speed: Single);
+begin
+  if NetMode then
+    Exit;
+  FDemoSpeed := EnsureRange(Speed, 0.25, 4);
+  WritelnLog('GameViewDemo', 'Demo speed %s', [FormatFloat('0.##', FDemoSpeed)]);
+  ShowDemoStatus;
+end;
+
+procedure TViewDemo.SeekDemo(const Target: Single);
+const
+  Step = 0.05;
+var
+  Goal, From: Single;
+  Restarted: Boolean;
+  Origin: TVector3;
+begin
+  if NetMode or FPhoto.Active then
+    Exit;
+  Goal := EnsureRange(Target, 0, Max(0, FDemoLength - Step));
+  From := FPlayClock;
+  Restarted := Goal < FPlayClock;
+  FSeeking := True;
+  try
+    { Back: the demo starts again from its first message (and its level) }
+    if Restarted then
+    begin
+      FLoaded := False;
+      FPlayClock := 0;
+      if not FDemo.Load(DemoName) then
+      begin
+        FDemo.Finished := True;
+        Exit;
+      end;
+    end;
+    while (FPlayClock + Step <= Goal + Step / 2) and not FDemo.Finished do
+    begin
+      FDemo.Advance(Step);
+      FPlayClock := FPlayClock + Step;
+      { The level timer starts when the connection is complete, as in Update }
+      if FLoaded and (FLevelStart < 0) and (FDemo.Signon = Signons) then
+        FLevelStart := FDemo.Time;
+    end;
+  finally
+    FSeeking := False;
+  end;
+  FFinishedTimer := 0;
+  Origin := TVector3.Zero;
+  if (FDemo.ViewEntity > 0) and (FDemo.ViewEntity < Length(FDemo.Entities)) then
+    Origin := FDemo.Entities[FDemo.ViewEntity].State.Origin;
+  WritelnLog('GameViewDemo', 'Demo seek from %.2f to %.2f (%s): at %.2f, time %.2f, view entity at %.1f %.1f %.1f',
+    [From, Goal, BoolToStr(Restarted, 'from the start', 'forward'), FPlayClock, FDemo.Time,
+     Origin.X, Origin.Y, Origin.Z]);
+  ShowDemoStatus;
 end;
 
 end.

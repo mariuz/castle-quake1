@@ -1027,3 +1027,12 @@ msgstr "mediano"
 #: code/quakemenu.pas
 msgid "large"
 msgstr "grande"
+
+msgid "Demo %s / %s, paused"
+msgstr "Demo %s / %s, en pausa"
+
+msgid "Demo %s / %s at %s x speed"
+msgstr "Demo %s / %s a velocidad x %s"
+
+msgid "Demo %s / %s"
+msgstr "Demo %s / %s"

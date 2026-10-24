@@ -250,6 +250,42 @@ DEMO_SHOT_RE = re.compile(r'Saved screenshot to ".*?" \(signon \d+, health -?\d+
 PHOTO_RE = re.compile(r'Photo saved to "(.*?)": (\d+)x(\d+), fov (\d+), (\w+)')
 
 
+SEEK_RE = re.compile(r'Demo seek from ([\d.]+) to ([\d.]+) \((from the start|forward)\): at ([\d.]+), time ([\d.]+), '
+                     r'view entity at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)')
+
+
+def check_demoplay(logs):
+    log = logs['play']
+    result = common_checks(logs, 'play')
+    m = re.search(r'Demo "demo1\.dem": ([\d.]+) s', log)
+    length = float(m.group(1)) if m else 0
+    result.append((length > 40, 'the demo\'s length is measured (%.1f s)' % length))
+    seeks = SEEK_RE.findall(log)
+    shots = [float(t) for t in DEMO_SHOT_RE.findall(log)]
+    result.append((len(seeks) == 4 and [k[2] for k in seeks] == ['forward', 'from the start', 'forward',
+                                                                  'from the start'],
+                   'seeks forward and back (%s)' % ', '.join('%s -> %s %s' % (k[0], k[1], k[2]) for k in seeks)))
+    if len(seeks) == 4:
+        a, b = seeks[0], seeks[2]
+        result.append((abs(float(a[3]) - 30) < 0.06 and abs(float(b[3]) - 30) < 0.06 and a[5:] == b[5:],
+                       'seeking to 30 s forward and again after going back lands on the same spot (%s / %s)'
+                       % (' '.join(a[5:]), ' '.join(b[5:]))))
+        result.append((abs(float(seeks[1][3]) - 10) < 0.06 and abs(float(seeks[1][4]) - float(a[4]) + 20) < 0.2,
+                       'going back to 10 s plays the demo again from the start (time %s -> %s)' % (a[4], seeks[1][4])))
+    m = re.search(r'Demo paused at [\d.]+ of [\d.]+ \(time ([\d.]+)\)', log)
+    result.append((m is not None and len(shots) == 7 and abs(shots[4] - float(m.group(1))) < 0.1,
+                   'a paused demo stands still (time %s, screenshot %s)'
+                   % (m.group(1) if m else '-', shots[4] if len(shots) > 4 else '-')))
+    # 3 s at twice the speed; the screenshot comes before its frame's step
+    # (up to half a second), so 5 to 6 s of the demo, 3 at the normal speed
+    result.append((len(shots) == 7 and 4.4 < shots[5] - shots[4] < 6.6,
+                   'twice the speed plays two seconds in one (%.2f in 3 s)'
+                   % (shots[5] - shots[4] if len(shots) == 7 else 0)))
+    result.append((len(shots) == 7 and len(seeks) == 4 and abs(shots[1] - float(seeks[0][4])) < 0.3,
+                   'the screenshot after a seek shows it (time %s)' % (shots[1] if len(shots) > 1 else '-')))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1209,6 +1245,12 @@ SCENARIOS = [
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,W:1,S,Q'], 0)],
              check_photo, [], frame_checks=frames_photo),
+    # Demo playback controls: seek forward, back (the demo plays again
+    # from the start, landing on the same spot), pause, twice the speed
+    Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
+                                    'W:2,S,DK:30,W:0.1,S,DK:10,W:0.1,S,DK:30,W:0.1,S,DP,W:1,S,DP,DS:2,W:3,S,DS:1,'
+                                    'DK:-5,W:0.1,S,Q'], 0)],
+             check_demoplay, []),
     # Save and Load Game in the menu (the virtual gamepad walks it): slot 8
     # saved with a thumbnail, the player teleported away, slot 8 loaded
     # back from the newest-first list; then a game started from load:8
