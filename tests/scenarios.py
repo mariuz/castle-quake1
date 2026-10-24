@@ -1372,7 +1372,7 @@ SCENARIOS = [
     Scenario('lan', [('lhost', ['--autotest', 'host:e1m1', '{out}/lhost', '--demo', 'W:14,S,Q', '-port', '26002'], 0),
                      ('lfind', ['--autotest', 'e1m1', '{out}/lfind', '--demo',
                                 'W:1,CMD:lan,W:3.5,CMD:lan_join 1,W:4,S,Q'], 3)],
-             check_lan, [], dark=('lhost',)),
+             check_lan, [], dark=('lhost', 'lfind')),
     # A spectator joins a deathmatch with two bots: it follows a player,
     # fire follows the next one, jump flies freely
     Scenario('spectate', [('shost', ['--autotest', 'host:e1m1', '{out}/shost', '--demo', 'W:16,S,Q', '-port', '26003',
