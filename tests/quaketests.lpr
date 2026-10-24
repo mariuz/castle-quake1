@@ -1537,7 +1537,13 @@ type
   { Accepts every client of the loopback test as edict 1 }
   TLoopbackAccept = class
     function Connect(const Client: Integer): Integer;
+    function Info: String;
   end;
+
+function TLoopbackAccept.Info: String;
+begin
+  Result := 'e1m1'#9'the Slipgate Complex'#9'3'#9'8'#9'coop';
+end;
 
 function TLoopbackAccept.Connect(const Client: Integer): Integer;
 begin
@@ -1546,6 +1552,56 @@ end;
 
 { Loopback sockets (the web build's listen server): packets between
   sockets of this process, and a client joining a server over them }
+{ LAN discovery over loopback sockets: a server on one of the queried
+  ports answers, the search lists it once with what it plays }
+procedure TestLanDiscovery;
+var
+  Server: TQuakeNetServer;
+  Answer: TLoopbackAccept;
+  Search: TQuakeLanDiscovery;
+  I: Integer;
+begin
+  StartTest('LAN discovery (loopback)');
+  NetLoopback := True;
+  Answer := TLoopbackAccept.Create;
+  Server := TQuakeNetServer.Create(DefaultNetPort + 2);
+  Search := TQuakeLanDiscovery.Create;
+  try
+    Server.OnInfo := @Answer.Info;
+    Search.Start;
+    Check(Search.Searching, 'the search runs');
+    for I := 1 to 20 do
+    begin
+      Server.Update(0.05);
+      Search.Update(0.05);
+    end;
+    CheckEquals(1, Search.Count, 'one game found');
+    if Search.Count = 1 then
+    begin
+      CheckEquals(DefaultNetPort + 2, Search[0].Port, 'its port');
+      CheckEqualsStr('127.0.0.1', Search[0].Host, 'its host');
+      CheckEqualsStr('e1m1', Search[0].Map, 'its map');
+      CheckEqualsStr('the Slipgate Complex', Search[0].Title, 'its title');
+      CheckEquals(3, Search[0].Players, 'its players');
+      CheckEquals(8, Search[0].MaxPlayers, 'its maximum');
+      CheckEqualsStr('coop', Search[0].Mode, 'its mode');
+      CheckEqualsStr('127.0.0.1:26002: e1m1 (the Slipgate Complex), 3/8, coop', Search.Describe(0), 'its line');
+    end;
+    for I := 1 to 60 do
+    begin
+      Server.Update(0.05);
+      Search.Update(0.05);
+    end;
+    Check(not Search.Searching, 'the search ends');
+    CheckEquals(1, Search.Count, 'the answers to the repeated queries count once');
+  finally
+    Search.Free;
+    Server.Free;
+    Answer.Free;
+    NetLoopback := False;
+  end;
+end;
+
 procedure TestLoopback;
 var
   A, B: TQuakeNetSocket;
@@ -1820,6 +1876,7 @@ begin
   TestCaptions;
   TestSaveList;
   TestLoopback;
+  TestLanDiscovery;
   TestDiskArchives;
   TestTranslate(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'lang') + PathDelim);
   TestMapBrowser(ExpandFileName(IncludeTrailingPathDelimiter(PaksDir) + '..' + PathDelim + 'quaddicted' +

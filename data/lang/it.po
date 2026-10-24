@@ -1027,3 +1027,42 @@ msgstr "media"
 #: code/quakemenu.pas
 msgid "large"
 msgstr "grande"
+
+msgid "Demo %s / %s, paused"
+msgstr "Demo %s / %s, in pausa"
+
+msgid "Demo %s / %s at %s x speed"
+msgstr "Demo %s / %s a velocità x %s"
+
+msgid "Demo %s / %s"
+msgstr "Demo %s / %s"
+
+msgid "Searching the local network..."
+msgstr "Ricerca nella rete locale..."
+
+msgid "No LAN game %d (lan lists them)"
+msgstr "Nessuna partita LAN %d (lan le elenca)"
+
+msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
+msgstr "  lan - Cerca partite nella rete locale; lan_join <n> - entra nella n-esima"
+
+msgid "Find LAN Games"
+msgstr "Cerca partite LAN"
+
+msgid "No games found on the local network"
+msgstr "Nessuna partita trovata nella rete locale"
+
+msgid "Search Again"
+msgstr "Cerca di nuovo"
+
+msgid "Back to Multiplayer"
+msgstr "Torna al multigiocatore"
+
+msgid "Spectate"
+msgstr "Osserva"
+
+msgid "Spectating %s (fire: next player, jump: fly)"
+msgstr "Osservi %s (fuoco: giocatore successivo, salto: vola)"
+
+msgid "Coop with 2 bots"
+msgstr "Cooperativa con 2 bot"

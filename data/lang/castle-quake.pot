@@ -149,8 +149,32 @@ msgstr ""
 msgid "Ambient occlusion"
 msgstr ""
 
+#: code/gameviewdemo.pas
+msgid "Spectating %s (fire: next player, jump: fly)"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s, paused"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s at %s x speed"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Demo %s / %s"
+msgstr ""
+
 #: code/gameviewplay.pas
 msgid "Welcome to Castle Quake: "
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "Searching the local network..."
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "No LAN game %d (lan lists them)"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -231,6 +255,10 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "    maps_play <id> [map], maps_remove <id> - download, play and remove one"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -746,7 +774,31 @@ msgid "Deathmatch vs 3 bots"
 msgstr ""
 
 #: code/quakemenu.pas
+msgid "Coop with 2 bots"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Find LAN Games"
+msgstr ""
+
+#: code/quakemenu.pas
 msgid "Join"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Spectate"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "No games found on the local network"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Search Again"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Back to Multiplayer"
 msgstr ""
 
 #: code/quakemenu.pas

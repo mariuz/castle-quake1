@@ -250,6 +250,106 @@ DEMO_SHOT_RE = re.compile(r'Saved screenshot to ".*?" \(signon \d+, health -?\d+
 PHOTO_RE = re.compile(r'Photo saved to "(.*?)": (\d+)x(\d+), fov (\d+), (\w+)')
 
 
+SEEK_RE = re.compile(r'Demo seek from ([\d.]+) to ([\d.]+) \((from the start|forward)\): at ([\d.]+), time ([\d.]+), '
+                     r'view entity at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)')
+
+
+def check_demoplay(logs):
+    log = logs['play']
+    result = common_checks(logs, 'play')
+    m = re.search(r'Demo "demo1\.dem": ([\d.]+) s', log)
+    length = float(m.group(1)) if m else 0
+    result.append((length > 40, 'the demo\'s length is measured (%.1f s)' % length))
+    seeks = SEEK_RE.findall(log)
+    shots = [float(t) for t in DEMO_SHOT_RE.findall(log)]
+    result.append((len(seeks) == 4 and [k[2] for k in seeks] == ['forward', 'from the start', 'forward',
+                                                                  'from the start'],
+                   'seeks forward and back (%s)' % ', '.join('%s -> %s %s' % (k[0], k[1], k[2]) for k in seeks)))
+    if len(seeks) == 4:
+        a, b = seeks[0], seeks[2]
+        result.append((abs(float(a[3]) - 30) < 0.06 and abs(float(b[3]) - 30) < 0.06 and a[5:] == b[5:],
+                       'seeking to 30 s forward and again after going back lands on the same spot (%s / %s)'
+                       % (' '.join(a[5:]), ' '.join(b[5:]))))
+        result.append((abs(float(seeks[1][3]) - 10) < 0.06 and abs(float(seeks[1][4]) - float(a[4]) + 20) < 0.2,
+                       'going back to 10 s plays the demo again from the start (time %s -> %s)' % (a[4], seeks[1][4])))
+    m = re.search(r'Demo paused at [\d.]+ of [\d.]+ \(time ([\d.]+)\)', log)
+    result.append((m is not None and len(shots) == 7 and abs(shots[4] - float(m.group(1))) < 0.1,
+                   'a paused demo stands still (time %s, screenshot %s)'
+                   % (m.group(1) if m else '-', shots[4] if len(shots) > 4 else '-')))
+    # 3 s at twice the speed; the screenshot comes before its frame's step
+    # (up to half a second), so 5 to 6 s of the demo, 3 at the normal speed
+    result.append((len(shots) == 7 and 4.4 < shots[5] - shots[4] < 6.6,
+                   'twice the speed plays two seconds in one (%.2f in 3 s)'
+                   % (shots[5] - shots[4] if len(shots) == 7 else 0)))
+    result.append((len(shots) == 7 and len(seeks) == 4 and abs(shots[1] - float(seeks[0][4])) < 0.3,
+                   'the screenshot after a seek shows it (time %s)' % (shots[1] if len(shots) > 1 else '-')))
+    return result
+
+
+def check_lan(logs):
+    result = common_checks(logs, 'lhost') + common_checks(logs, 'lfind')
+    find, host = logs['lfind'], logs['lhost']
+    found = re.findall(r'LAN: found (\S+):(\d+): (\S+) \(([^)]*)\), (\d+)/(\d+), (\w+)', find)
+    result.append((len(found) == 1 and found[0][1] == '26002' and found[0][2] == 'e1m1' and found[0][6] == 'deathmatch'
+                   and found[0][4] == '1' and found[0][5] == '8',
+                   'the search finds the host once: e1m1, 1 of 8 players, deathmatch (%s)'
+                   % '; '.join(':'.join(f[:3]) for f in found)))
+    result.append(('LAN: 1 games found' in find, 'the search ends after its time'))
+    result.append(('Joining the LAN game' in find and 'Client 2 connected' in host,
+                   'lan_join joins the game it found'))
+    v = DEMO_SHOT_RE.findall(find)
+    result.append((re.search(r'Saved screenshot to ".*lfind_1\.png" \(signon 4', find) is not None,
+                   'the joined client plays (signon 4)'))
+    return result
+
+
+SPEC_RE = re.compile(r'Spectator: (following entity (\d+)|flying freely), eye at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)')
+
+
+def check_spectate(logs):
+    result = common_checks(logs, 'shost') + common_checks(logs, 'spec')
+    host, spec = logs['shost'], logs['spec']
+    result.append((re.search(r'Client \d+ connected from \S+ as a spectator, following \d+', host) is not None,
+                   'the spectator joins without a player of its own'))
+    result.append((re.search(r'Spectator \d+ follows \d+', host) is not None, 'fire follows the next player'))
+    shots = SPEC_RE.findall(spec)
+    result.append((len(shots) == 3, 'every screenshot logs the spectator (%d)' % len(shots)))
+    if len(shots) == 3:
+        a, b, c = shots
+        result.append((a[1] != '' and b[1] != '' and a[1] != b[1],
+                       'it follows one player, then another (entities %s and %s)' % (a[1], b[1])))
+        moved = dist(tuple(float(x) for x in b[2:5]), tuple(float(x) for x in c[2:5]))
+        result.append((c[0] == 'flying freely' and moved > 100,
+                       'jump lets it fly freely, away from the player (%.0f units)' % moved))
+    result.append(('signon 4' in spec, 'the spectator gets the game (signon 4)'))
+    return result
+
+
+COOPBOT_RE = re.compile(r'(\w+) (-?\d+) frags \(health (-?\d+), (\d+) units, goal ([^,)]*)(?:, fighting [^,)]*)?'
+                        r'(?:, (\d+) units from (\w+))?\)')
+
+
+def check_coopbots(logs):
+    log = logs['cbhost']
+    result = common_checks(logs, 'cbhost')
+    result.append(('Bot "Wolf" joined' in log and 'Bot "Raven" joined' in log, 'two bots join the coop game'))
+    lines = [l for l in log.splitlines() if l.startswith('Bots: Wolf')]
+    last = COOPBOT_RE.findall(lines[-1]) if lines else []
+    result.append((len(last) == 2 and all(b[6] == 'player3' for b in last),
+                   'the bots follow the human player (%s)' % ', '.join('%s: %s' % (b[0], b[6] or '-') for b in last)))
+    result.append((len(last) == 2 and all(b[5] != '' and int(b[5]) < 1500 for b in last),
+                   'and stay with him (%s units)' % ', '.join(b[5] or '-' for b in last)))
+    fights = re.findall(r'Bot "\w+" fights (monster_\w+)', log)
+    result.append((len(fights) > 0, 'they fight the monsters (%s)' % ', '.join(sorted(set(fights)))))
+    m = re.findall(r'coop: (\d+) of (\d+) monsters killed', log)
+    result.append((bool(m) and int(m[-1][0]) >= 2, 'they kill monsters while the player stands still (%s)'
+                   % (' of '.join(m[-1]) if m else '-')))
+    shot = re.search(r'Saved screenshot to ".*cbhost_1\.png" \(signon 4, health (-?\d+)', log)
+    result.append((shot is not None and int(shot.group(1)) > 0,
+                   'the player they go with stays alive (health %s)' % (shot.group(1) if shot else '-')))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -997,13 +1097,16 @@ def check_bots(logs):
     joined = re.findall(r'Bot "(\w+)" joined as client', h)
     result.append((len(joined) == 3, 'three bots join (%s)' % ', '.join(joined)))
     result.append((re.search(r'Client \d+ connected', h) is not None, 'a network client joins with the bots'))
-    lines = re.findall(r'Bots: (.*)', h)
+    lines = re.findall(r'Bots: (\w+ -?\d+ frags.*)', h)
     last = lines[-1] if lines else ''
     moved = [float(x) for x in re.findall(r'([\d.]+) units', last)]
     result.append((len(moved) == 3 and min(moved) > 1000, 'every bot walks the map (%s units)' %
                    ', '.join('%.0f' % x for x in moved)))
     frags = sum(int(x) for line in lines for x in re.findall(r'(-?\d+) frags', line))
-    result.append((frags != 0 or 'fighting' in ' '.join(lines), 'the bots fight (%d frags in the logs)' % frags))
+    # A fight starting is logged; frags depend on who hits whom in the time
+    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost']))
+    result.append((frags != 0 or fights > 0 or 'fighting' in ' '.join(lines),
+                   'the bots fight (%d fights, %d frags in the logs)' % (fights, frags)))
     shots = NET_SHOT_RE.findall(logs['bclient'])
     result.append((len(shots) == 1 and shots[0][0] == '4', 'the client plays with the bots'))
     # The browser's way: the listen server on loopback sockets, its own
@@ -1012,7 +1115,7 @@ def check_bots(logs):
     result += common_checks(logs, 'bloop')
     result.append(('Loopback socket on port 26000' in h and len(re.findall(r'Bot "(\w+)" joined', h)) == 3,
                    'bloop: three bots join a loopback listen server'))
-    lines = re.findall(r'Bots: (.*)', h)
+    lines = re.findall(r'Bots: (\w+ -?\d+ frags.*)', h)
     moved = [float(x) for x in re.findall(r'([\d.]+) units', lines[-1] if lines else '')]
     # 22 s, and a bot killed starts counting again: only that each one moves
     result.append((len(moved) == 3 and min(moved) > 300, 'bloop: the bots walk the map (%s units)' %
@@ -1150,10 +1253,10 @@ SCENARIOS = [
                         ('off', ['--autotest', 'random42', '{out}/off', '--demo',
                                  'W:0.5,Y,G:-450;80;-768,A:180,X,W:2,Q'], 0)],
              check_access, ['pickup_1']),
-    # Horde mode: E1M1's monsters give way to waves (killall clears wave 1,
+    # Horde mode: E1M1's monsters give way to waves (killall clears wave 1 -- twice, as its last monsters may still be coming in on a slow machine --,
     # wave 2 follows after the pause) and a random map plays it too
     Scenario('horde', [('waves', ['-horde', '--autotest', 'e1m1', '{out}/waves', '--demo',
-                                  'W:0.5,Y,W:5,S,CMD:killall,W:8,S,Q'], 0),
+                                  'W:0.5,Y,W:5,S,CMD:killall,W:2,CMD:killall,W:8,S,Q'], 0),
                        ('rndhorde', ['-horde', '--autotest', 'random42', '{out}/rndhorde', '--demo',
                                      'W:0.5,Y,W:5,S,Q'], 0)],
              check_horde, []),
@@ -1209,6 +1312,30 @@ SCENARIOS = [
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,W:1,S,Q'], 0)],
              check_photo, [], frame_checks=frames_photo),
+    # LAN discovery: a host answers the search of another process, which
+    # joins the game it found
+    Scenario('lan', [('lhost', ['--autotest', 'host:e1m1', '{out}/lhost', '--demo', 'W:14,S,Q', '-port', '26002'], 0),
+                     ('lfind', ['--autotest', 'e1m1', '{out}/lfind', '--demo',
+                                'W:1,CMD:lan,W:3.5,CMD:lan_join 1,W:4,S,Q'], 3)],
+             check_lan, [], dark=('lhost',)),
+    # A spectator joins a deathmatch with two bots: it follows a player,
+    # fire follows the next one, jump flies freely
+    Scenario('spectate', [('shost', ['--autotest', 'host:e1m1', '{out}/shost', '--demo', 'W:16,S,Q', '-port', '26003',
+                                     '-bots', '2'], 0),
+                          ('spec', ['-spectate', '--autotest', 'connect:127.0.0.1:26003', '{out}/spec', '--demo',
+                                    'W:3,S,X,W:1,S,J,W:0.3,V:1;0;0,W:1,V:0;0;0,S,Q'], 3)],
+             check_spectate, [], dark=('shost', 'spec')),
+    # Bots in coop: two bots on E1M3 with a player who stands still follow
+    # him, fight and kill the monsters they meet
+    Scenario('coopbots', [('cbhost', ['-coop', '-bots', '2', '--autotest', 'host:e1m3', '{out}/cbhost', '--demo',
+                                      'W:31,S,Q', '-port', '26004'], 0)],
+             check_coopbots, [], dark=('cbhost',)),
+    # Demo playback controls: seek forward, back (the demo plays again
+    # from the start, landing on the same spot), pause, twice the speed
+    Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
+                                    'W:2,S,DK:30,W:0.1,S,DK:10,W:0.1,S,DK:30,W:0.1,S,DP,W:1,S,DP,DS:2,W:3,S,DS:1,'
+                                    'DK:-5,W:0.1,S,Q'], 0)],
+             check_demoplay, []),
     # Save and Load Game in the menu (the virtual gamepad walks it): slot 8
     # saved with a thumbnail, the player teleported away, slot 8 loaded
     # back from the newest-first list; then a game started from load:8

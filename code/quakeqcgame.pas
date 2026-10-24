@@ -279,6 +279,10 @@ type
     function EntitySkin(const E: Integer): Integer;
     function EntityEffects(const E: Integer): Integer;
     function EntityVisible(const E: Integer): Boolean;
+    { A monster (FL_MONSTER) still alive }
+    function EntityIsLiveMonster(const E: Integer): Boolean;
+    { Put an entity (a client: its physics too) at Org, standing still }
+    procedure TeleportEntity(const E: Integer; const Org: TVector3);
     function KilledMonsters: Integer;
     function TotalMonsters: Integer;
     function FoundSecrets: Integer;
@@ -2020,6 +2024,19 @@ end;
 function TQuakeQcGame.EntityEffects(const E: Integer): Integer;
 begin
   Result := Round(FProgs.Field(E, FFEffects)^.F);
+end;
+
+function TQuakeQcGame.EntityIsLiveMonster(const E: Integer): Boolean;
+begin
+  Result := FProgs.Loaded and (E > 0) and (E < FProgs.NumEdicts) and
+    ((Round(FProgs.Field(E, FFFlags)^.F) and FL_MONSTER) <> 0) and (FProgs.Field(E, FFHealth)^.F > 0) and
+    (FProgs.Field(E, FFDeadFlag)^.F = 0);
+end;
+
+procedure TQuakeQcGame.TeleportEntity(const E: Integer; const Org: TVector3);
+begin
+  FProgs.SetFieldVector(E, FFVelocity, TVector3.Zero);
+  SetOrigin(FProgs, E, Org);
 end;
 
 function TQuakeQcGame.EdictCount: Integer;

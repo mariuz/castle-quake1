@@ -34,7 +34,7 @@ const
   NetTimeout = 10.0;
 
   { Packet kinds (first byte) }
-  pkConnect = 1;    { client -> server: protocol version }
+  pkConnect = 1;    { client -> server: protocol version; a payload byte 1: a spectator }
   pkAccept = 2;     { server -> client }
   pkReliable = 3;   { server -> client: seq, svc data; acked }
   pkAck = 4;        { client -> server: seq }
@@ -49,6 +49,13 @@ const
   pkPeer = 11;      { rendezvous -> client: the host's address (empty: unknown name) }
   pkPunch = 12;     { rendezvous -> server: a client's address }
   pkHello = 13;     { server -> client: opens the server's NAT mapping, ignored }
+  { LAN discovery: anyone asks, a server answers with what it plays }
+  pkInfoQuery = 14; { -> server: seq = protocol version }
+  pkInfo = 15;      { server -> asker: seq = protocol version, "map<tab>title<tab>players<tab>max<tab>mode" }
+  { The ports a LAN query goes to (DefaultNetPort and the next ones) }
+  LanQueryPorts = 4;
+  LanSearchTime = 3.0;      { how long a search waits for answers }
+  LanQueryInterval = 1.0;   { the query is sent again this often while searching }
 
   MaxInputMsec = 250;
   { The client sends an input when this much time has passed (at most
@@ -130,6 +137,9 @@ type
     class function Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
     class function SameAddress(const A, B: TInetSockAddr): Boolean;
     class function AddressToString(const A: TInetSockAddr): String;
+    { Allow sending to a broadcast address (UDP only) }
+    function EnableBroadcast: Boolean;
+    function IsLoopback: Boolean;
   end;
 
   { The fields of an entity update (entity_state_t) }
@@ -225,6 +235,8 @@ type
     procedure SendPacket(const Data: TNetBytes);
     function OpenSocket: Boolean;
   public
+    { Join as a spectator (set before Connect) }
+    Spectator: Boolean;
     constructor Create;
     destructor Destroy; override;
     function Connect(const Host: String; const Port: Word): Boolean;
@@ -260,9 +272,13 @@ type
     Inputs: specialize TList<TNetInput>; { received, not yet handed out }
     AckedSeq: Word;                      { the last input handed out }
     SignonDone: Boolean;
+    { A spectator: no player of its own, Edict is the player it follows }
+    Spectator: Boolean;
   end;
 
   TNetConnectEvent = function(const Client: Integer): Integer of object; { returns the edict, 0 to refuse }
+  { What a server tells a LAN query: "map<tab>title<tab>players<tab>max<tab>mode" }
+  TNetInfoEvent = function: String of object;
   TNetClientEvent = procedure(const Client: Integer) of object;
   TNetSignonEvent = procedure(const Client: Integer; const Msg: TQuakeNetMessage) of object;
 
@@ -285,6 +301,7 @@ type
     OnConnect: TNetConnectEvent;
     OnDisconnect: TNetClientEvent;
     OnSignon: TNetSignonEvent;
+    OnInfo: TNetInfoEvent;
 
     constructor Create(const Port: Word);
     destructor Destroy; override;
@@ -307,6 +324,10 @@ type
     function ClientInput(const C: Integer; out Input: TNetInput): Boolean;
     function ClientAddress(const C: Integer): String;
     function ClientCount: Integer;
+    { A spectator (set when it connects, so OnConnect can ask) and the
+      player it follows }
+    function ClientSpectator(const C: Integer): Boolean;
+    procedure SetClientEdict(const C, E: Integer);
   end;
 
   TRendezvousEntry = record
@@ -331,6 +352,43 @@ type
     procedure Update(const SecondsPassed: Single);
     function Count: Integer;
   end;
+
+  { A game a LAN search found }
+  TLanGame = record
+    Address: String;   { host:port to connect to }
+    Host: String;
+    Port: Word;
+    Map, Title, Mode: String;
+    Players, MaxPlayers: Integer;
+  end;
+
+  { LAN discovery: sends pkInfoQuery to the broadcast address and this
+    machine on the ports DefaultNetPort.. + LanQueryPorts - 1 (the listen
+    servers of this process over loopback sockets in the web build) and
+    collects the answers for LanSearchTime seconds }
+  TQuakeLanDiscovery = class
+  private
+    FSocket: TQuakeNetSocket;
+    FGames: array of TLanGame;
+    FElapsed, FSinceQuery: Single;
+    FSearching: Boolean;
+    procedure SendQueries;
+    function GetGame(const I: Integer): TLanGame;
+  public
+    destructor Destroy; override;
+    { Forget what was found and search again }
+    procedure Start;
+    procedure Update(const SecondsPassed: Single);
+    function Count: Integer;
+    { One line: "host:port: map (title), players/max, mode" }
+    function Describe(const I: Integer): String;
+    property Games[const I: Integer]: TLanGame read GetGame; default;
+    property Searching: Boolean read FSearching;
+  end;
+
+{ The LAN search of the menus and the console (created when first asked for) }
+function LanDiscovery: TQuakeLanDiscovery;
+function LanDiscoveryCreated: Boolean;
 
 { 6 bytes: the address and port as they are in the socket address }
 function AddressToBytes(const A: TInetSockAddr): TNetBytes;
@@ -566,6 +624,16 @@ begin
   Result := (FWeb <> nil) and TQuakeBrowserWebSocket(FWeb).Receive(Data);
 end;
 
+function TQuakeNetSocket.EnableBroadcast: Boolean;
+begin
+  Result := False;
+end;
+
+function TQuakeNetSocket.IsLoopback: Boolean;
+begin
+  Result := FLoop <> nil;
+end;
+
 class function TQuakeNetSocket.Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
 begin
   { This machine: a loopback listen server of the page. Elsewhere the
@@ -674,6 +742,22 @@ begin
   SetLength(Data, N);
   Move(Buf[0], Data[0], N);
   Result := True;
+end;
+
+function TQuakeNetSocket.EnableBroadcast: Boolean;
+var
+  One: cint;
+begin
+  Result := False;
+  if (FLoop <> nil) or (FSock < 0) then
+    Exit;
+  One := 1;
+  Result := fpsetsockopt(FSock, SOL_SOCKET, SO_BROADCAST, @One, SizeOf(One)) = 0;
+end;
+
+function TQuakeNetSocket.IsLoopback: Boolean;
+begin
+  Result := FLoop <> nil;
 end;
 
 class function TQuakeNetSocket.Resolve(const Host: String; const Port: Word; out Addr: TInetSockAddr): Boolean;
@@ -1327,6 +1411,151 @@ begin
     Result := Result + Chr(B[I]);
 end;
 
+{ TQuakeLanDiscovery }
+
+var
+  FLanDiscovery: TQuakeLanDiscovery;
+
+function LanDiscovery: TQuakeLanDiscovery;
+begin
+  if FLanDiscovery = nil then
+    FLanDiscovery := TQuakeLanDiscovery.Create;
+  Result := FLanDiscovery;
+end;
+
+function LanDiscoveryCreated: Boolean;
+begin
+  Result := FLanDiscovery <> nil;
+end;
+
+destructor TQuakeLanDiscovery.Destroy;
+begin
+  FreeAndNil(FSocket);
+  inherited Destroy;
+end;
+
+procedure TQuakeLanDiscovery.Start;
+begin
+  FGames := nil;
+  FElapsed := 0;
+  FSearching := True;
+  if FSocket = nil then
+  begin
+    FSocket := TQuakeNetSocket.Create(0);
+    if not FSocket.IsLoopback and not FSocket.EnableBroadcast then
+      WritelnWarning('QuakeNet', 'LAN: no broadcast on this socket, only this machine is searched');
+  end;
+  SendQueries;
+end;
+
+procedure TQuakeLanDiscovery.SendQueries;
+var
+  P: TNetBytes;
+  Port: Word;
+  Addr: TInetSockAddr;
+  I, Sent: Integer;
+begin
+  FSinceQuery := 0;
+  if (FSocket = nil) or not FSocket.Valid then
+    Exit;
+  P := PacketHeader(pkInfoQuery, NetProtocolVersion, 0);
+  Sent := 0;
+  for I := 0 to LanQueryPorts - 1 do
+  begin
+    Port := DefaultNetPort + I;
+    if FSocket.IsLoopback then
+    begin
+      { The listen servers of this process }
+      if TQuakeNetSocket.LoopbackListening(Port) and FSocket.Send(TQuakeNetSocket.LoopbackAddress(Port), P) then
+        Inc(Sent);
+      Continue;
+    end;
+    if TQuakeNetSocket.Resolve('255.255.255.255', Port, Addr) and FSocket.Send(Addr, P) then
+      Inc(Sent);
+    if TQuakeNetSocket.Resolve('127.0.0.1', Port, Addr) and FSocket.Send(Addr, P) then
+      Inc(Sent);
+  end;
+  WritelnLog('QuakeNet', 'LAN: query sent to %d addresses', [Sent]);
+end;
+
+procedure TQuakeLanDiscovery.Update(const SecondsPassed: Single);
+var
+  Addr: TInetSockAddr;
+  Data: TNetBytes;
+  Fields: TStringArray;
+  G: TLanGame;
+  I, Colon: Integer;
+  Known: Boolean;
+begin
+  if FSocket = nil then
+    Exit;
+  while FSocket.Receive(Addr, Data) do
+  begin
+    if (Length(Data) < 3) or (Data[0] <> pkInfo) or (PacketSeq(Data) <> NetProtocolVersion) then
+      Continue;
+    Fields := BytesName(Data, 3).Split([#9]);
+    if Length(Fields) < 5 then
+      Continue;
+    G := Default(TLanGame);
+    G.Address := TQuakeNetSocket.AddressToString(Addr);
+    Colon := LastDelimiter(':', G.Address);
+    G.Host := Copy(G.Address, 1, Colon - 1);
+    G.Port := StrToIntDef(Copy(G.Address, Colon + 1, MaxInt), DefaultNetPort);
+    G.Map := Fields[0];
+    G.Title := Fields[1];
+    G.Players := StrToIntDef(Fields[2], 0);
+    G.MaxPlayers := StrToIntDef(Fields[3], 0);
+    G.Mode := Fields[4];
+    { The same server answers the broadcast and the query to this machine:
+      kept once (by its port and what it plays) }
+    Known := False;
+    for I := 0 to High(FGames) do
+      if (FGames[I].Address = G.Address) or ((FGames[I].Port = G.Port) and (FGames[I].Map = G.Map) and
+         (FGames[I].Mode = G.Mode) and (FGames[I].Title = G.Title)) then
+      begin
+        Known := True;
+        FGames[I].Players := G.Players;
+      end;
+    if Known then
+      Continue;
+    SetLength(FGames, Length(FGames) + 1);
+    FGames[High(FGames)] := G;
+    WritelnLog('QuakeNet', 'LAN: found %s', [Describe(High(FGames))]);
+  end;
+  if not FSearching then
+    Exit;
+  FElapsed := FElapsed + SecondsPassed;
+  FSinceQuery := FSinceQuery + SecondsPassed;
+  if FElapsed >= LanSearchTime then
+  begin
+    FSearching := False;
+    WritelnLog('QuakeNet', 'LAN: %d games found', [Length(FGames)]);
+  end else
+  if FSinceQuery >= LanQueryInterval then
+    SendQueries;
+end;
+
+function TQuakeLanDiscovery.Count: Integer;
+begin
+  Result := Length(FGames);
+end;
+
+function TQuakeLanDiscovery.GetGame(const I: Integer): TLanGame;
+begin
+  Result := FGames[I];
+end;
+
+function TQuakeLanDiscovery.Describe(const I: Integer): String;
+var
+  G: TLanGame;
+begin
+  G := FGames[I];
+  Result := G.Address + ': ' + G.Map;
+  if (G.Title <> '') and (G.Title <> G.Map) then
+    Result := Result + ' (' + G.Title + ')';
+  Result := Result + Format(', %d/%d, %s', [G.Players, G.MaxPlayers, G.Mode]);
+end;
+
 { TQuakeNetClient }
 
 constructor TQuakeNetClient.Create;
@@ -1478,7 +1707,9 @@ begin
     if FTimer >= 0.5 then
     begin
       FTimer := 0;
-      P := PacketHeader(pkConnect, NetProtocolVersion, 0);
+      P := PacketHeader(pkConnect, NetProtocolVersion, Ord(Spectator));
+      if Spectator then
+        P[3] := 1;
       SendPacket(P);
     end;
     if FSinceReceive > NetTimeout then
@@ -1706,6 +1937,7 @@ var
   Data, P: TNetBytes;
   C, I, E: Integer;
   Input: TNetInput;
+  Info: String;
 begin
   if not FSocket.Valid then
     Exit;
@@ -1732,6 +1964,15 @@ begin
       Continue;
     C := FindClient(Addr);
     case Data[0] of
+      pkInfoQuery:
+        if Assigned(OnInfo) then
+        begin
+          Info := OnInfo();
+          P := PacketHeader(pkInfo, NetProtocolVersion, Length(Info));
+          for I := 1 to Length(Info) do
+            P[2 + I] := Ord(Info[I]);
+          FSocket.Send(Addr, P);
+        end;
       pkConnect:
         begin
           if C = 0 then
@@ -1755,6 +1996,7 @@ begin
               Continue;
             end;
             E := 0;
+            FClients[C].Spectator := (Length(Data) >= 4) and (Data[3] = 1);
             if Assigned(OnConnect) then
               E := OnConnect(C);
             if E <= 0 then
@@ -1774,7 +2016,11 @@ begin
             FClients[C].Inputs.Clear;
             FClients[C].AckedSeq := 0;
             FClients[C].SignonDone := False;
-            WritelnLog('QuakeNet', 'Client %d connected from %s (edict %d)', [C, ClientAddress(C), E]);
+            if FClients[C].Spectator then
+              WritelnLog('QuakeNet', 'Client %d connected from %s as a spectator, following %d',
+                [C, ClientAddress(C), E])
+            else
+              WritelnLog('QuakeNet', 'Client %d connected from %s (edict %d)', [C, ClientAddress(C), E]);
             QueueSignon(C);
           end;
           { Accept (again, if the first answer was lost) }
@@ -1931,6 +2177,17 @@ begin
   Result := (C >= 1) and (C <= MaxNetClients) and FClients[C].Active;
 end;
 
+function TQuakeNetServer.ClientSpectator(const C: Integer): Boolean;
+begin
+  Result := (C >= 1) and (C <= MaxNetClients) and FClients[C].Spectator;
+end;
+
+procedure TQuakeNetServer.SetClientEdict(const C, E: Integer);
+begin
+  if ClientActive(C) then
+    FClients[C].Edict := E;
+end;
+
 function TQuakeNetServer.ClientEdict(const C: Integer): Integer;
 begin
   if ClientActive(C) then
@@ -2078,5 +2335,6 @@ begin
 end;
 
 finalization
+  FreeAndNil(FLanDiscovery);
   FreeAndNil(LoopEndpoints);
 end.

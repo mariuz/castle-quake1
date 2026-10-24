@@ -35,6 +35,8 @@ var
   CmdQc: String;
   CmdHost: String;
   CmdConnect: String;
+  { -spectate: join (-connect, connect:<host>) as a spectator }
+  CmdSpectate: Boolean;
   CmdRegister: String;
   CmdRendezvous: Boolean;
   CmdWebSocket: Integer;
@@ -221,6 +223,7 @@ begin
     SplitAddress(Address, Host, Port, CmdPort);
   View.NetHost := Host;
   View.NetPort := Port;
+  View.Spectate := CmdSpectate;
 end;
 
 { -register "name@rendezvous[:port]" into the host view }
@@ -381,6 +384,9 @@ begin
     end else
     if (Parameters[I] = '-netloopback') or (Parameters[I] = '--netloopback') then
       NetLoopback := True
+    else
+    if (Parameters[I] = '-spectate') or (Parameters[I] = '--spectate') then
+      CmdSpectate := True
     else
     if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
     begin
@@ -679,6 +685,8 @@ begin
     game through its WebSocket relay }
   if PageParameter('connect') <> '' then
     CmdConnect := PageParameter('connect');
+  if PageParameter('spectate') = '1' then
+    CmdSpectate := True;
   {$endif}
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 8)) = 'wsrelay:') then
   begin
