@@ -103,6 +103,8 @@ type
     procedure ReportHorde;
     procedure MapBrowserCommand(const Cmd, Args: String);
     procedure PlayInQuakeC(const Map: String; const KeepScript: Boolean);
+    { lan, lan_join <n>: the LAN search and joining what it found }
+    procedure LanCommand(const Cmd, Args: String);
     procedure SetPhotoMode(const On: Boolean);
     procedure SaveThumbnail(const Slot: String);
     procedure ListSavesCommand;
@@ -127,7 +129,7 @@ var
 
 implementation
 
-uses GameViewQc, GameTranslate;
+uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -506,6 +508,48 @@ begin
   finally
     Words.Free;
   end;
+end;
+
+procedure TViewPlay.LanCommand(const Cmd, Args: String);
+var
+  I, N: Integer;
+  Rest: String;
+  G: TLanGame;
+begin
+  if Cmd = 'lan' then
+  begin
+    LanDiscovery.Start;
+    FConsole.Print(Tr('Searching the local network...'));
+    Exit;
+  end;
+  N := StrToIntDef(Trim(Args), 1);
+  if (N < 1) or (N > LanDiscovery.Count) then
+  begin
+    FConsole.Print(Format(Tr('No LAN game %d (lan lists them)'), [N]));
+    WritelnLog('GameViewPlay', 'No LAN game %d', [N]);
+    Exit;
+  end;
+  G := LanDiscovery[N - 1];
+  { An autotest goes on in the network view with the rest of its script }
+  Rest := '';
+  for I := FDemoIndex + 1 to FDemoCommands.Count - 1 do
+  begin
+    if Rest <> '' then
+      Rest := Rest + ',';
+    Rest := Rest + FDemoCommands[I];
+  end;
+  WritelnLog('GameViewPlay', 'Joining the LAN game %s', [LanDiscovery.Describe(N - 1)]);
+  FDemoCommands.Clear;
+  FConsole.Close;
+  ViewDemo.DemoName := '';
+  ViewDemo.HostMap := '';
+  ViewDemo.NetHost := G.Host;
+  ViewDemo.NetPort := G.Port;
+  ViewDemo.SplitScreen := False;
+  ViewDemo.Spectate := False;
+  ViewDemo.AutoTestPrefix := FAutoTestPrefix;
+  ViewDemo.AutoTestScript := Rest;
+  Container.View := ViewDemo;
 end;
 
 { A mod's map plays with its progs.dat (now on top of the paks) in the
@@ -1102,6 +1146,9 @@ begin
   { A map browser download started from the console goes on }
   if MapBrowserCreated then
     MapBrowser.Update;
+  { The LAN search of the lan command collects its answers }
+  if LanDiscoveryCreated then
+    LanDiscovery.Update(SecondsPassed);
 
   { Execute demo commands if any }
   if FDemoCommands.Count > 0 then
@@ -1641,6 +1688,9 @@ begin
      (Cmd = 'maps_mount') then
     MapBrowserCommand(Cmd, Args)
   else
+  if (Cmd = 'lan') or (Cmd = 'lan_join') then
+    LanCommand(Cmd, Args)
+  else
   if Cmd = 'killall' then
   begin
     FWorld.KillAllMonsters;
@@ -1706,6 +1756,7 @@ begin
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));
     FConsole.Print(Tr('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,'));
     FConsole.Print(Tr('    maps_play <id> [map], maps_remove <id> - download, play and remove one'));
+    FConsole.Print(Tr('  lan - Find games on the local network; lan_join <n> - join the nth'));
     FConsole.Print(Tr('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)'));
     FConsole.Print(Tr('  fov <degrees>  - Field of view at 4:3 (wider screens see more)'));
     FConsole.Print(Tr('  gamma <0.4..1.5> - Brightness, lower is brighter'));
@@ -1773,6 +1824,9 @@ begin
         else
           SetCameraMode(cmFirstPerson);
       end;
+    maHostGame, maJoinGame, maPlayDemo:
+      { They leave the game for the network or demo view }
+      ViewMenu.HandleMenuAction(Action, Param);
     maQuit:
       RequestQuit;
   end;

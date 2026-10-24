@@ -286,6 +286,45 @@ def check_demoplay(logs):
     return result
 
 
+def check_lan(logs):
+    result = common_checks(logs, 'lhost') + common_checks(logs, 'lfind')
+    find, host = logs['lfind'], logs['lhost']
+    found = re.findall(r'LAN: found (\S+):(\d+): (\S+) \(([^)]*)\), (\d+)/(\d+), (\w+)', find)
+    result.append((len(found) == 1 and found[0][1] == '26002' and found[0][2] == 'e1m1' and found[0][6] == 'deathmatch'
+                   and found[0][4] == '1' and found[0][5] == '8',
+                   'the search finds the host once: e1m1, 1 of 8 players, deathmatch (%s)'
+                   % '; '.join(':'.join(f[:3]) for f in found)))
+    result.append(('LAN: 1 games found' in find, 'the search ends after its time'))
+    result.append(('Joining the LAN game' in find and 'Client 2 connected' in host,
+                   'lan_join joins the game it found'))
+    v = DEMO_SHOT_RE.findall(find)
+    result.append((re.search(r'Saved screenshot to ".*lfind_1\.png" \(signon 4', find) is not None,
+                   'the joined client plays (signon 4)'))
+    return result
+
+
+SPEC_RE = re.compile(r'Spectator: (following entity (\d+)|flying freely), eye at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)')
+
+
+def check_spectate(logs):
+    result = common_checks(logs, 'shost') + common_checks(logs, 'spec')
+    host, spec = logs['shost'], logs['spec']
+    result.append((re.search(r'Client \d+ connected from \S+ as a spectator, following \d+', host) is not None,
+                   'the spectator joins without a player of its own'))
+    result.append((re.search(r'Spectator \d+ follows \d+', host) is not None, 'fire follows the next player'))
+    shots = SPEC_RE.findall(spec)
+    result.append((len(shots) == 3, 'every screenshot logs the spectator (%d)' % len(shots)))
+    if len(shots) == 3:
+        a, b, c = shots
+        result.append((a[1] != '' and b[1] != '' and a[1] != b[1],
+                       'it follows one player, then another (entities %s and %s)' % (a[1], b[1])))
+        moved = dist(tuple(float(x) for x in b[2:5]), tuple(float(x) for x in c[2:5]))
+        result.append((c[0] == 'flying freely' and moved > 100,
+                       'jump lets it fly freely, away from the player (%.0f units)' % moved))
+    result.append(('signon 4' in spec, 'the spectator gets the game (signon 4)'))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1245,6 +1284,19 @@ SCENARIOS = [
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,W:1,S,Q'], 0)],
              check_photo, [], frame_checks=frames_photo),
+    # LAN discovery: a host answers the search of another process, which
+    # joins the game it found
+    Scenario('lan', [('lhost', ['--autotest', 'host:e1m1', '{out}/lhost', '--demo', 'W:14,S,Q', '-port', '26002'], 0),
+                     ('lfind', ['--autotest', 'e1m1', '{out}/lfind', '--demo',
+                                'W:1,CMD:lan,W:3.5,CMD:lan_join 1,W:4,S,Q'], 3)],
+             check_lan, [], dark=('lhost',)),
+    # A spectator joins a deathmatch with two bots: it follows a player,
+    # fire follows the next one, jump flies freely
+    Scenario('spectate', [('shost', ['--autotest', 'host:e1m1', '{out}/shost', '--demo', 'W:16,S,Q', '-port', '26003',
+                                     '-bots', '2'], 0),
+                          ('spec', ['-spectate', '--autotest', 'connect:127.0.0.1:26003', '{out}/spec', '--demo',
+                                    'W:3,S,X,W:1,S,J,W:0.3,V:1;0;0,W:1,V:0;0;0,S,Q'], 3)],
+             check_spectate, [], dark=('shost', 'spec')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',

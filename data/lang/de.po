@@ -1036,3 +1036,30 @@ msgstr "Demo %s / %s mit %s-facher Geschwindigkeit"
 
 msgid "Demo %s / %s"
 msgstr "Demo %s / %s"
+
+msgid "Searching the local network..."
+msgstr "Das lokale Netzwerk wird durchsucht..."
+
+msgid "No LAN game %d (lan lists them)"
+msgstr "Kein LAN-Spiel %d (lan listet sie auf)"
+
+msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
+msgstr "  lan - Spiele im lokalen Netzwerk suchen; lan_join <n> - dem n-ten beitreten"
+
+msgid "Find LAN Games"
+msgstr "LAN-Spiele suchen"
+
+msgid "No games found on the local network"
+msgstr "Keine Spiele im lokalen Netzwerk gefunden"
+
+msgid "Search Again"
+msgstr "Erneut suchen"
+
+msgid "Back to Multiplayer"
+msgstr "Zurück zum Mehrspielermodus"
+
+msgid "Spectate"
+msgstr "Zuschauen"
+
+msgid "Spectating %s (fire: next player, jump: fly)"
+msgstr "Du schaust %s zu (Feuer: nächster Spieler, Springen: fliegen)"

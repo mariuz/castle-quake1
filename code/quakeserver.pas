@@ -28,6 +28,8 @@ type
     FReliable: array[1..MaxNetClients] of TQuakeNetMessage;
     FOut: TQuakeNetMessage;
     FLastFrags: array[1..MaxQcClients] of Integer;
+    { A spectator's buttons of its last input (fire: the next player) }
+    FSpectatorButtons: array[1..MaxNetClients] of Byte;
     FModels, FSounds: TStringList;
     { The level's worldspawn sky and fog, sent in the signon (protocol 666) }
     FSkybox: String;
@@ -42,6 +44,9 @@ type
     FStatTime: Single;
     FStatFrames, FStatSent, FStatCulled, FStatDropped, FStatBytes, FStatMaxBytes: Int64;
     function EntityState(const E: Integer): TNetEntityState;
+    { The player after E a spectator follows (0: none playing) }
+    function NextPlayer(const E: Integer): Integer;
+    procedure SpectatorFollow(const C, E: Integer);
     procedure CreateBaselines;
     procedure LogStats(const SecondsPassed: Single);
     function ClientOfEdict(const E: Integer): Integer;
@@ -57,6 +62,8 @@ type
     function HandleConnect(const C: Integer): Integer;
     procedure HandleDisconnect(const C: Integer);
     procedure HandleSignon(const C: Integer; const Msg: TQuakeNetMessage);
+    { The answer to a LAN query }
+    function HandleInfo: String;
     { Game events }
     procedure HandleSound(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
       const Origin: TVector3);
@@ -144,6 +151,7 @@ begin
   FNet.OnConnect := @HandleConnect;
   FNet.OnDisconnect := @HandleDisconnect;
   FNet.OnSignon := @HandleSignon;
+  FNet.OnInfo := @HandleInfo;
   if not FGame.LoadLevel(AMapName, FSkill, False) then
     WritelnWarning('QuakeServer', 'Cannot load the level "%s"', [AMapName]);
   BuildLists;
@@ -302,10 +310,44 @@ end;
 
 { Net events }
 
+function TQuakeServer.NextPlayer(const E: Integer): Integer;
+var
+  I, N: Integer;
+begin
+  for I := 1 to FGame.MaxClients do
+  begin
+    N := (E + I - 1) mod FGame.MaxClients + 1;
+    if FGame.ClientActive(N) then
+      Exit(N);
+  end;
+  Result := 0;
+end;
+
+procedure TQuakeServer.SpectatorFollow(const C, E: Integer);
+begin
+  if (E = 0) or (E = FNet.ClientEdict(C)) then
+    Exit;
+  FNet.SetClientEdict(C, E);
+  { Its view goes to that player's entity }
+  FReliable[C].SetView(E);
+  WritelnLog('QuakeServer', 'Spectator %d follows %d (%s)', [C, E, FGame.ClientName(E)]);
+end;
+
 function TQuakeServer.HandleConnect(const C: Integer): Integer;
 var
   E, O: Integer;
 begin
+  { A spectator takes no player slot: it watches the first player }
+  if FNet.ClientSpectator(C) then
+  begin
+    FEvents[C].Clear;
+    FReliable[C].Clear;
+    FSpectatorButtons[C] := 0;
+    Result := NextPlayer(0);
+    if Result = 0 then
+      Result := 1;
+    Exit;
+  end;
   E := FGame.FreeClientSlot;
   if E = 0 then
     Exit(0);
@@ -326,6 +368,8 @@ var
   E, O: Integer;
 begin
   E := FNet.ClientEdict(C);
+  if FNet.ClientSpectator(C) then
+    Exit;
   if E > 0 then
   begin
     FGame.DisconnectClient(E);
@@ -336,6 +380,35 @@ begin
         FReliable[O].UpdateFrags(E - 1, 0);
       end;
   end;
+end;
+
+function TQuakeServer.HandleInfo: String;
+var
+  World: TQuakeEntity;
+  Title, Mode: String;
+  I, Players: Integer;
+begin
+  Title := FMapName;
+  if (FGame.Bsp <> nil) then
+  begin
+    World := FGame.Bsp.FindEntity('worldspawn');
+    if World <> nil then
+      Title := World.GetField('message', FMapName);
+  end;
+  { One line of plain text: no tabs or line breaks in the title }
+  for I := 1 to Length(Title) do
+    if Title[I] < ' ' then
+      Title[I] := ' ';
+  Title := Copy(Trim(Title), 1, 60);
+  if FGame.Coop <> 0 then
+    Mode := 'coop'
+  else
+    Mode := 'deathmatch';
+  Players := FBots.Count;
+  for I := 1 to MaxNetClients do
+    if FNet.ClientActive(I) and not FNet.ClientSpectator(I) then
+      Inc(Players);
+  Result := Format('%s'#9'%s'#9'%d'#9'%d'#9'%s', [FMapName, Title, Players, FGame.MaxClients, Mode]);
 end;
 
 procedure TQuakeServer.HandleSignon(const C: Integer; const Msg: TQuakeNetMessage);
@@ -554,12 +627,14 @@ begin
       Continue;
     end;
     E := FNet.ClientEdict(C);
-    if FNet.ClientReady(C) and FGame.ClientActive(E) then
+    if FNet.ClientReady(C) and (FGame.ClientActive(E) or FNet.ClientSpectator(C)) then
     begin
       FOut.Clear;
       FOut.Time(FGame.Time);
       WriteClientData(FOut, E);
-      WriteEntities(FOut, E, SplitScreen and (Copy(FNet.ClientAddress(C), 1, 4) = '127.'));
+      { A spectator may fly anywhere: every entity }
+      WriteEntities(FOut, E, FNet.ClientSpectator(C) or
+        (SplitScreen and (Copy(FNet.ClientAddress(C), 1, 4) = '127.')));
       Inc(FStatFrames);
       Inc(FStatBytes, FOut.Size);
       if FOut.Size > FStatMaxBytes then
@@ -639,6 +714,19 @@ begin
   { The clients' inputs: each one moves its player for the time it lasted
     (the client predicted the same), a few per tick when they queued up }
   for C := 1 to MaxNetClients do
+    if FNet.ClientReady(C) and FNet.ClientSpectator(C) then
+    begin
+      { A spectator's fire follows the next player; the rest is its own }
+      while FNet.ClientInput(C, Input) do
+      begin
+        if ((Input.Buttons and nbFire) <> 0) and ((FSpectatorButtons[C] and nbFire) = 0) then
+          SpectatorFollow(C, NextPlayer(FNet.ClientEdict(C)));
+        FSpectatorButtons[C] := Input.Buttons;
+      end;
+      { The player it followed left: the next one }
+      if not FGame.ClientActive(FNet.ClientEdict(C)) then
+        SpectatorFollow(C, NextPlayer(FNet.ClientEdict(C)));
+    end else
     if FNet.ClientReady(C) then
     begin
       E := FNet.ClientEdict(C);

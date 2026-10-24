@@ -25,7 +25,7 @@ type
   private
     FSelectedIdx: Integer;
     FSubMenu: (smMain, smEpisodes, smMultiplayer, smMaps, smDemos, smOptions, smControls, smShowcase,
-      smBrowser, smBrowserMap, smLoad, smSave);
+      smBrowser, smBrowserMap, smLoad, smSave, smLan);
     { Load / Save Game: what each item does (load:<slot>, save:<slot>, back),
       the thumbnail shown, a game running (Save Game offered) }
     FSlotActions: TStringList;
@@ -43,6 +43,8 @@ type
     FBrowserActions: TStringList;
     FPlayAfterInstall: Integer;
     FBrowserBuiltFor: String;
+    { Find LAN Games: the search's state the items were built for }
+    FLanBuiltFor: String;
     FBindWaiting: Boolean; { Controls: the next key / button goes to FBindTarget }
     FBindTarget: TQuakeBinding;
     FDefaultHint: String;
@@ -64,6 +66,7 @@ type
     procedure BuildBrowserItems;
     procedure BrowserAction(const Action: String);
     function BrowserState: String;
+    function LanState: String;
     procedure GoBack;
     procedure BuildSlotItems;
     procedure UpdateThumbnail;
@@ -86,7 +89,7 @@ implementation
 
 uses
   GameTranslate,
-  StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame;
+  StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame, QuakeNet;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -259,6 +262,17 @@ begin
       Sounds.Play('sound/misc/menu3.wav');
     end;
   end;
+  { Find LAN Games: the answers come in, the items follow }
+  if Exists and (FSubMenu = smLan) then
+  begin
+    LanDiscovery.Update(SecondsPassed);
+    if LanState <> FLanBuiltFor then
+    begin
+      N := FSelectedIdx;
+      RebuildMenuItems;
+      FSelectedIdx := Min(N, FItems.Count - 1);
+    end;
+  end;
   { Map browser: the download goes on; the items follow its state (and a
     finished "download and play" plays) }
   if Exists and (FSubMenu in [smBrowser, smBrowserMap]) then
@@ -335,8 +349,23 @@ begin
         FItems.Add('Host Deathmatch: random map (port 26000)');
         FItems.Add('Deathmatch vs 3 bots: start');
         FItems.Add('Deathmatch vs 3 bots: e1m1');
+        FItems.Add('Find LAN Games');
         FItems.Add('Join: localhost');
+        FItems.Add('Spectate: localhost');
         FItems.Add('Back to Main Menu');
+      end;
+    smLan:
+      begin
+        { The games the search found so far, then what it is doing }
+        for I := 0 to LanDiscovery.Count - 1 do
+          FItems.Add(LanDiscovery.Describe(I));
+        if LanDiscovery.Searching then
+          FItems.Add('Searching the local network...')
+        else if LanDiscovery.Count = 0 then
+          FItems.Add('No games found on the local network');
+        FItems.Add('Search Again');
+        FItems.Add('Back to Multiplayer');
+        FLanBuiltFor := LanState;
       end;
     smMaps:
       begin
@@ -695,10 +724,17 @@ begin
       end;
     smBrowserMap:
       FSubMenu := smBrowser;
+    smLan:
+      FSubMenu := smMultiplayer;
     else
       FSubMenu := smMain;
   end;
   RebuildMenuItems;
+end;
+
+function TQuakeMenu.LanState: String;
+begin
+  Result := Format('%d %s', [LanDiscovery.Count, BoolToStr(LanDiscovery.Searching, True)]);
 end;
 
 { The value after Current in Values (the first one after the last) }
@@ -761,6 +797,26 @@ begin
           FThumbnailUrl := '-';
         end;
       end;
+    smLan:
+      begin
+        if ItemText = 'Back to Multiplayer' then
+        begin
+          FSubMenu := smMultiplayer;
+          RebuildMenuItems;
+        end else
+        if ItemText = 'Search Again' then
+        begin
+          LanDiscovery.Start;
+          RebuildMenuItems;
+        end else
+          for N := 0 to LanDiscovery.Count - 1 do
+            if (LanDiscovery.Describe(N) = ItemText) and Assigned(FOnMenuAction) then
+            begin
+              WritelnLog('Menu', 'Joining the LAN game %s', [ItemText]);
+              FOnMenuAction(maJoinGame, LanDiscovery[N].Host + ':' + IntToStr(LanDiscovery[N].Port));
+              Break;
+            end;
+      end;
     smMultiplayer:
       begin
         if ItemText = 'Back to Main Menu' then
@@ -784,6 +840,15 @@ begin
             FOnMenuAction(maHostGame, 'bots:e1m1')
           else if Pos('Host Deathmatch: random', ItemText) = 1 then
             FOnMenuAction(maHostGame, RandomMapName(NewRandomMapSeed))
+          else if ItemText = 'Find LAN Games' then
+          begin
+            LanDiscovery.Start;
+            FSubMenu := smLan;
+            RebuildMenuItems;
+            FSelectedIdx := 0;
+          end else
+          if ItemText = 'Spectate: localhost' then
+            FOnMenuAction(maJoinGame, 'spectate:127.0.0.1')
           else
             FOnMenuAction(maJoinGame, '127.0.0.1');
         end;

@@ -54,6 +54,8 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Languages: English, German, French, Spanish, Italian and Romanian for the menu, the HUD, the captions and the console help, following the system language or picked in Options > Language (`-lang de` for one run). A translation is a gettext `.po` file in `data/lang/`.
 - Accessibility: captions for the sounds that matter (monsters waking and attacking, doors, lifts, secrets, pickups) with a hint of where they came from, a high contrast HUD and reduced damage and pickup flashes, in Options or the console (`captions`, `hud_contrast`, `reduced_flashes`).
 - Save and load (F6 / F9, console `save` / `load`, Main Menu > Save Game / Load Game with eight slots and a thumbnail of each, `-load <slot>`), including projectiles and gibs in flight.
+- LAN games: Multiplayer > Find LAN Games lists the games hosted on the local network (map, players, deathmatch or coop) and joins one with a press.
+- Spectators: `-connect host -spectate` (or Multiplayer > Spectate) watches a network game without playing: fire follows the next player, jump flies freely.
 - Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games. While one plays, Space pauses, up / down change the speed (a quarter to four times) and left / right seek 10 s back or forward.
 
 **QuakeC mode**

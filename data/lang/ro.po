@@ -1036,3 +1036,30 @@ msgstr "Demo %s / %s la viteză x %s"
 
 msgid "Demo %s / %s"
 msgstr "Demo %s / %s"
+
+msgid "Searching the local network..."
+msgstr "Se caută în rețeaua locală..."
+
+msgid "No LAN game %d (lan lists them)"
+msgstr "Niciun joc LAN %d (lan le listează)"
+
+msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
+msgstr "  lan - Caută jocuri în rețeaua locală; lan_join <n> - intră în al n-lea"
+
+msgid "Find LAN Games"
+msgstr "Caută jocuri LAN"
+
+msgid "No games found on the local network"
+msgstr "Niciun joc găsit în rețeaua locală"
+
+msgid "Search Again"
+msgstr "Caută din nou"
+
+msgid "Back to Multiplayer"
+msgstr "Înapoi la multiplayer"
+
+msgid "Spectate"
+msgstr "Privește"
+
+msgid "Spectating %s (fire: next player, jump: fly)"
+msgstr "Îl privești pe %s (foc: jucătorul următor, salt: zbor)"

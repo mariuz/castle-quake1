@@ -15,8 +15,10 @@ type
   TViewMenu = class(TCastleView)
   private
     FMenu: TQuakeMenu;
-    procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
   public
+    { The menu's actions; the play view's menu hands it the ones that leave
+      the game for another view (host, join, a demo) }
+    procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
     constructor Create(AOwner: TComponent); override;
     procedure Start; override;
     procedure Stop; override;
@@ -49,7 +51,7 @@ end;
 
 procedure TViewMenu.HandleMenuAction(const Action: TMenuAction; const Param: String);
 var
-  Map: String;
+  Map, Address: String;
 begin
   case Action of
     maNewGame:
@@ -87,6 +89,7 @@ begin
       end;
     maPlayDemo:
       begin
+        ViewDemo.Spectate := False;
         ViewDemo.DemoName := Param;
         ViewDemo.NetHost := '';
         ViewDemo.HostMap := '';
@@ -96,6 +99,7 @@ begin
       end;
     maHostGame:
       begin
+        ViewDemo.Spectate := False;
         ViewDemo.DemoName := '';
         ViewDemo.NetHost := '';
         ViewDemo.NetPort := 0;
@@ -128,8 +132,18 @@ begin
       begin
         ViewDemo.DemoName := '';
         ViewDemo.HostMap := '';
-        ViewDemo.NetHost := Param;
+        { [spectate:]host[:port] (a game Find LAN Games found) }
+        Address := Param;
+        ViewDemo.Spectate := Pos('spectate:', Address) = 1;
+        if ViewDemo.Spectate then
+          Delete(Address, 1, Length('spectate:'));
+        ViewDemo.NetHost := Address;
         ViewDemo.NetPort := 0;
+        if Pos(':', Address) > 0 then
+        begin
+          ViewDemo.NetHost := Copy(Address, 1, Pos(':', Address) - 1);
+          ViewDemo.NetPort := StrToIntDef(Copy(Address, Pos(':', Address) + 1, MaxInt), 0);
+        end;
         ViewDemo.SplitScreen := False;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';

@@ -147,6 +147,12 @@ type
       (events muted) }
     FDemoPaused, FSeeking: Boolean;
     FDemoSpeed, FPlayClock, FDemoLength: Single;
+    { Spectator: flying freely (else at the followed player's eyes), the
+      free camera's eye (Quake units) and move, the jump of the last input,
+      the entity followed last (for the message) }
+    FSpecFree, FSpecJump: Boolean;
+    FFlyEye, FSpecMove: TVector3;
+    FSpecFollowed: Integer;
     procedure ClearLevel;
     { Demo playback controls }
     procedure MeasureDemoLength;
@@ -239,6 +245,9 @@ type
       (the keyboard and mouse play the first), side by side or, with
       SplitStacked, one above the other }
     SplitScreen, SplitStacked: Boolean;
+    { Join the network game as a spectator (-spectate): no player of its
+      own; fire follows the next player, jump flies freely or follows again }
+    Spectate: Boolean;
     { How many local players split-screen starts with (2..4; more join
       with Start on a further pad) }
     SplitPlayers: Integer;
@@ -538,6 +547,11 @@ begin
     end;
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
+    FClient.Spectator := Spectate;
+    FSpecFree := False;
+    FSpecJump := False;
+    FSpecFollowed := 0;
+    FSpecMove := TVector3.Zero;
     if NetName <> '' then
     begin
       if not FClient.ConnectVia(NetHost, NetPort, NetName) then
@@ -696,6 +710,24 @@ begin
     Input.Buttons := Input.Buttons or nbFire;
   Input.Impulse := EnsureRange(FImpulse, 0, 255);
   FImpulse := 0;
+  if Spectate then
+  begin
+    { Jump (pressed) flies freely or goes back to following; fire goes to
+      the server, which follows the next player (and the camera with it) }
+    if ((Input.Buttons and nbJump) <> 0) and not FSpecJump then
+    begin
+      FSpecFree := not FSpecFree;
+      if FSpecFree then
+        FFlyEye := CgeToQuake(FViewport.Camera.Translation);
+      WritelnLog('GameViewDemo', 'Spectator: %s', [BoolToStr(FSpecFree, 'flying freely', 'following again')]);
+    end;
+    FSpecJump := (Input.Buttons and nbJump) <> 0;
+    if (Input.Buttons and nbFire) <> 0 then
+      FSpecFree := False;
+    FSpecMove := Input.Move;
+    FClient.SendInput(Input);
+    Exit;
+  end;
   FClient.SendInput(Input);
   PredictInput(Input, SecondsPassed);
 end;
@@ -1091,7 +1123,7 @@ end;
 
 function TViewDemo.PredictionActive: Boolean;
 begin
-  Result := Predict and FPredictValid and (FPredict <> nil) and (FDemo.ClientData.Health > 0) and
+  Result := Predict and not Spectate and FPredictValid and (FPredict <> nil) and (FDemo.ClientData.Health > 0) and
     (FDemo.Intermission = 0);
 end;
 
@@ -1771,6 +1803,7 @@ var
   Img: TCastleImage;
   I: Integer;
   D: TQuakeDemoReader;
+  Eye: TVector3;
 begin
   Inc(FShots);
   OutPath := AutoTestPrefix + '_' + IntToStr(FShots) + '.png';
@@ -1792,6 +1825,15 @@ begin
           [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
            FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
            FDemo.Protocol]);
+      if Spectate then
+      begin
+        Eye := CgeToQuake(FViewport.Camera.Translation);
+        if FSpecFree then
+          WritelnLog('GameViewDemo', 'Spectator: flying freely, eye at %.1f %.1f %.1f', [Eye.X, Eye.Y, Eye.Z])
+        else
+          WritelnLog('GameViewDemo', 'Spectator: following entity %d, eye at %.1f %.1f %.1f',
+            [FDemo.ViewEntity, Eye.X, Eye.Y, Eye.Z]);
+      end;
       { The further players: their entity, and the first view's and their own size }
       for I := 2 to FSplitCount do
       begin
@@ -2105,7 +2147,7 @@ begin
   for I := 0 to High(FSubmodelUsed) do
     FSubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
-    if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit) then
+    if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit or (Spectate and FSpecFree)) then
       ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt)
     else
       HideVisual(FVisuals[I]);
@@ -2121,6 +2163,15 @@ begin
 
   { The view: the view entity's eyes, looking along the recorded angles }
   CD := FDemo.ClientData;
+  if NetMode and Spectate and FSpecFree then
+  begin
+    { The free camera flies along the view (the move's up goes straight up) }
+    Pitch := DegToRad(FDemo.ViewAngles.X);
+    Yaw := DegToRad(FDemo.ViewAngles.Y);
+    FFlyEye := FFlyEye + (Vector3(Cos(Yaw) * Cos(Pitch), Sin(Yaw) * Cos(Pitch), -Sin(Pitch)) * FSpecMove.X +
+      Vector3(Sin(Yaw), -Cos(Yaw), 0) * FSpecMove.Y + Vector3(0, 0, FSpecMove.Z)) * SecondsPassed;
+    Eye := FFlyEye;
+  end else
   if NetMode and PredictionActive then
     Eye := FPredict.Origin + Vector3(0, 0, CD.ViewHeight)
   else
@@ -2133,7 +2184,7 @@ begin
   Dir := Vector3(Cos(DegToRad(Yaw)) * Cos(DegToRad(Pitch)), Sin(DegToRad(Yaw)) * Cos(DegToRad(Pitch)),
     -Sin(DegToRad(Pitch)));
   { V_CalcBob from the recorded velocity: the eye and, forward, the weapon }
-  if (FDemo.Intermission = 0) and (FDemo.ViewEntity > 0) then
+  if (FDemo.Intermission = 0) and (FDemo.ViewEntity > 0) and not (Spectate and FSpecFree) then
     Bob := CalcViewBob(FDemo.Time, CD.Velocity)
   else
     Bob := 0;
@@ -2141,6 +2192,17 @@ begin
   if FWeaponTransform <> nil then
     FWeaponTransform.Translation := Vector3(0, 0, -Bob * 0.4);
   UpdateWeapon(FDemo, FWeapon, FWeaponTransform);
+  if FWeaponTransform <> nil then
+    FWeaponTransform.Exists := not (Spectate and FSpecFree);
+  { A spectator learns whom it follows }
+  if Spectate and (FDemo.ViewEntity <> FSpecFollowed) and (FDemo.Signon = Signons) then
+  begin
+    FSpecFollowed := FDemo.ViewEntity;
+    if (FSpecFollowed >= 1) and (FSpecFollowed <= Length(FDemo.Names)) then
+      FHud.ShowMessage(Format(Tr('Spectating %s (fire: next player, jump: fly)'),
+        [FDemo.Names[FSpecFollowed - 1]]), 3);
+    WritelnLog('GameViewDemo', 'Spectator: following entity %d', [FSpecFollowed]);
+  end;
   { A further pad's Start adds a player; the further players' views }
   if FSplit then
     JoinFromPads;
