@@ -12,7 +12,8 @@ uses
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
-  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets;
+  QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
+  CastleUnicode;
 
 var
   Checks, Failures: Integer;
@@ -1420,7 +1421,8 @@ var
   Header: TStringList;
   Text, Id, Code: String;
   L: TLanguageInfo;
-  Missing, Wrong: Integer;
+  Missing, Wrong, I: Integer;
+  Codes: TStringList;
 
   function ReadFile(const Name: String): String;
   var
@@ -1476,10 +1478,18 @@ begin
     Text := StringReplace(ReadFile(LangDir + 'castle-quake.pot'), 'msgstr ""', 'msgstr "x"', [rfReplaceAll]);
     ParsePo(Text, Pot);
     Check(Pot.Count > 200, Format('the template lists the texts (%d)', [Pot.Count]));
-    Text := ReadFile(LangDir + 'languages.txt');
-    for Code in ['de', 'es', 'fr', 'it'] do
+    { Every language languages.txt lists ("<code> <name>" lines) }
+    Codes := TStringList.Create;
+    try
+      Codes.Text := ReadFile(LangDir + 'languages.txt');
+      for I := Codes.Count - 1 downto 0 do
+        if (Trim(Codes[I]) = '') or (Trim(Codes[I])[1] = '#') then
+          Codes.Delete(I)
+        else
+          Codes[I] := Copy(Trim(Codes[I]), 1, Pos(' ', Trim(Codes[I])) - 1);
+      Check(Codes.Count >= 5, 'languages.txt lists the translations: ' + Codes.CommaText);
+    for Code in Codes do
     begin
-      Check(Pos(Code + ' ', Text) > 0, Code + ' is in languages.txt');
       Po.Clear;
       ParsePo(ReadFile(LangDir + Code + '.po'), Po);
       Missing := 0;
@@ -1492,6 +1502,9 @@ begin
       Check((Missing = 0) and (Wrong = 0) and (Po.Count = Pot.Count),
         Format('%s.po translates all %d texts (%d missing, %d with other format specifiers, %d entries)',
         [Code, Pot.Count, Missing, Wrong, Po.Count]));
+    end;
+    finally
+      Codes.Free;
     end;
 
     { The menu: whole items, "Label: value" and values in brackets }
@@ -1508,6 +1521,11 @@ begin
     Check(Pos('%d', Tr('KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d')) > 0, 'the stats line keeps its numbers');
     UseTranslation('en', '');
     CheckEqualsStr('Options', Tr('Options'), 'English again');
+
+    { The UI font has what the translations write: Romanian's comma-below
+      letters (the engine's default font has none), Latin Extended-A }
+    for Code in ['ș', 'ț', 'Ș', 'Ț', 'ă', 'Ă', 'â', 'î', 'ł', 'ő', 'ğ', 'é', 'ß'] do
+      Check(Font_GameUi.Glyph(Ord(UTF8Decode(Code)[1]), False) <> nil, 'the UI font has ' + Code);
   finally
     Pot.Free;
     Po.Free;

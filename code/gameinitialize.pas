@@ -10,7 +10,7 @@ uses
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
-  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, QuakeWebStorage, QuakeWebSocketClient,
+  GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
   QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
 
 var
@@ -264,11 +264,24 @@ begin
   end;
 end;
 
+{ The UI font: DejaVu Sans like CGE's default, with Latin Extended-A and
+  Romanian's comma-below letters (tools/font/make_ui_font.sh) }
+procedure UseUiFont;
+var
+  Font: TCastleFont;
+begin
+  Font := TCastleFont.Create(Application);
+  Font.Load(Font_GameUi);
+  UIFont := Font;
+  Window.Container.DefaultFont := Font;
+end;
+
 procedure ApplicationInitialize;
 var
   I: Integer;
   LoadedAny: Boolean;
 begin
+  UseUiFont;
   { Command line options }
   CmdSkill := 1;
   I := 1;

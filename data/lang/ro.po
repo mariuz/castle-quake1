@@ -1,0 +1,1029 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ro\n"
+"X-Language-Name: Română\n"
+
+#: code/gameinput.pas
+msgid "Move forward"
+msgstr "Înainte"
+
+#: code/gameinput.pas
+msgid "Move backward"
+msgstr "Înapoi"
+
+#: code/gameinput.pas
+msgid "Strafe left"
+msgstr "Pas lateral stânga"
+
+#: code/gameinput.pas
+msgid "Strafe right"
+msgstr "Pas lateral dreapta"
+
+#: code/gameinput.pas
+msgid "Walk (slow)"
+msgstr "Mers (încet)"
+
+#: code/gameinput.pas
+msgid "Jump"
+msgstr "Salt"
+
+#: code/gameinput.pas
+msgid "Fire"
+msgstr "Foc"
+
+#: code/gameinput.pas
+msgid "Use"
+msgstr "Folosește"
+
+#: code/gameinput.pas
+msgid "Axe"
+msgstr "Topor"
+
+#: code/gameinput.pas
+msgid "Shotgun"
+msgstr "Pușcă"
+
+#: code/gameinput.pas
+msgid "Super shotgun"
+msgstr "Pușcă dublă"
+
+#: code/gameinput.pas
+msgid "Nailgun"
+msgstr "Pistol cu cuie"
+
+#: code/gameinput.pas
+msgid "Super nailgun"
+msgstr "Super pistol cu cuie"
+
+#: code/gameinput.pas
+msgid "Grenade launcher"
+msgstr "Aruncător de grenade"
+
+#: code/gameinput.pas
+msgid "Rocket launcher"
+msgstr "Aruncător de rachete"
+
+#: code/gameinput.pas
+msgid "Thunderbolt"
+msgstr "Thunderbolt"
+
+#: code/gameinput.pas
+msgid "Next weapon"
+msgstr "Arma următoare"
+
+#: code/gameinput.pas
+msgid "Previous weapon"
+msgstr "Arma anterioară"
+
+#: code/gameinput.pas
+msgid "Quick save"
+msgstr "Salvare rapidă"
+
+#: code/gameinput.pas
+msgid "Quick load"
+msgstr "Încărcare rapidă"
+
+#: code/gameinput.pas
+msgid "Console"
+msgstr "Consolă"
+
+#: code/gameinput.pas
+msgid "Camera view"
+msgstr "Vedere cameră"
+
+#: code/gameinput.pas
+msgid "Shadows"
+msgstr "Umbre"
+
+#: code/gameinput.pas
+msgid "Screenshot"
+msgstr "Captură de ecran"
+
+#: code/gameinput.pas
+msgid "Photo mode"
+msgstr "Mod foto"
+
+#: code/gamephoto.pas
+msgid "Field of view %d"
+msgstr "Câmp vizual %d"
+
+#: code/gamephoto.pas
+msgid "Photo size %dx"
+msgstr "Mărime foto %dx"
+
+#: code/gamephoto.pas
+msgid "PHOTO MODE   fov %d (wheel, [ ])   %s (Tab)   photo %dx%d (+ -)   Enter: take a photo   R: reset   Esc: back"
+msgstr "MOD FOTO   fov %d (rotiță, [ ])   %s (Tab)   foto %dx%d (+ -)   Enter: fă o fotografie   R: resetare   Esc: înapoi"
+
+#: code/gamephoto.pas
+msgid "Gamepad: %s photo   %s effect   %s / %s field of view   %s back"
+msgstr "Gamepad: %s foto   %s efect   %s / %s câmp vizual   %s înapoi"
+
+#: code/gamephoto.pas
+msgid "Photo saved: %s (%dx%d)"
+msgstr "Fotografie salvată: %s (%dx%d)"
+
+#: code/gamephoto.pas
+msgid "No effect"
+msgstr "Fără efect"
+
+#: code/gamephoto.pas
+msgid "Depth of field"
+msgstr "Profunzime de câmp"
+
+#: code/gamephoto.pas
+msgid "Grayscale"
+msgstr "Tonuri de gri"
+
+#: code/gamephoto.pas
+msgid "Sepia"
+msgstr "Sepia"
+
+#: code/gamephoto.pas
+msgid "Vignette"
+msgstr "Vignetare"
+
+#: code/gamephoto.pas
+msgid "Ambient occlusion"
+msgstr "Ocluzie ambientală"
+
+#: code/gameviewplay.pas
+msgid "Welcome to Castle Quake: "
+msgstr "Bun venit în Castle Quake: "
+
+#: code/gameviewplay.pas
+msgid "Language: %s (%s); lang <code> changes it:%s, auto"
+msgstr "Limba: %s (%s); lang <code> o schimbă:%s, auto"
+
+#: code/gameviewplay.pas
+msgid "Commands:"
+msgstr "Comenzi:"
+
+#: code/gameviewplay.pas
+msgid "  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)"
+msgstr "  map <name>     - Încarcă o hartă (ex. start, e1m1, lq_e0m1)"
+
+#: code/gameviewplay.pas
+msgid "  skill <0..3>   - Skill for the next map"
+msgstr "  skill <0..3>   - Dificultatea pentru harta următoare"
+
+#: code/gameviewplay.pas
+msgid "  record <name>  - Record a demo to <name>.dem, stop ends it"
+msgstr "  record <name>  - Înregistrează un demo în <name>.dem, stop îl oprește"
+
+#: code/gameviewplay.pas
+msgid "  save [slot]    - Save the game (F6 = quick)"
+msgstr "  save [slot]    - Salvează jocul (F6 = rapid)"
+
+#: code/gameviewplay.pas
+msgid "  load [slot]    - Load a saved game (F9 = quick)"
+msgstr "  load [slot]    - Încarcă un joc salvat (F9 = rapid)"
+
+#: code/gameviewplay.pas
+msgid "  god            - God mode"
+msgstr "  god            - Mod invincibil"
+
+#: code/gameviewplay.pas
+msgid "  give all       - Give all weapons, ammo, keys"
+msgstr "  give all       - Toate armele, muniția, cheile"
+
+#: code/gameviewplay.pas
+msgid "  shadows <0|1>  - Toggle dynamic shadows"
+msgstr "  shadows <0|1>  - Pornește / oprește umbrele dinamice"
+
+#: code/gameviewplay.pas
+msgid "  wateralpha <0..1> - Opacity of water, slime and lava"
+msgstr "  wateralpha <0..1> - Opacitatea apei, a mâlului și a lavei"
+
+#: code/gameviewplay.pas
+msgid "  fog <density> [r g b] - Fog for this level (0 off)"
+msgstr "  fog <density> [r g b] - Ceață pentru acest nivel (0 oprită)"
+
+#: code/gameviewplay.pas
+msgid "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility"
+msgstr "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accesibilitate"
+
+#: code/gameviewplay.pas
+msgid "  horde [0|1]    - Waves of monsters on this map; killall - every monster dies"
+msgstr "  horde [0|1]    - Valuri de monștri pe această hartă; killall - toți monștrii mor"
+
+#: code/gameviewplay.pas
+msgid "  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it"
+msgstr "  speedrun [0|1], ghost [0|1], ghost_reset - Cronometru, întrecere cu cea mai bună cursă, uitarea ei"
+
+#: code/gameviewplay.pas
+msgid "  saves          - List the saved games (the Load Game menu)"
+msgstr "  saves          - Lista jocurilor salvate (meniul Încarcă joc)"
+
+#: code/gameviewplay.pas
+msgid "  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,"
+msgstr "  photo [0|1] (P) - Mod foto: jocul se oprește, camera zboară; photo_fov <deg>,"
+
+#: code/gameviewplay.pas
+msgid "    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot"
+msgstr "    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot"
+
+#: code/gameviewplay.pas
+msgid "  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,"
+msgstr "  maps [rating|newest|name|installed] [text] - Hărți Quaddicted; maps_install <id>,"
+
+#: code/gameviewplay.pas
+msgid "    maps_play <id> [map], maps_remove <id> - download, play and remove one"
+msgstr "    maps_play <id> [map], maps_remove <id> - descarcă, joacă și șterge una"
+
+#: code/gameviewplay.pas
+msgid "  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)"
+msgstr "  sky <name> - Skybox gfx/env/<name> pentru acest nivel (- cerul în mișcare)"
+
+#: code/gameviewplay.pas
+msgid "  fov <degrees>  - Field of view at 4:3 (wider screens see more)"
+msgstr "  fov <degrees>  - Câmp vizual la 4:3 (ecranele mai late văd mai mult)"
+
+#: code/gameviewplay.pas
+msgid "  gamma <0.4..1.5> - Brightness, lower is brighter"
+msgstr "  gamma <0.4..1.5> - Luminozitate, mai mic e mai luminos"
+
+#: code/gameviewplay.pas
+msgid "  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon"
+msgstr "  cl_bob <0..0.1> - Legănarea vederii (0 oprită), r_drawviewmodel <0|1> - arma"
+
+#: code/gameviewplay.pas
+msgid "  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting"
+msgstr "  lightmaps <0|1> - Lightmap-uri Quake sau iluminare PBR dinamică a lumii"
+
+#: code/gameviewplay.pas
+msgid "  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off"
+msgstr "  debug <modes>  - Suprapunere: triggers, monsters, movers, leaf, all, off"
+
+#: code/gameviewplay.pas
+msgid "  fps            - Show the frame rate in the stats line"
+msgstr "  fps            - Arată numărul de cadre pe secundă în linia de statistici"
+
+#: code/gameviewplay.pas
+msgid "  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see"
+msgstr "  novis <0|1>    - 1 desenează toată lumea, 0 doar ce vede PVS"
+
+#: code/gameviewplay.pas
+msgid "  lang <code|auto> - Language of the menu, the HUD and this help"
+msgstr "  lang <code|auto> - Limba meniului, a HUD-ului și a acestui ajutor"
+
+#: code/gameviewplay.pas
+msgid "  quit           - Exit game"
+msgstr "  quit           - Ieșire din joc"
+
+#: code/gameviewplay.pas
+msgid "Unknown command: "
+msgstr "Comandă necunoscută: "
+
+#: code/quakecaptions.pas
+msgid "behind"
+msgstr "în spate"
+
+#: code/quakecaptions.pas
+msgid "Soldier shouts"
+msgstr "Soldatul strigă"
+
+#: code/quakecaptions.pas
+msgid "Soldier fires"
+msgstr "Soldatul trage"
+
+#: code/quakecaptions.pas
+msgid "Soldier dies"
+msgstr "Soldatul moare"
+
+#: code/quakecaptions.pas
+msgid "Dog growls"
+msgstr "Câinele mârâie"
+
+#: code/quakecaptions.pas
+msgid "Dog bites"
+msgstr "Câinele mușcă"
+
+#: code/quakecaptions.pas
+msgid "Ogre wakes"
+msgstr "Ogre se trezește"
+
+#: code/quakecaptions.pas
+msgid "Chainsaw"
+msgstr "Drujbă"
+
+#: code/quakecaptions.pas
+msgid "Ogre drags its chainsaw"
+msgstr "Ogre își târăște drujba"
+
+#: code/quakecaptions.pas
+msgid "Knight shouts"
+msgstr "Cavalerul strigă"
+
+#: code/quakecaptions.pas
+msgid "Sword swing"
+msgstr "Lovitură de sabie"
+
+#: code/quakecaptions.pas
+msgid "Death knight roars"
+msgstr "Cavalerul morții răcnește"
+
+#: code/quakecaptions.pas
+msgid "Fireballs"
+msgstr "Mingi de foc"
+
+#: code/quakecaptions.pas
+msgid "Sword slash"
+msgstr "Tăietură de sabie"
+
+#: code/quakecaptions.pas
+msgid "Scrag shrieks"
+msgstr "Scrag țipă"
+
+#: code/quakecaptions.pas
+msgid "Scrag spits"
+msgstr "Scrag scuipă"
+
+#: code/quakecaptions.pas
+msgid "Fiend roars"
+msgstr "Fiend răcnește"
+
+#: code/quakecaptions.pas
+msgid "Fiend leaps"
+msgstr "Fiend sare"
+
+#: code/quakecaptions.pas
+msgid "Shambler roars"
+msgstr "Shambler răcnește"
+
+#: code/quakecaptions.pas
+msgid "Shambler swipes"
+msgstr "Shambler lovește"
+
+#: code/quakecaptions.pas
+msgid "Lightning charging"
+msgstr "Fulger se încarcă"
+
+#: code/quakecaptions.pas
+msgid "Zombie moans"
+msgstr "Zombiul geme"
+
+#: code/quakecaptions.pas
+msgid "Zombie throws flesh"
+msgstr "Zombiul aruncă carne"
+
+#: code/quakecaptions.pas
+msgid "Enforcer shouts"
+msgstr "Enforcer strigă"
+
+#: code/quakecaptions.pas
+msgid "Laser fire"
+msgstr "Foc laser"
+
+#: code/quakecaptions.pas
+msgid "Vore wails"
+msgstr "Vore urlă"
+
+#: code/quakecaptions.pas
+msgid "Vore attacks"
+msgstr "Vore atacă"
+
+#: code/quakecaptions.pas
+msgid "Spawn gurgles"
+msgstr "Spawn gâlgâie"
+
+#: code/quakecaptions.pas
+msgid "Spawn jumps"
+msgstr "Spawn sare"
+
+#: code/quakecaptions.pas
+msgid "Rotfish bites"
+msgstr "Peștele putred mușcă"
+
+#: code/quakecaptions.pas
+msgid "Chthon rises"
+msgstr "Chthon se ridică"
+
+#: code/quakecaptions.pas
+msgid "Chthon throws lava"
+msgstr "Chthon aruncă lavă"
+
+#: code/quakecaptions.pas
+msgid "Shub-Niggurath"
+msgstr "Shub-Niggurath"
+
+#: code/quakecaptions.pas
+msgid "Door moves"
+msgstr "Ușa se mișcă"
+
+#: code/quakecaptions.pas
+msgid "Platform moves"
+msgstr "Platforma se mișcă"
+
+#: code/quakecaptions.pas
+msgid "Button"
+msgstr "Buton"
+
+#: code/quakecaptions.pas
+msgid "Secret found"
+msgstr "Secret găsit"
+
+#: code/quakecaptions.pas
+msgid "Something happened"
+msgstr "S-a întâmplat ceva"
+
+#: code/quakecaptions.pas
+msgid "Teleport"
+msgstr "Teleportare"
+
+#: code/quakecaptions.pas
+msgid "Rune"
+msgstr "Rună"
+
+#: code/quakecaptions.pas
+msgid "Key"
+msgstr "Cheie"
+
+#: code/quakecaptions.pas
+msgid "Power hum"
+msgstr "Bâzâit de energie"
+
+#: code/quakecaptions.pas
+msgid "Thunder"
+msgstr "Tunet"
+
+#: code/quakecaptions.pas
+msgid "Explosion"
+msgstr "Explozie"
+
+#: code/quakecaptions.pas
+msgid "Grenade launched"
+msgstr "Grenadă lansată"
+
+#: code/quakecaptions.pas
+msgid "Rocket launched"
+msgstr "Rachetă lansată"
+
+#: code/quakecaptions.pas
+msgid "Nails"
+msgstr "Cuie"
+
+#: code/quakecaptions.pas
+msgid "Lightning"
+msgstr "Fulger"
+
+#: code/quakecaptions.pas
+msgid "Telefrag"
+msgstr "Telefrag"
+
+#: code/quakecaptions.pas
+msgid "Health"
+msgstr "Sănătate"
+
+#: code/quakecaptions.pas
+msgid "Megahealth"
+msgstr "Megasănătate"
+
+#: code/quakecaptions.pas
+msgid "Armor"
+msgstr "Armură"
+
+#: code/quakecaptions.pas
+msgid "Weapon"
+msgstr "Armă"
+
+#: code/quakecaptions.pas
+msgid "Ammo"
+msgstr "Muniție"
+
+#: code/quakecaptions.pas
+msgid "Quad Damage"
+msgstr "Daune cvadruple"
+
+#: code/quakecaptions.pas
+msgid "Pentagram of Protection"
+msgstr "Pentagrama protecției"
+
+#: code/quakecaptions.pas
+msgid "Ring of Shadows"
+msgstr "Inelul umbrelor"
+
+#: code/quakecaptions.pas
+msgid "Biosuit"
+msgstr "Costum biologic"
+
+#: code/quakecaptions.pas
+msgid "Biosuit wearing off"
+msgstr "Costumul biologic expiră"
+
+#: code/quakecaptions.pas
+msgid "Item respawns"
+msgstr "Obiectul reapare"
+
+#: code/quakecaptions.pas
+msgid "Drowning"
+msgstr "Înec"
+
+#: code/quakeconsole.pas
+msgid "Type \"help\" for a list of available commands."
+msgstr "Scrie \"help\" pentru lista comenzilor disponibile."
+
+#: code/quakehud.pas
+msgid "KILLS: %d/%d   SECRETS: %d/%d   TIME: %02d:%02d"
+msgstr "UCIȘI: %d/%d   SECRETE: %d/%d   TIMP: %02d:%02d"
+
+#: code/quakehud.pas
+msgid "COMPLETED"
+msgstr "TERMINAT"
+
+#: code/quakehud.pas
+msgid "Time"
+msgstr "Timp"
+
+#: code/quakehud.pas
+msgid "Secrets"
+msgstr "Secrete"
+
+#: code/quakehud.pas
+msgid "Kills"
+msgstr "Uciși"
+
+#: code/quakehud.pas
+msgid "Press fire or %s to continue"
+msgstr "Apasă foc sau %s pentru a continua"
+
+#: code/quakehud.pas
+msgid "Press fire to continue"
+msgstr "Apasă foc pentru a continua"
+
+#: code/quakemenu.pas
+msgid "Press a key, mouse button or wheel for \"%s\" (Escape keeps it)"
+msgstr "Apasă o tastă, un buton sau rotița mouse-ului pentru \"%s\" (Escape o păstrează)"
+
+#: code/quakemenu.pas
+msgid "Enter rebinds; the gamepad: left stick moves, right stick turns, %s jumps, %s uses, %s / %s fires, D-pad changes weapons, %s photo mode, %s menu"
+msgstr "Enter reasociază; gamepad-ul: stick-ul stâng mișcă, stick-ul drept rotește, %s sare, %s folosește, %s / %s trage, D-pad schimbă armele, %s mod foto, %s meniu"
+
+#: code/quakemenu.pas
+msgid "%d maps from Quaddicted: %s shows one, %s goes back, left / right turn the pages"
+msgstr "%d hărți de la Quaddicted: %s arată una, %s înapoi, stânga / dreapta schimbă pagina"
+
+#: code/quakemenu.pas
+msgid "%d maps from Quaddicted: Enter shows one, Escape goes back"
+msgstr "%d hărți de la Quaddicted: Enter arată una, Escape înapoi"
+
+#: code/quakemenu.pas
+msgid "D-pad to navigate, %s to select, %s to go back"
+msgstr "D-pad pentru navigare, %s pentru selectare, %s pentru înapoi"
+
+#: code/quakemenu.pas
+msgid "Sort: [%s]  page %d of %d"
+msgstr "Sortare: [%s]  pagina %d din %d"
+
+#: code/quakemenu.pas
+msgid "(no maps installed yet)"
+msgstr "(nicio hartă instalată încă)"
+
+#: code/quakemenu.pas
+msgid "Next page"
+msgstr "Pagina următoare"
+
+#: code/quakemenu.pas
+msgid "Previous page"
+msgstr "Pagina anterioară"
+
+#: code/quakemenu.pas
+msgid "by %s, released %s"
+msgstr "de %s, lansată %s"
+
+#: code/quakemenu.pas
+msgid "Rating %.1f / 5, %s, %.1f MB"
+msgstr "Notă %.1f / 5, %s, %.1f MB"
+
+#: code/quakemenu.pas
+msgid "Not rated, %s, %.1f MB"
+msgstr "Fără notă, %s, %.1f MB"
+
+#: code/quakemenu.pas
+msgid "raised engine limits"
+msgstr "limite de motor mărite"
+
+#: code/quakemenu.pas
+msgid "colored light"
+msgstr "lumină colorată"
+
+#: code/quakemenu.pas
+msgid "Uses %s"
+msgstr "Folosește %s"
+
+#: code/quakemenu.pas
+msgid "Needs %s (QuakeC mode)"
+msgstr "Necesită %s (mod QuakeC)"
+
+#: code/quakemenu.pas
+msgid "A mod: plays in QuakeC mode"
+msgstr "Un mod: se joacă în mod QuakeC"
+
+#: code/quakemenu.pas
+msgid "Remove"
+msgstr "Șterge"
+
+#: code/quakemenu.pas
+msgid "Downloading: %d%%"
+msgstr "Descărcare: %d%%"
+
+#: code/quakemenu.pas
+msgid "Download and play (%.0f MB with the mods)"
+msgstr "Descarcă și joacă (%.0f MB cu modurile)"
+
+#: code/quakemenu.pas
+msgid "Download and play"
+msgstr "Descarcă și joacă"
+
+#: code/quakemenu.pas
+msgid "Back to the list"
+msgstr "Înapoi la listă"
+
+#: code/quakemenu.pas
+msgid "Single Player"
+msgstr "Un jucător"
+
+#: code/quakemenu.pas
+msgid "Multiplayer"
+msgstr "Multiplayer"
+
+#: code/quakemenu.pas
+msgid "Map Warp"
+msgstr "Salt la hartă"
+
+#: code/quakemenu.pas
+msgid "Map Browser"
+msgstr "Catalog de hărți"
+
+#: code/quakemenu.pas
+msgid "Save Game"
+msgstr "Salvează jocul"
+
+#: code/quakemenu.pas
+msgid "Load Game"
+msgstr "Încarcă joc"
+
+#: code/quakemenu.pas
+msgid "Demos"
+msgstr "Demo-uri"
+
+#: code/quakemenu.pas
+msgid "Options"
+msgstr "Opțiuni"
+
+#: code/quakemenu.pas
+msgid "CGE Features Showcase"
+msgstr "Prezentarea funcțiilor CGE"
+
+#: code/quakemenu.pas
+msgid "Quit"
+msgstr "Ieșire"
+
+#: code/quakemenu.pas
+msgid "Quake"
+msgstr "Quake"
+
+#: code/quakemenu.pas
+msgid "Episode Hub"
+msgstr "Hub-ul episoadelor"
+
+#: code/quakemenu.pas
+msgid "LibreQuake"
+msgstr "LibreQuake"
+
+#: code/quakemenu.pas
+msgid "Random Map"
+msgstr "Hartă aleatorie"
+
+#: code/quakemenu.pas
+msgid "a new level from a seed"
+msgstr "un nivel nou dintr-o sămânță"
+
+#: code/quakemenu.pas
+msgid "Horde Mode"
+msgstr "Mod hoardă"
+
+#: code/quakemenu.pas
+msgid "waves of monsters on E1M1"
+msgstr "valuri de monștri pe E1M1"
+
+#: code/quakemenu.pas
+msgid "a random map"
+msgstr "o hartă aleatorie"
+
+#: code/quakemenu.pas
+msgid "QuakeC Mode"
+msgstr "Mod QuakeC"
+
+#: code/quakemenu.pas
+msgid "progs.dat runs the game"
+msgstr "progs.dat conduce jocul"
+
+#: code/quakemenu.pas
+msgid "Back to Main Menu"
+msgstr "Înapoi la meniul principal"
+
+#: code/quakemenu.pas
+msgid "Host Deathmatch"
+msgstr "Găzduiește Deathmatch"
+
+#: code/quakemenu.pas
+msgid "Host Coop"
+msgstr "Găzduiește Coop"
+
+#: code/quakemenu.pas
+msgid "Split-Screen Coop"
+msgstr "Coop pe ecran împărțit"
+
+#: code/quakemenu.pas
+msgid "e1m1 (gamepad for player 2)"
+msgstr "e1m1 (gamepad pentru jucătorul 2)"
+
+#: code/quakemenu.pas
+msgid "Deathmatch vs 3 bots"
+msgstr "Deathmatch contra 3 boți"
+
+#: code/quakemenu.pas
+msgid "Join"
+msgstr "Alătură-te"
+
+#: code/quakemenu.pas
+msgid "Random map"
+msgstr "Hartă aleatorie"
+
+#: code/quakemenu.pas
+msgid "new seed"
+msgstr "sămânță nouă"
+
+#: code/quakemenu.pas
+msgid "recorded"
+msgstr "înregistrat"
+
+#: code/quakemenu.pas
+msgid "Dynamic Shadows"
+msgstr "Umbre dinamice"
+
+#: code/quakemenu.pas
+msgid "ON"
+msgstr "DA"
+
+#: code/quakemenu.pas
+msgid "OFF"
+msgstr "NU"
+
+#: code/quakemenu.pas
+msgid "World Lighting"
+msgstr "Iluminarea lumii"
+
+#: code/quakemenu.pas
+msgid "Quake Lightmaps"
+msgstr "Lightmap-uri Quake"
+
+#: code/quakemenu.pas
+msgid "Dynamic PBR"
+msgstr "PBR dinamic"
+
+#: code/quakemenu.pas
+msgid "Camera View"
+msgstr "Vedere cameră"
+
+#: code/quakemenu.pas
+msgid "Sound Effects"
+msgstr "Efecte sonore"
+
+#: code/quakemenu.pas
+msgid "Field of View"
+msgstr "Câmp vizual"
+
+#: code/quakemenu.pas
+msgid "Brightness (gamma)"
+msgstr "Luminozitate (gamma)"
+
+#: code/quakemenu.pas
+msgid "View Bob"
+msgstr "Legănarea vederii"
+
+#: code/quakemenu.pas
+msgid "Show Weapon"
+msgstr "Arată arma"
+
+#: code/quakemenu.pas
+msgid "Captions"
+msgstr "Subtitrări"
+
+#: code/quakemenu.pas
+msgid "High Contrast HUD"
+msgstr "HUD cu contrast mare"
+
+#: code/quakemenu.pas
+msgid "Reduced Flashes"
+msgstr "Străluciri reduse"
+
+#: code/quakemenu.pas
+msgid "Speedrun Timer"
+msgstr "Cronometru speedrun"
+
+#: code/quakemenu.pas
+msgid "Ghost of the Best Run"
+msgstr "Fantoma celei mai bune curse"
+
+#: code/quakemenu.pas
+msgid "Language"
+msgstr "Limbă"
+
+#: code/quakemenu.pas
+msgid "Controls"
+msgstr "Controale"
+
+#: code/quakemenu.pas
+msgid "Gamepad"
+msgstr "Gamepad"
+
+#: code/quakemenu.pas
+msgid "Gamepad look sensitivity"
+msgstr "Sensibilitatea privirii la gamepad"
+
+#: code/quakemenu.pas
+msgid "Gamepad dead zone"
+msgstr "Zona moartă a gamepad-ului"
+
+#: code/quakemenu.pas
+msgid "Gamepad invert look"
+msgstr "Privire inversată la gamepad"
+
+#: code/quakemenu.pas
+msgid "Gamepad button names"
+msgstr "Numele butoanelor gamepad-ului"
+
+#: code/quakemenu.pas
+msgid "Gamepad confirm button"
+msgstr "Butonul de confirmare al gamepad-ului"
+
+#: code/quakemenu.pas
+msgid "Reset to defaults"
+msgstr "Revino la valorile implicite"
+
+#: code/quakemenu.pas
+msgid "Back"
+msgstr "Înapoi"
+
+#: code/quakemenu.pas
+msgid "(no saved games yet)"
+msgstr "(niciun joc salvat încă)"
+
+#: code/quakemenu.pas
+msgid "Rating"
+msgstr "Notă"
+
+#: code/quakemenu.pas
+msgid "Newest"
+msgstr "Cele mai noi"
+
+#: code/quakemenu.pas
+msgid "Name"
+msgstr "Nume"
+
+#: code/quakemenu.pas
+msgid "Installed"
+msgstr "Instalate"
+
+#: data/ui/hud.castle-user-interface
+msgid "ARMOR"
+msgstr "ARMURĂ"
+
+#: data/ui/hud.castle-user-interface
+msgid "HEALTH"
+msgstr "SĂNĂTATE"
+
+#: data/ui/hud.castle-user-interface
+msgid "AMMO"
+msgstr "MUNIȚIE"
+
+#: data/ui/menu.castle-user-interface
+msgid "CASTLE QUAKE"
+msgstr "CASTLE QUAKE"
+
+#: data/ui/menu.castle-user-interface
+msgid "Castle Game Engine Quake Showcase"
+msgstr "Prezentare Quake pentru Castle Game Engine"
+
+#: data/ui/menu.castle-user-interface
+msgid "Engine Features Used:"
+msgstr "Funcții ale motorului folosite:"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Full 3D X3D Scene Graphs (TIndexedTriangleSetNode, TShapeNode)"
+msgstr "- Grafuri de scenă X3D complet 3D (TIndexedTriangleSetNode, TShapeNode)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Quake lightmaps blended in a GLSL effect, or dynamic PBR lighting with shadow maps"
+msgstr "- Lightmap-uri Quake amestecate într-un efect GLSL sau iluminare PBR dinamică cu shadow maps"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Quake 1 Alias MDL 3D Model Loading and Mesh Animation"
+msgstr "- Încărcarea modelelor 3D Alias MDL din Quake 1 și animarea mesh-urilor"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Positional 3D Spatial Audio via OpenAL (TCastleSoundSource)"
+msgstr "- Sunet spațial 3D pozițional prin OpenAL (TCastleSoundSource)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Custom URL Protocols (\"quakepak:\", \"quaketex:\") with Streaming Cache"
+msgstr "- Protocoale URL proprii (\"quakepak:\", \"quaketex:\") cu cache de streaming"
+
+#: data/ui/menu.castle-user-interface
+msgid "- First/Third Person & Free-Fly Navigation (TCastleWalkNavigation)"
+msgstr "- Navigare la persoana întâi / a treia și zbor liber (TCastleWalkNavigation)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Interactive Submodels (doors, elevators, buttons) via TCastleTransform"
+msgstr "- Submodele interactive (uși, lifturi, butoane) prin TCastleTransform"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Particle Systems (impact sparks, blood splatters, explosions)"
+msgstr "- Sisteme de particule (scântei la impact, stropi de sânge, explozii)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- A QuakeC VM, multiplayer over UDP, demos, savegames"
+msgstr "- O mașină virtuală QuakeC, multiplayer prin UDP, demo-uri, salvări"
+
+#: data/ui/menu.castle-user-interface
+msgid "- Named components and behaviors for the engine's inspector (F8)"
+msgstr "- Componente și comportamente cu nume pentru inspectorul motorului (F8)"
+
+#: data/ui/menu.castle-user-interface
+msgid "- This menu, the HUD and the console are editor designs (data/ui)"
+msgstr "- Acest meniu, HUD-ul și consola sunt design-uri din editor (data/ui)"
+
+#: data/ui/menu.castle-user-interface
+msgid "[ Press Enter / Esc to Return ]"
+msgstr "[ Apasă Enter / Esc pentru a reveni ]"
+
+#: data/ui/menu.castle-user-interface
+msgid "Use Arrow Keys to Navigate, Enter to Select, Esc to Back"
+msgstr "Săgețile pentru navigare, Enter pentru selectare, Esc pentru înapoi"
+
+#: data/ui/photo.castle-user-interface
+msgid "PHOTO MODE"
+msgstr "MOD FOTO"
+
+#: data/ui/touch.castle-user-interface
+msgid "FIRE"
+msgstr "FOC"
+
+#: data/ui/touch.castle-user-interface
+msgid "JUMP"
+msgstr "SALT"
+
+#: data/ui/touch.castle-user-interface
+msgid "USE"
+msgstr "FOLOSEȘTE"
+
+#: data/ui/touch.castle-user-interface
+msgid "MENU"
+msgstr "MENIU"
+
+#: tools/lang_strings.py
+msgid "Auto"
+msgstr "Automat"
+
+#: tools/lang_strings.py
+msgid "First-Person"
+msgstr "Persoana întâi"
+
+#: tools/lang_strings.py
+msgid "Third-Person"
+msgstr "Persoana a treia"
+
+#: tools/lang_strings.py
+msgid "Free-Fly"
+msgstr "Zbor liber"
+
+#: tools/lang_strings.py
+msgid "South"
+msgstr "Sud"
+
+#: tools/lang_strings.py
+msgid "East"
+msgstr "Est"
+
+#: tools/lang_strings.py
+msgid "empty"
+msgstr "gol"
+
+#: tools/lang_strings.py
+msgid "Play"
+msgstr "Joacă"
+
+#: tools/lang_strings.py
+msgid "small"
+msgstr "mică"
+
+#: tools/lang_strings.py
+msgid "medium"
+msgstr "medie"
+
+#: tools/lang_strings.py
+msgid "large"
+msgstr "mare"

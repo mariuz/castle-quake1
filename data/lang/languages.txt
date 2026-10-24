@@ -3,3 +3,4 @@ de Deutsch
 es Español
 fr Français
 it Italiano
+ro Română

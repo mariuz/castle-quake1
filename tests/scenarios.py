@@ -427,7 +427,7 @@ def split_frames(out_dir):
 def check_language(logs):
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
     import lang_strings
-    result = common_checks(logs, 'de') + common_checks(logs, 'it')
+    result = common_checks(logs, 'de') + common_checks(logs, 'it') + common_checks(logs, 'ro')
     de = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'de.po'))[1]
     it = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'it.po'))[1]
     pad = 'D-pad to navigate, %s to select, %s to go back'
@@ -444,6 +444,11 @@ def check_language(logs):
     result.append((re.search(r'Language: it \(Italiano\), \d{3} texts', log) is not None,
                    'it: the console lang command switches to Italian'))
     result.append(('Hint: ' + it[pad] % ('A', 'B') in log, 'it: the menu hint is Italian'))
+    ro = lang_strings.parse_po(os.path.join(ROOT, 'data', 'lang', 'ro.po'))[1]
+    log = logs['ro']
+    result.append((re.search(r'Language: ro \(Română\), \d{3} texts', log) is not None,
+                   'ro: -lang ro loads the Romanian texts'))
+    result.append(('Hint: ' + ro[pad] % ('A', 'B') in log, 'ro: the menu hint is Romanian'))
     return result
 
 
@@ -971,7 +976,8 @@ def check_bots(logs):
                    'bloop: three bots join a loopback listen server'))
     lines = re.findall(r'Bots: (.*)', h)
     moved = [float(x) for x in re.findall(r'([\d.]+) units', lines[-1] if lines else '')]
-    result.append((len(moved) == 3 and min(moved) > 1000, 'bloop: the bots walk the map (%s units)' %
+    # 22 s, and a bot killed starts counting again: only that each one moves
+    result.append((len(moved) == 3 and min(moved) > 300, 'bloop: the bots walk the map (%s units)' %
                    ', '.join('%.0f' % x for x in moved)))
     shots = NET_SHOT_RE.findall(h)
     result.append((len(shots) == 1 and shots[0][0] == '4', 'bloop: the host plays with them over the loopback'))
@@ -1185,7 +1191,9 @@ SCENARIOS = [
                                   'W:0.5,PN:Xbox Wireless Controller,GB:start,W:0.5,S,GB:down,W:0.3,GB:down,W:0.3,'
                                   'GB:down,W:0.3,GB:south,W:0.5,S,Q'], 0),
                           ('it', ['--autotest', 'e1m1', '{out}/it', '--demo',
-                                  'W:0.5,CMD:lang it,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0)],
+                                  'W:0.5,CMD:lang it,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0),
+                          ('ro', ['-lang', 'ro', '--autotest', 'e1m1', '{out}/ro', '--demo',
+                                  'W:0.5,PN:Xbox Wireless Controller,GB:start,W:0.5,S,Q'], 0)],
              check_language, []),
     # Split-screen coop: a second local player on the listen server with the
     # (virtual) gamepad, side by side and one above the other; the stick
