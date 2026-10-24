@@ -1069,3 +1069,9 @@ msgstr "Coop avec 2 bots"
 
 msgid "Recording %s"
 msgstr "Enregistrement %s"
+
+msgid "Chat"
+msgstr "Discussion"
+
+msgid "say:"
+msgstr "dire :"

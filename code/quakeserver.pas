@@ -64,6 +64,8 @@ type
     procedure HandleSignon(const C: Integer; const Msg: TQuakeNetMessage);
     { The answer to a LAN query }
     function HandleInfo: String;
+    { A client's chat goes to everyone }
+    procedure HandleChat(const C: Integer; const Text: String);
     { Game events }
     procedure HandleSound(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
       const Origin: TVector3);
@@ -152,6 +154,7 @@ begin
   FNet.OnDisconnect := @HandleDisconnect;
   FNet.OnSignon := @HandleSignon;
   FNet.OnInfo := @HandleInfo;
+  FNet.OnChat := @HandleChat;
   if not FGame.LoadLevel(AMapName, FSkill, False) then
     WritelnWarning('QuakeServer', 'Cannot load the level "%s"', [AMapName]);
   BuildLists;
@@ -380,6 +383,29 @@ begin
         FReliable[O].UpdateFrags(E - 1, 0);
       end;
   end;
+end;
+
+procedure TQuakeServer.HandleChat(const C: Integer; const Text: String);
+var
+  Who, T: String;
+  I, O: Integer;
+begin
+  { Plain printable text only }
+  T := '';
+  for I := 1 to Length(Text) do
+    if (Text[I] >= ' ') and (Text[I] < #127) then
+      T := T + Text[I];
+  T := Trim(T);
+  if T = '' then
+    Exit;
+  if FNet.ClientSpectator(C) then
+    Who := 'spectator' + IntToStr(C)
+  else
+    Who := FGame.ClientName(FNet.ClientEdict(C));
+  WritelnLog('QuakeServer', 'Chat: %s: %s', [Who, T]);
+  for O := 1 to MaxNetClients do
+    if FNet.ClientActive(O) then
+      FReliable[O].Print(Who + ': ' + T + #10);
 end;
 
 function TQuakeServer.HandleInfo: String;

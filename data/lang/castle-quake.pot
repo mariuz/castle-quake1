@@ -105,6 +105,10 @@ msgstr ""
 msgid "Photo mode"
 msgstr ""
 
+#: code/gameinput.pas
+msgid "Chat"
+msgstr ""
+
 #: code/gamephoto.pas
 msgid "Field of view %d"
 msgstr ""
@@ -147,6 +151,10 @@ msgstr ""
 
 #: code/gamephoto.pas
 msgid "Ambient occlusion"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "say:"
 msgstr ""
 
 #: code/gameviewdemo.pas

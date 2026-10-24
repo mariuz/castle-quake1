@@ -157,6 +157,10 @@ type
     FRecord: TMemoryStream;
     FRecordName: String;
     FRecordBlocks: Integer;
+    { Typing a line of chat (the chat binding), and what was typed }
+    FChatting: Boolean;
+    FChatText: String;
+    procedure ShowChatLine;
     procedure ClearLevel;
     { Demo playback controls }
     procedure MeasureDemoLength;
@@ -561,6 +565,8 @@ begin
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
     FClient.Spectator := Spectate;
+    FChatting := False;
+    FChatText := '';
     FSpecFree := False;
     FSpecJump := False;
     FSpecFollowed := 0;
@@ -696,7 +702,7 @@ begin
   Input.Msec := Min(Round(FInputTime * 1000), MaxInputMsec);
   FInputTime := Max(0, FInputTime - Input.Msec / 1000);
   Input.Angles := FDemo.ViewAngles;
-  if AutoTestPrefix = '' then
+  if (AutoTestPrefix = '') and not FChatting then
   begin
     if BindingHeld(qbForward, Container, PlayerOne) then
       Input.Move.X := Input.Move.X + ClForwardSpeed;
@@ -1499,6 +1505,18 @@ begin
   if FSeeking then
     Exit;
   WritelnLog('Demo', Trim(S));
+  { In a network game the server's prints (chat, obituaries) show }
+  if NetMode and (Trim(S) <> '') and not FChatting then
+  begin
+    FHud.ShowMessage(Trim(S), 4);
+    if Pos(': ', S) > 0 then
+      Sounds.Play('sound/misc/talk.wav');
+  end;
+end;
+
+procedure TViewDemo.ShowChatLine;
+begin
+  FHud.ShowMessage(Tr('say:') + ' ' + FChatText + '_', 30);
 end;
 
 procedure TViewDemo.HandleCenterPrint(const S: String);
@@ -1983,6 +2001,11 @@ begin
       else
         FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
     end else
+    if (Action = 'SAY') and NetMode then { A line of chat }
+    begin
+      if FClient <> nil then
+        FClient.SendChat(Param);
+    end else
     if (Action = 'R') and NetMode then { Record the network game (R:name), stop (R) }
     begin
       if Param <> '' then
@@ -2301,6 +2324,45 @@ begin
     Exit;
   if NetMode then
   begin
+    { Typing chat: Enter sends, Escape drops it, the rest is the text }
+    if FChatting then
+    begin
+      if Event.EventType = itKey then
+      begin
+        if Event.IsKey(keyEnter) then
+        begin
+          FChatting := False;
+          if FClient <> nil then
+            FClient.SendChat(FChatText);
+          FHud.ShowMessage('', 0.1);
+        end else
+        if Event.IsKey(keyEscape) then
+        begin
+          FChatting := False;
+          FHud.ShowMessage('', 0.1);
+        end else
+        if Event.IsKey(keyBackSpace) then
+        begin
+          if FChatText <> '' then
+            SetLength(FChatText, Length(FChatText) - 1);
+          ShowChatLine;
+        end else
+        if (Length(Event.KeyString) = 1) and (Event.KeyString[1] >= ' ') and (Event.KeyString[1] < #127) and
+           (Length(FChatText) < MaxChatLength) then
+        begin
+          FChatText := FChatText + Event.KeyString;
+          ShowChatLine;
+        end;
+      end;
+      Exit(True);
+    end;
+    if BindingEvent(qbChat, Event) and (FClient <> nil) then
+    begin
+      FChatting := True;
+      FChatText := '';
+      ShowChatLine;
+      Exit(True);
+    end;
     if Event.IsKey(keyEscape) then
     begin
       Leave;

@@ -369,6 +369,19 @@ def check_netrecord(logs):
     return result
 
 
+def check_chat(logs):
+    result = common_checks(logs, 'chost') + common_checks(logs, 'cclient')
+    h, c = logs['chost'], logs['cclient']
+    m = re.search(r'Chat: (\w+): hello there', h)
+    result.append((m is not None, 'the server gets the client\'s chat (%s)' % (m.group(1) if m else '-')))
+    who = m.group(1) if m else 'player'
+    result.append(((who + ': hello there') in c.split('Chat:')[-1] and re.search(r'Demo: \w+: hello there', c) is not None,
+                   'the client gets it back'))
+    result.append((re.search(r'Demo: \w+: hello there', h) is not None, 'the host\'s player gets it'))
+    result.append((re.search(r'Demo: \w+: gg', c) is not None, 'and the host\'s answer reaches the client'))
+    return result
+
+
 def check_photo(logs):
     result = common_checks(logs, 'play') + common_checks(logs, 'pdemo')
     log = logs['play']
@@ -1358,6 +1371,12 @@ SCENARIOS = [
                            ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
                                       'W:2,S,W:2,S,Q'], 16)],
              check_netrecord, [], dark=('rhost',)),
+    # Chat: a client says something, everyone gets it; the host answers
+    Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
+                                 '26006'], 0),
+                      ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
+                                   'W:2,SAY:hello there,W:6,S,Q'], 2)],
+             check_chat, [], dark=('chost', 'cclient')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
     Scenario('demoplay', [('play', ['--autotest', 'demo1.dem', '{out}/play', '--demo',
