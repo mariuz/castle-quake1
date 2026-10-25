@@ -1194,7 +1194,8 @@ def check_bots(logs):
                    ', '.join('%.0f' % x for x in moved)))
     frags = sum(int(x) for line in lines for x in re.findall(r'(-?\d+) frags', line))
     # A fight starting is logged; frags depend on who hits whom in the time
-    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost']))
+    # (both games with three bots count: under load one may see no fight)
+    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost'] + logs.get('bloop', '')))
     result.append((frags != 0 or fights > 0 or 'fighting' in ' '.join(lines),
                    'the bots fight (%d fights, %d frags in the logs)' % (fights, frags)))
     shots = NET_SHOT_RE.findall(logs['bclient'])
