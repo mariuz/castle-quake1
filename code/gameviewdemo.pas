@@ -1560,31 +1560,124 @@ begin
   end;
 end;
 
+const
+  { The names of the 14 player color rows of the palette }
+  TeamColorNames: array[0..13] of String = ('White', 'Brown', 'Light Blue', 'Green', 'Red', 'Olive', 'Orange',
+    'Peach', 'Purple', 'Magenta', 'Tan', 'Teal', 'Yellow', 'Blue');
+
+{ Teamplay: the pants colors of the named players, the most frags first,
+  with their frags }
+procedure SortedTeams(const D: TQuakeDemoReader; out Teams, TeamFrags: specialize TArray<Integer>);
+var
+  I, J, K, P, T, F: Integer;
+  Found: Boolean;
+begin
+  Teams := nil;
+  TeamFrags := nil;
+  for I in SortedPlayers(D) do
+  begin
+    P := D.Colors[I] and 15;
+    Found := False;
+    for K := 0 to High(Teams) do
+      if Teams[K] = P then
+      begin
+        TeamFrags[K] := TeamFrags[K] + D.Frags[I];
+        Found := True;
+      end;
+    if not Found then
+    begin
+      SetLength(Teams, Length(Teams) + 1);
+      SetLength(TeamFrags, Length(TeamFrags) + 1);
+      Teams[High(Teams)] := P;
+      TeamFrags[High(TeamFrags)] := D.Frags[I];
+    end;
+  end;
+  for I := 1 to High(Teams) do
+  begin
+    T := Teams[I];
+    F := TeamFrags[I];
+    J := I;
+    while (J > 0) and (TeamFrags[J - 1] < F) do
+    begin
+      Teams[J] := Teams[J - 1];
+      TeamFrags[J] := TeamFrags[J - 1];
+      Dec(J);
+    end;
+    Teams[J] := T;
+    TeamFrags[J] := F;
+  end;
+end;
+
 function TViewDemo.ScoreboardText: String;
 var
-  I: Integer;
-begin
-  Result := Tr('Scoreboard');
-  for I in SortedPlayers(FDemo) do
+  I, K: Integer;
+  Teams, TeamFrags: specialize TArray<Integer>;
+
+  procedure AddPlayer(const I: Integer);
   begin
     Result := Result + LineEnding + Format('%3d   %s', [FDemo.Frags[I], FDemo.Names[I]]);
     if (I = FDemo.ViewEntity - 1) and not Spectate then
       Result := Result + Format(Tr('   (you, ping %d ms)'), [Round(FPing)]);
   end;
+
+begin
+  Result := Tr('Scoreboard');
+  if FDemo.TeamPlay > 0 then
+  begin
+    { The teams by frags, each with its players }
+    SortedTeams(FDemo, Teams, TeamFrags);
+    for K := 0 to High(Teams) do
+    begin
+      Result := Result + LineEnding + Format(Tr('%s team: %d'), [Tr(TeamColorNames[Min(Teams[K], 13)]), TeamFrags[K]]);
+      for I in SortedPlayers(FDemo) do
+        if (FDemo.Colors[I] and 15) = Teams[K] then
+          AddPlayer(I);
+    end;
+    Exit;
+  end;
+  for I in SortedPlayers(FDemo) do
+    AddPlayer(I);
 end;
 
 function TViewDemo.ScoreboardLog: String;
 var
-  I: Integer;
+  I, K: Integer;
+  Teams, TeamFrags: specialize TArray<Integer>;
+  Line: String;
+
+  function PlayerText(const I: Integer): String;
+  begin
+    Result := Format('%s %d', [FDemo.Names[I], FDemo.Frags[I]]);
+    if (I = FDemo.ViewEntity - 1) and not Spectate then
+      Result := Result + Format(' (you, ping %d ms)', [Round(FPing)]);
+  end;
+
 begin
   Result := '';
+  if FDemo.TeamPlay > 0 then
+  begin
+    SortedTeams(FDemo, Teams, TeamFrags);
+    for K := 0 to High(Teams) do
+    begin
+      Line := '';
+      for I in SortedPlayers(FDemo) do
+        if (FDemo.Colors[I] and 15) = Teams[K] then
+        begin
+          if Line <> '' then
+            Line := Line + ', ';
+          Line := Line + PlayerText(I);
+        end;
+      if Result <> '' then
+        Result := Result + '; ';
+      Result := Result + Format('%s team %d: %s', [TeamColorNames[Min(Teams[K], 13)], TeamFrags[K], Line]);
+    end;
+    Exit;
+  end;
   for I in SortedPlayers(FDemo) do
   begin
     if Result <> '' then
       Result := Result + ', ';
-    Result := Result + Format('%s %d', [FDemo.Names[I], FDemo.Frags[I]]);
-    if (I = FDemo.ViewEntity - 1) and not Spectate then
-      Result := Result + Format(' (you, ping %d ms)', [Round(FPing)]);
+    Result := Result + PlayerText(I);
   end;
 end;
 

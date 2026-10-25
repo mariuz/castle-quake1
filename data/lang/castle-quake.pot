@@ -162,6 +162,10 @@ msgid "   (you, ping %d ms)"
 msgstr ""
 
 #: code/gameviewdemo.pas
+msgid "%s team: %d"
+msgstr ""
+
+#: code/gameviewdemo.pas
 msgid "say:"
 msgstr ""
 
@@ -183,6 +187,62 @@ msgstr ""
 
 #: code/gameviewdemo.pas
 msgid "Demo %s / %s"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "White"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Brown"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Light Blue"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Green"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Red"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Olive"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Orange"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Peach"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Purple"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Magenta"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Tan"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Teal"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Yellow"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Blue"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -803,6 +863,10 @@ msgstr ""
 
 #: code/quakemenu.pas
 msgid "Deathmatch vs 3 bots"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Team Deathmatch with 3 bots"
 msgstr ""
 
 #: code/quakemenu.pas

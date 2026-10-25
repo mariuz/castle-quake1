@@ -1096,3 +1096,51 @@ msgstr "Colore della maglia"
 
 msgid "Pants Color"
 msgstr "Colore dei pantaloni"
+
+msgid "%s team: %d"
+msgstr "Squadra %s: %d"
+
+msgid "White"
+msgstr "Bianco"
+
+msgid "Brown"
+msgstr "Marrone"
+
+msgid "Light Blue"
+msgstr "Azzurro"
+
+msgid "Green"
+msgstr "Verde"
+
+msgid "Red"
+msgstr "Rosso"
+
+msgid "Olive"
+msgstr "Oliva"
+
+msgid "Orange"
+msgstr "Arancione"
+
+msgid "Peach"
+msgstr "Pesca"
+
+msgid "Purple"
+msgstr "Viola"
+
+msgid "Magenta"
+msgstr "Magenta"
+
+msgid "Tan"
+msgstr "Marroncino"
+
+msgid "Teal"
+msgstr "Verde acqua"
+
+msgid "Yellow"
+msgstr "Giallo"
+
+msgid "Blue"
+msgstr "Blu"
+
+msgid "Team Deathmatch with 3 bots"
+msgstr "Deathmatch a squadre con 3 bot"

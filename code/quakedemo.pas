@@ -297,6 +297,8 @@ type
     MaxClients: Integer;
     { From the serverinfo: 0 coop / single player, 1 deathmatch }
     GameType: Integer;
+    { The server's teamplay (a stuffed "teamplay N" in the signon; 0 none) }
+    TeamPlay: Integer;
     Models, Sounds: TStringList;        { 1-based like the protocol: index 0 unused }
     Entities: array of TDemoEntity;
     Statics: array of TDemoEntityState;
@@ -745,6 +747,11 @@ begin
   for Command in Text.Split([#10, ';'], TStringSplitOptions.ExcludeEmpty) do
   begin
     Parts := Trim(Command).Split([' '], TStringSplitOptions.ExcludeEmpty);
+    if (Length(Parts) = 2) and SameText(Parts[0], 'teamplay') then
+    begin
+      TeamPlay := StrToIntDef(Parts[1], 0);
+      Continue;
+    end;
     if (Length(Parts) < 2) or not SameText(Parts[0], 'fog') then
       Continue;
     case Length(Parts) of
@@ -785,6 +792,8 @@ begin
   ProtocolFlags := Flags;
   MaxClients := ReadByte;
   GameType := ReadByte;
+  { A level's signon stuffs it again }
+  TeamPlay := 0;
   LevelName := ReadString;
   repeat
     S := ReadString;

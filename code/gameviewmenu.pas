@@ -30,6 +30,14 @@ var
 
 implementation
 
+uses
+  QuakeServer;
+
+var
+  { The menu's Team Deathmatch set the server's teamplay (a later game of
+    the menu turns it off again) }
+  TeamPlayFromMenu: Boolean;
+
 constructor TViewMenu.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -130,7 +138,23 @@ begin
           ViewDemo.HostBots := 3;
           ViewDemo.HostMap := Copy(Param, 6, MaxInt);
         end else
+        if Pos('teambots:', Param) = 1 then
+        begin
+          { teambots:<map>: team deathmatch (teamplay 1) with three bots }
+          ViewDemo.HostBots := 3;
+          ViewDemo.HostMap := Copy(Param, 10, MaxInt);
+        end else
           ViewDemo.HostMap := Param;
+        if Pos('teambots:', Param) = 1 then
+        begin
+          ServerTeamPlay := 1;
+          TeamPlayFromMenu := True;
+        end else
+        if TeamPlayFromMenu then
+        begin
+          ServerTeamPlay := 0;
+          TeamPlayFromMenu := False;
+        end;
         ViewDemo.AutoTestPrefix := '';
         ViewDemo.AutoTestScript := '';
         Container.View := ViewDemo;

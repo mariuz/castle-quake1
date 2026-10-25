@@ -1096,3 +1096,51 @@ msgstr "Hemdfarbe"
 
 msgid "Pants Color"
 msgstr "Hosenfarbe"
+
+msgid "%s team: %d"
+msgstr "Team %s: %d"
+
+msgid "White"
+msgstr "Weiß"
+
+msgid "Brown"
+msgstr "Braun"
+
+msgid "Light Blue"
+msgstr "Hellblau"
+
+msgid "Green"
+msgstr "Grün"
+
+msgid "Red"
+msgstr "Rot"
+
+msgid "Olive"
+msgstr "Oliv"
+
+msgid "Orange"
+msgstr "Orange"
+
+msgid "Peach"
+msgstr "Pfirsich"
+
+msgid "Purple"
+msgstr "Lila"
+
+msgid "Magenta"
+msgstr "Magenta"
+
+msgid "Tan"
+msgstr "Hellbraun"
+
+msgid "Teal"
+msgstr "Petrol"
+
+msgid "Yellow"
+msgstr "Gelb"
+
+msgid "Blue"
+msgstr "Blau"
+
+msgid "Team Deathmatch with 3 bots"
+msgstr "Team-Deathmatch mit 3 Bots"

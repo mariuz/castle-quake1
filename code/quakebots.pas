@@ -100,6 +100,10 @@ type
     { Add a bot; its edict, 0 when no client slot is free }
     function Add: Integer;
     function Count: Integer;
+    { Teamplay: put each bot in the team (pants color) with the fewest
+      players, the humans' teams first (red and blue when they have fewer
+      than two); the bots whose colors changed }
+    function BalanceTeams: TIntegerArray;
     function BotEdict(const I: Integer): Integer;
     { Before each game frame: every bot's input }
     procedure Update(const SecondsPassed: Single);
@@ -149,6 +153,76 @@ end;
 function TQuakeBots.Count: Integer;
 begin
   Result := Length(FBots);
+end;
+
+function TQuakeBots.BalanceTeams: TIntegerArray;
+const
+  SpareTeams: array[0..3] of Integer = (4, 13, 12, 3);
+var
+  Teams, Sizes: array of Integer;
+  I, J, O, Best, Old, Pants: Integer;
+
+  function TeamIndex(const P: Integer): Integer;
+  var
+    K: Integer;
+  begin
+    for K := 0 to High(Teams) do
+      if Teams[K] = P then
+        Exit(K);
+    Result := -1;
+  end;
+
+begin
+  Result := nil;
+  if (FGame.TeamPlay <= 0) or (Length(FBots) = 0) then
+    Exit;
+  Teams := nil;
+  Sizes := nil;
+  { The humans' teams and their sizes }
+  for O := 1 to FGame.MaxClients do
+    if FGame.ClientActive(O) and not IsBot(O) then
+    begin
+      Pants := FGame.ClientColors(O) and 15;
+      J := TeamIndex(Pants);
+      if J < 0 then
+      begin
+        SetLength(Teams, Length(Teams) + 1);
+        SetLength(Sizes, Length(Sizes) + 1);
+        J := High(Teams);
+        Teams[J] := Pants;
+        Sizes[J] := 0;
+      end;
+      Inc(Sizes[J]);
+    end;
+  I := 0;
+  while (Length(Teams) < 2) and (I <= High(SpareTeams)) do
+  begin
+    if TeamIndex(SpareTeams[I]) < 0 then
+    begin
+      SetLength(Teams, Length(Teams) + 1);
+      SetLength(Sizes, Length(Sizes) + 1);
+      Teams[High(Teams)] := SpareTeams[I];
+      Sizes[High(Sizes)] := 0;
+    end;
+    Inc(I);
+  end;
+  { Each bot in turn to the smallest team }
+  for I := 0 to High(FBots) do
+  begin
+    Best := 0;
+    for J := 1 to High(Teams) do
+      if Sizes[J] < Sizes[Best] then
+        Best := J;
+    Inc(Sizes[Best]);
+    Old := FGame.ClientColors(FBots[I].E);
+    if (Old and 15) <> Teams[Best] then
+    begin
+      FGame.SetClientColors(FBots[I].E, (Old and $F0) or Teams[Best]);
+      SetLength(Result, Length(Result) + 1);
+      Result[High(Result)] := FBots[I].E;
+      WritelnLog('Bots', 'Bot "%s" joins team %d', [FBots[I].Name, Teams[Best]]);
+    end;
+  end;
 end;
 
 function TQuakeBots.BotEdict(const I: Integer): Integer;
@@ -703,7 +777,8 @@ begin
       end;
   end else
   for O := 1 to FGame.MaxClients do
-    if (O <> B.E) and FGame.ClientActive(O) and not FGame.PlayerDead(O) then
+    if (O <> B.E) and FGame.ClientActive(O) and not FGame.PlayerDead(O) and
+       ((FGame.TeamPlay <= 0) or (FGame.ClientTeam(O) <> FGame.ClientTeam(B.E))) then
     begin
       EnemyPos := FGame.EntityOrigin(O) + Vector3(0, 0, 16);
       D := (EnemyPos - Eye).Length;

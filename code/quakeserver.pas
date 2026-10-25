@@ -68,6 +68,8 @@ type
     function HandleInfo: String;
     { A client's chat goes to everyone }
     procedure HandleChat(const C: Integer; const Text: String);
+    { Teamplay: even the teams with the bots and tell everyone }
+    procedure BalanceTeams;
     { Game events }
     procedure HandleSound(const E, Channel: Integer; const Sample: String; const Volume, Attenuation: Single;
       const Origin: TVector3);
@@ -109,6 +111,8 @@ var
     map after the current one in the rotation }
   ServerFragLimit: Single = 0;
   ServerTimeLimit: Single = 0;
+  { -teamplay N: the progs' teamplay rules in a hosted deathmatch }
+  ServerTeamPlay: Integer = 0;
   ServerMapRotation: String = '';
 
 implementation
@@ -154,6 +158,7 @@ begin
     FGame.Coop := 0;
     FGame.FragLimit := ServerFragLimit;
     FGame.TimeLimit := ServerTimeLimit;
+    FGame.TeamPlay := ServerTeamPlay;
     FRotation.CommaText := LowerCase(ServerMapRotation);
   end;
   FGame.OnSound := @HandleSound;
@@ -175,9 +180,11 @@ begin
   if FNet.Valid then
     WritelnLog('QuakeServer', 'Hosting "%s" on port %d for %d players (%s, skill %d)',
       [AMapName, Port, FGame.MaxClients, BoolToStr(ACoop, 'coop', 'deathmatch'), FSkill]);
-  if FNet.Valid and not ACoop and ((FGame.FragLimit > 0) or (FGame.TimeLimit > 0) or (FRotation.Count > 0)) then
-    WritelnLog('QuakeServer', 'Rules: fraglimit %s, timelimit %s minutes, maps %s', [FormatFloat('0.##', FGame.FragLimit),
-      FormatFloat('0.##', FGame.TimeLimit), IfThen(FRotation.Count > 0, FRotation.CommaText, '(the progs choose)')]);
+  if FNet.Valid and not ACoop and ((FGame.FragLimit > 0) or (FGame.TimeLimit > 0) or (FRotation.Count > 0) or
+     (FGame.TeamPlay > 0)) then
+    WritelnLog('QuakeServer', 'Rules: fraglimit %s, timelimit %s minutes, maps %s, teamplay %d',
+      [FormatFloat('0.##', FGame.FragLimit), FormatFloat('0.##', FGame.TimeLimit),
+      IfThen(FRotation.Count > 0, FRotation.CommaText, '(the progs choose)'), FGame.TeamPlay]);
 end;
 
 destructor TQuakeServer.Destroy;
@@ -405,6 +412,7 @@ begin
       FReliable[O].UpdateName(E - 1, FGame.ClientName(E));
       FReliable[O].UpdateColors(E - 1, FGame.ClientColors(E));
     end;
+  BalanceTeams;
   Result := E;
 end;
 
@@ -425,7 +433,18 @@ begin
         FReliable[O].UpdateFrags(E - 1, 0);
         FReliable[O].UpdateColors(E - 1, 0);
       end;
+    BalanceTeams;
   end;
+end;
+
+procedure TQuakeServer.BalanceTeams;
+var
+  E, O: Integer;
+begin
+  for E in FBots.BalanceTeams do
+    for O := 1 to MaxNetClients do
+      if FNet.ClientActive(O) then
+        FReliable[O].UpdateColors(E - 1, FGame.ClientColors(E));
 end;
 
 procedure TQuakeServer.HandleChat(const C: Integer; const Text: String);
@@ -516,6 +535,9 @@ begin
   Msg.UpdateStat(STAT_SECRETS, FGame.FoundSecrets);
   Msg.UpdateStat(STAT_MONSTERS, FGame.KilledMonsters);
   Msg.SetView(E);
+  { The clients group the scoreboard by teams }
+  if FGame.TeamPlay > 0 then
+    Msg.StuffText(Format('teamplay %d'#10, [FGame.TeamPlay]));
   Msg.SignonNum(1);
   for I := 1 to FGame.MaxClients do
     if FGame.ClientActive(I) then
@@ -781,6 +803,7 @@ begin
       end;
     Inc(Result);
   end;
+  BalanceTeams;
 end;
 
 procedure TQuakeServer.Update(const SecondsPassed: Single);

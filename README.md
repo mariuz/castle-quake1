@@ -61,6 +61,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Chat: in a network game T opens a line to say something to everyone.
 - Recording network games: `-record <name>` with `-host` or `-connect` saves the game you play as a demo that plays back like any other.
 - Names and colors: `-name Ranger -color 4 12` (or the console's `name` / `color`, Options > Shirt Color / Pants Color) — the others see your name on the scoreboard and your player in your shirt and pants colors.
+- Teamplay: `-host e1m1 -teamplay 1 -bots 3` (or Multiplayer > Team Deathmatch with 3 bots) — teams by pants color, no friendly fire, bots even the teams and the scoreboard shows the team totals.
 - Spectators: `-connect host -spectate` (or Multiplayer > Spectate) watches a network game without playing: fire follows the next player, jump flies freely.
 - Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games. While one plays, Space pauses, up / down change the speed (a quarter to four times) and left / right seek 10 s back or forward.
 
