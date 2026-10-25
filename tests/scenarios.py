@@ -382,6 +382,41 @@ def check_chat(logs):
     return result
 
 
+def check_names(logs):
+    result = common_checks(logs, 'nhost') + common_checks(logs, 'nclient')
+    h, c = logs['nhost'], logs['nclient']
+    result.append(('Client 1 is "Ranger", colors 4 12' in h, 'the host\'s player has its -name and -color'))
+    result.append(('Client 2 is "Scout", colors 13 3' in h, 'the client\'s name and colors reach the server'))
+    m = re.search(r'Scoreboard: (.*)', c)
+    board = m.group(1) if m else ''
+    result.append(('Ranger 0' in board and 'Scout 0 (you' in board, 'the scoreboard shows both names (%s)' % board))
+    result.append(('Skin 0 of "player" in colors 4 12' in c, 'the client draws the host\'s player in its colors'))
+    result.append(('Skin 0 of "player" in colors 13 3' in h, 'the host draws the client\'s player in its colors'))
+    return result
+
+
+def frames_names(out_dir):
+    """The client looks at the host's player: a red shirt (4) and yellow
+    pants (12) in the middle of the screen."""
+    path = os.path.join(out_dir, 'nclient_1.png')
+    if not os.path.exists(path):
+        return [(False, 'nclient_1.png exists')]
+    img = Image.open(path).convert('RGB')
+    w, h = img.size
+    red = yellow = 0
+    for y in range(int(h * 0.3), int(h * 0.75)):
+        for x in range(int(w * 0.4), int(w * 0.6)):
+            r, g, b = img.getpixel((x, y))
+            if r > 50 and g < 0.25 * r and b < 0.25 * r:
+                red += 1
+            elif r > 50 and g > 0.6 * r and b < 0.15 * r:
+                yellow += 1
+    # The player covers about 4 % of the box in each color; the walls none
+    area = (w * 0.2) * (h * 0.45)
+    return [(red > area * 0.01, 'a red shirt in the middle (%d pixels)' % red),
+            (yellow > area * 0.01, 'yellow pants in the middle (%d pixels)' % yellow)]
+
+
 def check_dmrules(logs):
     result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
     h, c = logs['dhost'], logs['dclient']
@@ -1159,7 +1194,8 @@ def check_bots(logs):
                    ', '.join('%.0f' % x for x in moved)))
     frags = sum(int(x) for line in lines for x in re.findall(r'(-?\d+) frags', line))
     # A fight starting is logged; frags depend on who hits whom in the time
-    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost']))
+    # (both games with three bots count: under load one may see no fight)
+    fights = len(re.findall(r'Bot "\w+" fights ', logs['bhost'] + logs.get('bloop', '')))
     result.append((frags != 0 or fights > 0 or 'fighting' in ' '.join(lines),
                    'the bots fight (%d fights, %d frags in the logs)' % (fights, frags)))
     shots = NET_SHOT_RE.findall(logs['bclient'])
@@ -1400,6 +1436,13 @@ SCENARIOS = [
                       ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
                                    'W:2,SAY:hello there,W:6,S,Q'], 2)],
              check_chat, [], dark=('chost', 'cclient')),
+    # Player names and colors: a coop host and a client, each with its
+    # -name and -color; the client turns to the host's player
+    Scenario('names', [('nhost', ['-name', 'Ranger', '-color', '4', '12', '--autotest', 'host:e1m1', '{out}/nhost',
+                                  '--demo', 'W:9,S,Q', '-port', '26008', '-coop'], 0),
+                       ('nclient', ['-name', 'Scout', '-color', '13', '3', '--autotest', 'connect:127.0.0.1:26008',
+                                    '{out}/nclient', '--demo', 'W:4,A:0,P:-10,W:0.5,S,SB,Q'], 2)],
+             check_names, [], frame_checks=frames_names),
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows

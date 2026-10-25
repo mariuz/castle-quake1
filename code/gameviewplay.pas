@@ -1544,6 +1544,31 @@ begin
     FConsole.Print(Format('captions %d, hud_contrast %d, reduced_flashes %d',
       [Ord(CaptionsEnabled), Ord(HighContrastHud), Ord(ReducedFlashes)]));
   end else
+  if Cmd = 'name' then
+  begin
+    { The name in network games; no argument shows it }
+    if Args <> '' then
+    begin
+      PlayerName := Trim(Copy(Args, 1, MaxPlayerName));
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format(Tr('Name: "%s"'), [PlayerName]));
+  end else
+  if Cmd = 'color' then
+  begin
+    { color <shirt> [<pants>] (0..13) in network games, like Quake }
+    if Args <> '' then
+    begin
+      Parts := Args.Split([' '], TStringSplitOptions.ExcludeEmpty);
+      PlayerShirt := EnsureRange(StrToIntDef(Parts[0], PlayerShirt), 0, 13);
+      if Length(Parts) >= 2 then
+        PlayerPants := EnsureRange(StrToIntDef(Parts[1], PlayerPants), 0, 13)
+      else
+        PlayerPants := PlayerShirt;
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format(Tr('Colors: shirt %d, pants %d'), [PlayerShirt, PlayerPants]));
+  end else
   if (Cmd = 'fov') or (Cmd = 'gamma') or (Cmd = 'cl_bob') or (Cmd = 'r_drawviewmodel') then
   begin
     { Video options (saved like the Options menu ones); no argument shows them }
@@ -1757,6 +1782,7 @@ begin
     FConsole.Print(Tr('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,'));
     FConsole.Print(Tr('    maps_play <id> [map], maps_remove <id> - download, play and remove one'));
     FConsole.Print(Tr('  lan - Find games on the local network; lan_join <n> - join the nth'));
+    FConsole.Print(Tr('  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)'));
     FConsole.Print(Tr('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)'));
     FConsole.Print(Tr('  fov <degrees>  - Field of view at 4:3 (wider screens see more)'));
     FConsole.Print(Tr('  gamma <0.4..1.5> - Brightness, lower is brighter'));

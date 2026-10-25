@@ -198,6 +198,14 @@ msgid "No LAN game %d (lan lists them)"
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "Name: \"%s\""
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "Colors: shirt %d, pants %d"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "Language: %s (%s); lang <code> changes it:%s, auto"
 msgstr ""
 
@@ -279,6 +287,10 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -899,6 +911,14 @@ msgstr ""
 
 #: code/quakemenu.pas
 msgid "Ghost of the Best Run"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Shirt Color"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Pants Color"
 msgstr ""
 
 #: code/quakemenu.pas

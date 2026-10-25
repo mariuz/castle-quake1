@@ -113,6 +113,8 @@ uses
 
 const
   BotNames: array[0..7] of String = ('Wolf', 'Raven', 'Viper', 'Hawk', 'Cobra', 'Lynx', 'Puma', 'Fox');
+  { Shirt * 16 + pants of each bot: red, blue, green, yellow, purple... }
+  BotColors: array[0..7] of Integer = ($44, $DD, $33, $CC, $88, $29, $6B, $97);
   NavStep = 64;
   NavMaxNodes = 8000;
   NavMaxDrop = 240;
@@ -169,7 +171,7 @@ begin
   B := Default(TQuakeBot);
   B.E := Result;
   B.Name := BotNames[Length(FBots) mod Length(BotNames)];
-  if not FGame.ConnectClient(B.E, B.Name) then
+  if not FGame.ConnectClient(B.E, B.Name, BotColors[Length(FBots) mod Length(BotColors)]) then
     Exit(0);
   B.Enemy := 0;
   B.StrafeDir := 1;

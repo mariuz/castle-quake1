@@ -72,6 +72,7 @@ type
     Fire: Boolean;
     Impulse: Integer;
     Name: String;
+    Colors: Integer; { shirt * 16 + pants, as svc_updatecolors }
     InputDriven: Boolean; { moved by RunClientInput only: Frame never moves it }
   end;
 
@@ -116,7 +117,7 @@ type
     FFTeleportTime, FFTakeDamage, FFDeadFlag, FFFrame, FFSkin, FFEffects, FFWeaponModel, FFWeaponFrame,
     FFNextThink, FFThink, FFClassName, FFGoalEntity, FFEnemy, FFIdealYaw, FFSpawnFlags, FFTarget,
     FFTargetName, FFMoveDir, FFItems, FFItems2, FFArmorValue, FFCurrentAmmo, FFAmmoShells, FFAmmoNails,
-    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags: Integer;
+    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags, FFTeam: Integer;
     { Function indexes }
     FFnStartFrame, FFnPlayerPreThink, FFnPlayerPostThink, FFnClientConnect, FFnPutClientInServer,
     FFnSetNewParms, FFnSetChangeParms, FFnClientKill, FFnClientDisconnect: Integer;
@@ -184,7 +185,9 @@ type
       move this client (a client that sends nothing stands still) }
     procedure RunClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
       const Fire: Boolean; const Impulse: Integer; const Dt: Single);
-    function ConnectClient(const E: Integer; const AName: String): Boolean;
+    function ConnectClient(const E: Integer; const AName: String; const AColors: Integer = 0): Boolean;
+    { A client's colors (shirt * 16 + pants) }
+    function ClientColors(const E: Integer): Integer;
     procedure DisconnectClient(const E: Integer);
     function ClientActive(const E: Integer): Boolean;
     function ClientPhys(const E: Integer): TQuakePlayerPhysics;
@@ -282,6 +285,8 @@ type
     function EntityFrame(const E: Integer): Integer;
     function EntitySkin(const E: Integer): Integer;
     function EntityEffects(const E: Integer): Integer;
+    { The progs' colormap: a player's client number, 0 for the others }
+    function EntityColorMap(const E: Integer): Integer;
     function EntityVisible(const E: Integer): Boolean;
     { A monster (FL_MONSTER) still alive }
     function EntityIsLiveMonster(const E: Integer): Boolean;
@@ -428,6 +433,7 @@ begin
   FFWeapon := FProgs.FieldOfs('weapon');
   FFNetName := FProgs.FieldOfs('netname');
   FFColorMap := FProgs.FieldOfs('colormap');
+  FFTeam := FProgs.FieldOfs('team');
   FFFrags := FProgs.FieldOfs('frags');
   FFDmgTake := FProgs.FieldOfs('dmg_take');
 
@@ -671,6 +677,9 @@ begin
   P := FClients[E].Phys;
   FProgs.Field(E, FFColorMap)^.F := E;
   FProgs.Field(E, FFNetName)^.I := FProgs.NewString(FClients[E].Name);
+  { The team is the pants color + 1 (Host_Color_f) }
+  if FFTeam >= 0 then
+    FProgs.Field(E, FFTeam)^.F := (FClients[E].Colors and 15) + 1;
   if FFnClientConnect > 0 then
     FProgs.CallWith(FFnClientConnect, E);
   if FFnPutClientInServer > 0 then
@@ -687,13 +696,22 @@ begin
   LinkEdict(E);
 end;
 
-function TQuakeQcGame.ConnectClient(const E: Integer; const AName: String): Boolean;
+function TQuakeQcGame.ClientColors(const E: Integer): Integer;
+begin
+  if (E >= 1) and (E <= FMaxClients) then
+    Result := FClients[E].Colors
+  else
+    Result := 0;
+end;
+
+function TQuakeQcGame.ConnectClient(const E: Integer; const AName: String; const AColors: Integer): Boolean;
 begin
   Result := (E >= 1) and (E <= FMaxClients) and not FClients[E].Active and (FBsp <> nil) and FProgs.Loaded;
   if not Result then
     Exit;
   FClients[E].Active := True;
   FClients[E].Name := AName;
+  FClients[E].Colors := AColors and 255;
   FClients[E].Cmd := Default(TQuakeUserCmd);
   FClients[E].InputDriven := False;
   FClients[E].Fire := False;
@@ -2027,6 +2045,11 @@ end;
 function TQuakeQcGame.EntitySkin(const E: Integer): Integer;
 begin
   Result := Round(FProgs.Field(E, FFSkin)^.F);
+end;
+
+function TQuakeQcGame.EntityColorMap(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFColorMap)^.F);
 end;
 
 function TQuakeQcGame.EntityEffects(const E: Integer): Integer;

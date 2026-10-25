@@ -1081,3 +1081,18 @@ msgstr "Marcador"
 
 msgid "   (you, ping %d ms)"
 msgstr "   (tú, ping %d ms)"
+
+msgid "Name: \"%s\""
+msgstr "Nombre: \"%s\""
+
+msgid "Colors: shirt %d, pants %d"
+msgstr "Colores: camisa %d, pantalón %d"
+
+msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
+msgstr "  name <nombre>, color <camisa> [<pantalón>] - Tú en partidas en red (colores 0..13)"
+
+msgid "Shirt Color"
+msgstr "Color de la camisa"
+
+msgid "Pants Color"
+msgstr "Color del pantalón"

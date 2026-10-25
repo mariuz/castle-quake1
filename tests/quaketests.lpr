@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
+  QuakePak, QuakePalette, QuakeMdl, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
   CastleUnicode, ZStream, StrUtils;
 
@@ -1784,6 +1784,17 @@ begin
 end;
 
 { Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestPlayerColors;
+begin
+  StartTest('Player colors');
+  CheckEquals(5, TranslatePlayerColor(5, $4C), 'other indices stay');
+  CheckEquals(0, TranslatePlayerColor(16, 0), 'colors 0 0: the shirt row 0');
+  CheckEquals(64 + 3, TranslatePlayerColor(19, $4C), 'the shirt takes row 4');
+  CheckEquals(192 + 15 - 3, TranslatePlayerColor(99, $4C), 'the pants take row 12, reversed');
+  CheckEquals(208 + 15, TranslatePlayerColor(16, $D0), 'row 13 of the shirt is reversed');
+  CheckEquals(96, TranslatePlayerColor(96, $D6), 'pants 6: row 96');
+end;
+
 procedure TestSaveList;
 var
   D: TQuakeSaveData;
@@ -1875,6 +1886,7 @@ begin
   TestRandomMap;
   TestCaptions;
   TestSaveList;
+  TestPlayerColors;
   TestLoopback;
   TestLanDiscovery;
   TestDiskArchives;
