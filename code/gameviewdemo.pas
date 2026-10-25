@@ -28,6 +28,8 @@ type
     Scene: TCastleScene;
     Mdl: TQuakeMdl;
     ModelIndex, Frame, Skin: Integer;
+    { The colors its skin is painted in (svc_updatecolors of its colormap's client) }
+    Colors: Integer;
     TrailTimer: Single;
   end;
 
@@ -574,6 +576,8 @@ begin
     FreeAndNil(FClient);
     FClient := TQuakeNetClient.Create;
     FClient.Spectator := Spectate;
+    FClient.PlayerName := PlayerName;
+    FClient.PlayerColors := PlayerColors;
     FChatting := False;
     FChatText := '';
     FNetClock := 0;
@@ -1636,7 +1640,7 @@ var
   Yaw: Single;
   Pos: TVector3;
   Mdl: TQuakeMdl;
-  Skin: Integer;
+  Skin, Colors: Integer;
 begin
   MdlName := FDemo.ModelName(State.ModelIndex);
   if MdlName = '' then
@@ -1699,12 +1703,17 @@ begin
     Exit;
   end;
   Skin := EnsureRange(State.Skin, 0, Max(0, Mdl.SkinCount - 1));
-  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) or (V.Skin <> Skin) then
+  { A player's entity (colormap = its client number) in that client's colors }
+  Colors := 0;
+  if (State.ColorMap >= 1) and (State.ColorMap <= Length(FDemo.Colors)) then
+    Colors := FDemo.Colors[State.ColorMap - 1];
+  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) or (V.Skin <> Skin) or (V.Colors <> Colors) then
   begin
     FreeVisual(V);
     V.Transform := TCastleTransform.Create(nil);
     V.Transform.Name := ComponentName('entity');
-    V.Scene := Mdl.CreateScene(Skin);
+    V.Scene := Mdl.CreateScene(Skin, Colors);
+    V.Colors := Colors;
     V.Scene.Name := V.Transform.Name + '_scene';
     V.Scene.Collides := False;
     V.Transform.Add(V.Scene);

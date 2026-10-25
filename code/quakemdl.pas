@@ -54,6 +54,9 @@ type
     FNumVerts: Integer;
     FNumTris: Integer;
     FSkinImageIds: TStringList;
+    { The palette indices of each skin (the first frame of a skin group),
+      for the skins in a player's colors }
+    FSkinPixels: array of TBytes;
     FTriangles: array of TMdlTriangle;
     FTexCoords: array of TMdlTexCoord;
     FFrames: TMdlFrameList;
@@ -66,8 +69,13 @@ type
     { Load MDL from stream }
     function LoadFromStream(const Stream: TStream): Boolean;
 
-    { Create a new TCastleScene displaying this model }
-    function CreateScene(const SkinIndex: Integer = 0): TCastleScene;
+    { Create a new TCastleScene displaying this model; Colors (a client's
+      svc_updatecolors byte: shirt * 16 + pants) above 0 paint the skin's
+      shirt and pants rows in those colors (R_TranslatePlayerSkin) }
+    function CreateScene(const SkinIndex: Integer = 0; const Colors: Integer = 0): TCastleScene;
+
+    { The image id of a skin in Colors, made (and cached) when first asked for }
+    function ColoredSkinId(const SkinIndex, Colors: Integer): String;
 
     { Set active animation frame on an existing scene }
     procedure ApplyFrame(const Scene: TCastleScene; const FrameIndex: Integer);
@@ -136,6 +144,9 @@ type
 
 var
   MdlManager: TQuakeMdlManager;
+
+{ A palette index of a player skin in the colors shirt * 16 + pants }
+function TranslatePlayerColor(const Index, Colors: Integer): Byte;
 
 implementation
 
@@ -259,6 +270,8 @@ begin
       Stream.ReadBuffer(SkinBuf[0], SkinSize);
       ImgId := 'mdl/' + FModelName + '/skin' + IntToStr(I);
       FSkinImageIds.Add(ImgId);
+      SetLength(FSkinPixels, Length(FSkinPixels) + 1);
+      FSkinPixels[High(FSkinPixels)] := Copy(SkinBuf, 0, SkinSize);
       if Palette.HasPalette and (SkinSize > 0) then
       begin
         Img := Palette.DecodeIndexed(@SkinBuf[0], FSkinWidth, FSkinHeight, 255);
@@ -275,6 +288,8 @@ begin
         begin
           ImgId := 'mdl/' + FModelName + '/skin' + IntToStr(I);
           FSkinImageIds.Add(ImgId);
+          SetLength(FSkinPixels, Length(FSkinPixels) + 1);
+          FSkinPixels[High(FSkinPixels)] := Copy(SkinBuf, 0, SkinSize);
           if Palette.HasPalette and (SkinSize > 0) then
           begin
             Img := Palette.DecodeIndexed(@SkinBuf[0], FSkinWidth, FSkinHeight, 255);
@@ -371,7 +386,60 @@ begin
   Result := (FFrames.Count > 0) and (FNumTris > 0);
 end;
 
-function TQuakeMdl.CreateScene(const SkinIndex: Integer): TCastleScene;
+{ R_TranslatePlayerSkin: the shirt rows (16..31) and the pants rows
+  (96..111) take the row of the chosen color, reversed for the colors of
+  the second half of the palette (as Quake does) }
+function TranslatePlayerColor(const Index, Colors: Integer): Byte;
+var
+  Top, Bottom, I: Integer;
+begin
+  Result := Index;
+  Top := ((Colors shr 4) and 15) * 16;
+  Bottom := (Colors and 15) * 16;
+  if (Index >= 16) and (Index < 32) then
+  begin
+    I := Index - 16;
+    if Top < 128 then
+      Result := Top + I
+    else
+      Result := Top + 15 - I;
+  end else
+  if (Index >= 96) and (Index < 112) then
+  begin
+    I := Index - 96;
+    if Bottom < 128 then
+      Result := Bottom + I
+    else
+      Result := Bottom + 15 - I;
+  end;
+end;
+
+function TQuakeMdl.ColoredSkinId(const SkinIndex, Colors: Integer): String;
+var
+  Pixels: TBytes;
+  I: Integer;
+  Img: TCastleImage;
+begin
+  Result := '';
+  if (SkinIndex < 0) or (SkinIndex >= FSkinImageIds.Count) then
+    Exit;
+  Result := FSkinImageIds[SkinIndex];
+  if (Colors <= 0) or (SkinIndex >= Length(FSkinPixels)) or (Length(FSkinPixels[SkinIndex]) = 0) or
+     not Palette.HasPalette then
+    Exit;
+  Result := Result + '_colors' + IntToStr(Colors and 255);
+  if Palette.GetCachedImage(Result) <> nil then
+    Exit;
+  Pixels := Copy(FSkinPixels[SkinIndex]);
+  for I := 0 to High(Pixels) do
+    Pixels[I] := TranslatePlayerColor(Pixels[I], Colors);
+  Img := Palette.DecodeIndexed(@Pixels[0], FSkinWidth, FSkinHeight, 255);
+  Palette.CacheImage(Result, Img);
+  WritelnLog('QuakeMdl', 'Skin %d of "%s" in colors %d %d', [SkinIndex, FModelName, (Colors shr 4) and 15,
+    Colors and 15]);
+end;
+
+function TQuakeMdl.CreateScene(const SkinIndex: Integer; const Colors: Integer): TCastleScene;
 var
   Root: TX3DRootNode;
   Shape: TShapeNode;
@@ -427,9 +495,9 @@ begin
   App.Material := UnlitMat;
 
   if (SkinIndex >= 0) and (SkinIndex < FSkinImageIds.Count) then
-    SkinId := FSkinImageIds[SkinIndex]
+    SkinId := ColoredSkinId(SkinIndex, Colors)
   else if FSkinImageIds.Count > 0 then
-    SkinId := FSkinImageIds[0]
+    SkinId := ColoredSkinId(0, Colors)
   else
     SkinId := '';
 

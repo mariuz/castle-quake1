@@ -1081,3 +1081,18 @@ msgstr "Punktestand"
 
 msgid "   (you, ping %d ms)"
 msgstr "   (du, Ping %d ms)"
+
+msgid "Name: \"%s\""
+msgstr "Name: \"%s\""
+
+msgid "Colors: shirt %d, pants %d"
+msgstr "Farben: Hemd %d, Hose %d"
+
+msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
+msgstr "  name <Name>, color <Hemd> [<Hose>] - Du in Netzwerkspielen (Farben 0..13)"
+
+msgid "Shirt Color"
+msgstr "Hemdfarbe"
+
+msgid "Pants Color"
+msgstr "Hosenfarbe"

@@ -246,6 +246,9 @@ begin
   else
     Result.Frame := FGame.EntityFrame(E) and 255;
   Result.Skin := FGame.EntitySkin(E) and 255;
+  { A player's colormap picks its colors on the clients }
+  if (E >= 1) and (E <= FGame.MaxClients) then
+    Result.ColorMap := FGame.EntityColorMap(E) and 255;
   Result.Effects := FGame.EntityEffects(E) and 255;
   Result.Origin := FGame.EntityOrigin(E);
   Result.Angles := FGame.EntityAngles(E);
@@ -354,9 +357,22 @@ begin
   WritelnLog('QuakeServer', 'Spectator %d follows %d (%s)', [C, E, FGame.ClientName(E)]);
 end;
 
+{ A player's name: printable characters, no leading or trailing spaces }
+function SanitizedPlayerName(const S: String): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+    if (S[I] >= ' ') and (S[I] <= '~') then
+      Result := Result + S[I];
+  Result := Trim(Copy(Result, 1, MaxPlayerName));
+end;
+
 function TQuakeServer.HandleConnect(const C: Integer): Integer;
 var
   E, O: Integer;
+  PName: String;
 begin
   { A spectator takes no player slot: it watches the first player }
   if FNet.ClientSpectator(C) then
@@ -372,15 +388,23 @@ begin
   E := FGame.FreeClientSlot;
   if E = 0 then
     Exit(0);
-  if not FGame.ConnectClient(E, 'player' + IntToStr(E)) then
+  PName := SanitizedPlayerName(FNet.ClientRequestedName(C));
+  if PName = '' then
+    PName := 'player' + IntToStr(E);
+  if not FGame.ConnectClient(E, PName, FNet.ClientColors(C)) then
     Exit(0);
   FEvents[C].Clear;
   FReliable[C].Clear;
   FLastFrags[E] := 0;
-  { Everyone learns the name }
+  WritelnLog('QuakeServer', 'Client %d is "%s", colors %d %d', [E, PName,
+    FGame.ClientColors(E) shr 4, FGame.ClientColors(E) and 15]);
+  { Everyone learns the name and colors }
   for O := 1 to MaxNetClients do
     if FNet.ClientActive(O) then
+    begin
       FReliable[O].UpdateName(E - 1, FGame.ClientName(E));
+      FReliable[O].UpdateColors(E - 1, FGame.ClientColors(E));
+    end;
   Result := E;
 end;
 
@@ -399,6 +423,7 @@ begin
       begin
         FReliable[O].UpdateName(E - 1, '');
         FReliable[O].UpdateFrags(E - 1, 0);
+        FReliable[O].UpdateColors(E - 1, 0);
       end;
   end;
 end;
@@ -497,6 +522,7 @@ begin
     begin
       Msg.UpdateName(I - 1, FGame.ClientName(I));
       Msg.UpdateFrags(I - 1, FGame.PlayerFrags(I));
+      Msg.UpdateColors(I - 1, FGame.ClientColors(I));
     end;
   Msg.SignonNum(2);
   Msg.SetAngle(FGame.EntityAngles(E));
@@ -749,7 +775,10 @@ begin
     FLastFrags[E] := 0;
     for O := 1 to MaxNetClients do
       if FNet.ClientActive(O) then
+      begin
         FReliable[O].UpdateName(E - 1, FGame.ClientName(E));
+        FReliable[O].UpdateColors(E - 1, FGame.ClientColors(E));
+      end;
     Inc(Result);
   end;
 end;

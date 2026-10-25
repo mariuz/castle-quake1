@@ -6,7 +6,7 @@ unit GameInitialize;
 interface
 
 uses
-  SysUtils, Classes,
+  SysUtils, Classes, Math,
   CastleWindow, CastleLog, CastleUIControls, CastleApplicationProperties, CastleParameters,
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
@@ -37,6 +37,11 @@ var
   CmdConnect: String;
   { -spectate: join (-connect, connect:<host>) as a spectator }
   CmdSpectate: Boolean;
+  { -name / -color for this run (-1: the saved ones) }
+  CmdPlayerName: String;
+  CmdPlayerNameSet: Boolean;
+  CmdShirt: Integer = -1;
+  CmdPants: Integer = -1;
   { -record <name>: record the network game (host or client) to castle-config:/<name>.dem }
   CmdRecord: String;
   CmdRegister: String;
@@ -391,6 +396,24 @@ begin
     if (Parameters[I] = '-spectate') or (Parameters[I] = '--spectate') then
       CmdSpectate := True
     else
+    if ((Parameters[I] = '-name') or (Parameters[I] = '--name')) and (I + 1 <= Parameters.High) then
+    begin
+      CmdPlayerName := Parameters[I + 1];
+      CmdPlayerNameSet := True;
+      Inc(I);
+    end else
+    if ((Parameters[I] = '-color') or (Parameters[I] = '--color')) and (I + 1 <= Parameters.High) then
+    begin
+      { -color <shirt> [<pants>] like Quake's color command }
+      CmdShirt := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 13);
+      CmdPants := CmdShirt;
+      Inc(I);
+      if (I + 1 <= Parameters.High) and (StrToIntDef(Parameters[I + 1], -1) >= 0) then
+      begin
+        CmdPants := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 13);
+        Inc(I);
+      end;
+    end else
     if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
     begin
       ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
@@ -675,6 +698,13 @@ begin
     VideoSettingsVolatile := True
   else
     LoadVideoSettings;
+  if CmdPlayerNameSet then
+    PlayerName := CmdPlayerName;
+  if CmdShirt >= 0 then
+  begin
+    PlayerShirt := CmdShirt;
+    PlayerPants := CmdPants;
+  end;
   { The language: -lang for this run, English in headless tests (the
     reference screenshots and the logged texts), else the saved choice }
   if (CmdLang <> '') or (AutoTestMap <> '') then
@@ -710,6 +740,8 @@ begin
     CmdConnect := PageParameter('connect');
   if PageParameter('spectate') = '1' then
     CmdSpectate := True;
+  if PageParameter('name') <> '' then
+    PlayerName := PageParameter('name');
   {$endif}
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 8)) = 'wsrelay:') then
   begin

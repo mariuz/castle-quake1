@@ -53,6 +53,7 @@ const
   pkInfoQuery = 14; { -> server: seq = protocol version }
   pkInfo = 15;      { server -> asker: seq = protocol version, "map<tab>title<tab>players<tab>max<tab>mode" }
   pkChat = 16;      { client -> server: a line of chat (say) }
+  MaxPlayerName = 15;
   MaxChatLength = 120;
   { The ports a LAN query goes to (DefaultNetPort and the next ones) }
   LanQueryPorts = 4;
@@ -147,6 +148,8 @@ type
   { The fields of an entity update (entity_state_t) }
   TNetEntityState = record
     ModelIndex, Frame, Skin, Effects: Integer;
+    { A player's client number (svc_updatecolors), 0 for the rest }
+    ColorMap: Integer;
     Origin, Angles: TVector3;
   end;
 
@@ -188,6 +191,8 @@ type
     procedure SetAngle(const Angles: TVector3);
     procedure UpdateFrags(const Client, Frags: Integer);
     procedure UpdateName(const Client: Integer; const Name: String);
+    { Shirt * 16 + pants of a client }
+    procedure UpdateColors(const Client, Colors: Integer);
     { Every field is sent: the client has no baselines }
     { An entity update with only the fields that differ from its baseline
       (SV_WriteEntitiesToClient); the client takes the rest from it }
@@ -241,6 +246,10 @@ type
   public
     { Join as a spectator (set before Connect) }
     Spectator: Boolean;
+    { The player's name ('' lets the server choose) and colors (shirt * 16
+      + pants, 0 the model's own), sent when connecting }
+    PlayerName: String;
+    PlayerColors: Integer;
     constructor Create;
     destructor Destroy; override;
     function Connect(const Host: String; const Port: Word): Boolean;
@@ -280,6 +289,9 @@ type
     SignonDone: Boolean;
     { A spectator: no player of its own, Edict is the player it follows }
     Spectator: Boolean;
+    { What the client asked to be called and its colors (from the connect) }
+    Name: String;
+    Colors: Integer;
   end;
 
   TNetConnectEvent = function(const Client: Integer): Integer of object; { returns the edict, 0 to refuse }
@@ -336,6 +348,9 @@ type
     { A spectator (set when it connects, so OnConnect can ask) and the
       player it follows }
     function ClientSpectator(const C: Integer): Boolean;
+    { The name the client asked for ('' none) and its colors }
+    function ClientRequestedName(const C: Integer): String;
+    function ClientColors(const C: Integer): Integer;
     procedure SetClientEdict(const C, E: Integer);
   end;
 
@@ -1035,6 +1050,14 @@ begin
   WriteShort(Frags);
 end;
 
+procedure TQuakeNetMessage.UpdateColors(const Client, Colors: Integer);
+begin
+  BeginMessage;
+  WriteByte(17); { svc_updatecolors }
+  WriteByte(Client);
+  WriteByte(Colors);
+end;
+
 procedure TQuakeNetMessage.UpdateName(const Client: Integer; const Name: String);
 begin
   BeginMessage;
@@ -1046,7 +1069,8 @@ end;
 procedure TQuakeNetMessage.Entity(const Num: Integer; const State, Baseline: TNetEntityState);
 const
   U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_FRAME = 64; U_SIGNAL = 128;
-  U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_SKIN = 4096; U_EFFECTS = 8192; U_LONGENTITY = 16384;
+  U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_COLORMAP = 2048; U_SKIN = 4096; U_EFFECTS = 8192;
+  U_LONGENTITY = 16384;
   U_EXTEND1 = 1 shl 15; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
 var
   Bits: Integer;
@@ -1075,6 +1099,8 @@ begin
     Bits := Bits or U_MODEL;
   if State.Frame <> Baseline.Frame then
     Bits := Bits or U_FRAME;
+  if State.ColorMap <> Baseline.ColorMap then
+    Bits := Bits or U_COLORMAP;
   if State.Skin <> Baseline.Skin then
     Bits := Bits or U_SKIN;
   if State.Effects <> Baseline.Effects then
@@ -1116,6 +1142,8 @@ begin
     WriteByte(State.ModelIndex);
   if (Bits and U_FRAME) <> 0 then
     WriteByte(State.Frame);
+  if (Bits and U_COLORMAP) <> 0 then
+    WriteByte(State.ColorMap);
   if (Bits and U_SKIN) <> 0 then
     WriteByte(State.Skin);
   if (Bits and U_EFFECTS) <> 0 then
@@ -1155,7 +1183,7 @@ begin
     WriteByte(Baseline.ModelIndex);
     WriteByte(Baseline.Frame);
   end;
-  WriteByte(0); { colormap }
+  WriteByte(Baseline.ColorMap);
   WriteByte(Baseline.Skin);
   WriteCoord(Baseline.Origin.X);
   WriteAngle(Baseline.Angles.X);
@@ -1676,6 +1704,8 @@ var
   Data, P, Payload: TNetBytes;
   Seq: Word;
   Block: TNetBlock;
+  PName: String;
+  I: Integer;
 begin
   if (FState = csDisconnected) or (FSocket = nil) then
     Exit;
@@ -1716,9 +1746,13 @@ begin
     if FTimer >= 0.5 then
     begin
       FTimer := 0;
-      P := PacketHeader(pkConnect, NetProtocolVersion, Ord(Spectator));
-      if Spectator then
-        P[3] := 1;
+      { Payload: spectator, colors, name }
+      PName := Copy(PlayerName, 1, MaxPlayerName);
+      P := PacketHeader(pkConnect, NetProtocolVersion, 2 + Length(PName));
+      P[3] := Ord(Spectator);
+      P[4] := PlayerColors and 255;
+      for I := 1 to Length(PName) do
+        P[4 + I] := Ord(PName[I]);
       SendPacket(P);
     end;
     if FSinceReceive > NetTimeout then
@@ -2021,6 +2055,12 @@ begin
             end;
             E := 0;
             FClients[C].Spectator := (Length(Data) >= 4) and (Data[3] = 1);
+            FClients[C].Colors := 0;
+            FClients[C].Name := '';
+            if Length(Data) >= 5 then
+              FClients[C].Colors := Data[4];
+            if Length(Data) >= 6 then
+              FClients[C].Name := Copy(BytesName(Data, 5), 1, MaxPlayerName);
             if Assigned(OnConnect) then
               E := OnConnect(C);
             if E <= 0 then
@@ -2205,6 +2245,22 @@ end;
 function TQuakeNetServer.ClientActive(const C: Integer): Boolean;
 begin
   Result := (C >= 1) and (C <= MaxNetClients) and FClients[C].Active;
+end;
+
+function TQuakeNetServer.ClientRequestedName(const C: Integer): String;
+begin
+  if (C >= 1) and (C <= MaxNetClients) then
+    Result := FClients[C].Name
+  else
+    Result := '';
+end;
+
+function TQuakeNetServer.ClientColors(const C: Integer): Integer;
+begin
+  if (C >= 1) and (C <= MaxNetClients) then
+    Result := FClients[C].Colors
+  else
+    Result := 0;
 end;
 
 function TQuakeNetServer.ClientSpectator(const C: Integer): Boolean;

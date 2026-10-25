@@ -1081,3 +1081,18 @@ msgstr "Clasament"
 
 msgid "   (you, ping %d ms)"
 msgstr "   (tu, ping %d ms)"
+
+msgid "Name: \"%s\""
+msgstr "Nume: \"%s\""
+
+msgid "Colors: shirt %d, pants %d"
+msgstr "Culori: cămașă %d, pantaloni %d"
+
+msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
+msgstr "  name <nume>, color <cămașă> [<pantaloni>] - Tu în jocurile în rețea (culori 0..13)"
+
+msgid "Shirt Color"
+msgstr "Culoarea cămășii"
+
+msgid "Pants Color"
+msgstr "Culoarea pantalonilor"

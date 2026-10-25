@@ -1081,3 +1081,18 @@ msgstr "Classifica"
 
 msgid "   (you, ping %d ms)"
 msgstr "   (tu, ping %d ms)"
+
+msgid "Name: \"%s\""
+msgstr "Nome: \"%s\""
+
+msgid "Colors: shirt %d, pants %d"
+msgstr "Colori: maglia %d, pantaloni %d"
+
+msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
+msgstr "  name <nome>, color <maglia> [<pantaloni>] - Tu nelle partite in rete (colori 0..13)"
+
+msgid "Shirt Color"
+msgstr "Colore della maglia"
+
+msgid "Pants Color"
+msgstr "Colore dei pantaloni"

@@ -27,11 +27,19 @@ var
   ViewBob: Single = DefaultViewBob;
   { r_drawviewmodel: the first person weapon is drawn }
   ShowWeapon: Boolean = True;
+  { The player in network games: the name ('' lets the server name it
+    player<N>) and the colors 0..13 of the shirt and the pants }
+  PlayerName: String = '';
+  PlayerShirt: Integer = 0;
+  PlayerPants: Integer = 0;
   { Changes are not saved (headless tests) }
   VideoSettingsVolatile: Boolean = False;
 
 procedure LoadVideoSettings;
 procedure SaveVideoSettings;
+
+{ The colors as the network sends them: shirt * 16 + pants }
+function PlayerColors: Integer;
 
 { The vertical field of view (radians) of VideoFov at 4:3 }
 function VerticalFov: Single;
@@ -123,6 +131,14 @@ begin
   ReducedFlashes := UserConfig.GetValue('access/reduced_flashes', False);
   SpeedrunTimer := UserConfig.GetValue('speedrun/timer', False);
   GhostRacing := UserConfig.GetValue('speedrun/ghost', True);
+  PlayerName := UserConfig.GetValue('player/name', '');
+  PlayerShirt := EnsureRange(UserConfig.GetValue('player/shirt', 0), 0, 13);
+  PlayerPants := EnsureRange(UserConfig.GetValue('player/pants', 0), 0, 13);
+end;
+
+function PlayerColors: Integer;
+begin
+  Result := (PlayerShirt and 15) * 16 + (PlayerPants and 15);
 end;
 
 procedure SaveVideoSettings;
@@ -142,6 +158,9 @@ begin
     UserConfig.SetDeleteValue('access/reduced_flashes', ReducedFlashes, False);
     UserConfig.SetDeleteValue('speedrun/timer', SpeedrunTimer, False);
     UserConfig.SetDeleteValue('speedrun/ghost', GhostRacing, True);
+    UserConfig.SetDeleteValue('player/name', PlayerName, '');
+    UserConfig.SetDeleteValue('player/shirt', PlayerShirt, 0);
+    UserConfig.SetDeleteValue('player/pants', PlayerPants, 0);
     UserConfig.Save;
   except
     on E: Exception do

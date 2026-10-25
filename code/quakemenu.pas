@@ -442,6 +442,8 @@ begin
         FItems.Add('Reduced Flashes: [' + BoolToStr(ReducedFlashes, 'ON', 'OFF') + ']');
         FItems.Add('Speedrun Timer: [' + BoolToStr(SpeedrunTimer, 'ON', 'OFF') + ']');
         FItems.Add('Ghost of the Best Run: [' + BoolToStr(GhostRacing, 'ON', 'OFF') + ']');
+        FItems.Add('Shirt Color: [' + IntToStr(PlayerShirt) + ']');
+        FItems.Add('Pants Color: [' + IntToStr(PlayerPants) + ']');
         if LanguageSetting = '' then
           FItems.Add('Language: [Auto: ' + CurrentLanguageName + ']')
         else
@@ -953,20 +955,32 @@ begin
             RebuildMenuItems;
             FSelectedIdx := Selected;
           end;
-        13:
+        13, 14:
+          begin
+            { The colors of the player in network games (0..13) }
+            if FSelectedIdx = 13 then
+              PlayerShirt := (PlayerShirt + 1) mod 14
+            else
+              PlayerPants := (PlayerPants + 1) mod 14;
+            SaveVideoSettings;
+            Selected := FSelectedIdx;
+            RebuildMenuItems;
+            FSelectedIdx := Selected;
+          end;
+        15:
           begin
             { Auto (the system's), English, then the translations }
             SetLanguage(NextLanguageSetting(LanguageSetting));
             SaveLanguageSettings;
             RebuildMenuItems;
-            FSelectedIdx := 13;
+            FSelectedIdx := 15;
           end;
-        14:
+        16:
           begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        15:
+        17:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;
@@ -1021,7 +1035,7 @@ begin
         begin
           FSubMenu := smOptions;
           RebuildMenuItems;
-          FSelectedIdx := 13;
+          FSelectedIdx := 16;
           Exit;
         end;
         if (FSelectedIdx > N) and (FSelectedIdx <= N + 6) then

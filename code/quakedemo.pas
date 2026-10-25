@@ -310,6 +310,8 @@ type
     { Network: the scoreboard (svc_updatefrags, svc_updatename) }
     Frags: array[0..15] of Integer;
     Names: array[0..15] of String;
+    { svc_updatecolors: shirt * 16 + pants of each client (0: the skin's own) }
+    Colors: array[0..15] of Integer;
     FragsChanged: Boolean;
     { Network: the server set the view angles (svc_setangle); the owner
       takes ViewAngles and clears this }
@@ -1054,7 +1056,7 @@ end;
 
 procedure TQuakeDemoReader.ParseMessages;
 var
-  Cmd, I, Channel, SoundNum, Ent, Count, Color, Armor, Blood: Integer;
+  Cmd, I, V, Channel, SoundNum, Ent, Count, Color, Armor, Blood: Integer;
   Vol, Atten: Single;
   Pos, Dir: TVector3;
   S: String;
@@ -1174,8 +1176,10 @@ begin
         ReadShort;
       svc_updatecolors:
         begin
-          ReadByte;
-          ReadByte;
+          I := ReadByte;
+          V := ReadByte;
+          if (I >= 0) and (I <= High(Colors)) then
+            Colors[I] := V;
         end;
       svc_particle:
         begin
@@ -1427,6 +1431,7 @@ begin
   begin
     Frags[I] := 0;
     Names[I] := '';
+    Colors[I] := 0;
   end;
   FragsChanged := False;
   AngleFixed := False;
