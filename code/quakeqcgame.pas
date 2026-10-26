@@ -99,6 +99,7 @@ type
     FDeathmatch: Integer;
     FCoop: Integer;
     FFragLimit, FTimeLimit: Single;
+    FTeamPlay: Integer;
     FTime: Single;
     FMapName: String;
     FSkill: Integer;
@@ -188,6 +189,10 @@ type
     function ConnectClient(const E: Integer; const AName: String; const AColors: Integer = 0): Boolean;
     { A client's colors (shirt * 16 + pants) }
     function ClientColors(const E: Integer): Integer;
+    { Change a client's colors (and its team, the pants + 1) }
+    procedure SetClientColors(const E, AColors: Integer);
+    { The team of a client: its pants color + 1 (0: not a client) }
+    function ClientTeam(const E: Integer): Integer;
     procedure DisconnectClient(const E: Integer);
     function ClientActive(const E: Integer): Boolean;
     function ClientPhys(const E: Integer): TQuakePlayerPhysics;
@@ -241,6 +246,9 @@ type
     { The progs' fraglimit and timelimit (minutes): 0 for none }
     property FragLimit: Single read FFragLimit write FFragLimit;
     property TimeLimit: Single read FTimeLimit write FTimeLimit;
+    { teamplay: 1 teammates (the same pants color) are not hurt, 2 they
+      are but a frag of one costs a frag (the progs' rules) }
+    property TeamPlay: Integer read FTeamPlay write FTeamPlay;
     property Time: Single read FTime;
     property MapName: String read FMapName;
     property Skill: Integer read FSkill;
@@ -700,6 +708,23 @@ function TQuakeQcGame.ClientColors(const E: Integer): Integer;
 begin
   if (E >= 1) and (E <= FMaxClients) then
     Result := FClients[E].Colors
+  else
+    Result := 0;
+end;
+
+procedure TQuakeQcGame.SetClientColors(const E, AColors: Integer);
+begin
+  if (E < 1) or (E > FMaxClients) then
+    Exit;
+  FClients[E].Colors := AColors and 255;
+  if FClients[E].Active and FProgs.Loaded and (FFTeam >= 0) then
+    FProgs.Field(E, FFTeam)^.F := (AColors and 15) + 1;
+end;
+
+function TQuakeQcGame.ClientTeam(const E: Integer): Integer;
+begin
+  if (E >= 1) and (E <= FMaxClients) and FClients[E].Active then
+    Result := (FClients[E].Colors and 15) + 1
   else
     Result := 0;
 end;
@@ -1689,6 +1714,8 @@ begin
     Result := FFragLimit
   else if Name = 'timelimit' then
     Result := FTimeLimit
+  else if Name = 'teamplay' then
+    Result := FTeamPlay
   else if Name = 'registered' then
     Result := 1
   else

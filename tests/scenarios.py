@@ -417,6 +417,33 @@ def frames_names(out_dir):
             (yellow > area * 0.01, 'yellow pants in the middle (%d pixels)' % yellow)]
 
 
+def check_teamplay(logs):
+    result = common_checks(logs, 'thost') + common_checks(logs, 'tclient')
+    h, c = logs['thost'], logs['tclient']
+    result.append(('teamplay 1' in ''.join(re.findall(r'Rules: .*', h)), 'the host plays teamplay 1'))
+    # The client's scoreboard: two teams, the humans in their own colors
+    m = re.search(r'Scoreboard: (.*)', c)
+    board = m.group(1) if m else ''
+    teams = {}
+    for t in re.sub(r' \(you, ping \d+ ms\)', '', board).split('; '):
+        tm = re.match(r'(\w[\w ]*) team -?\d+: (.*)', t)
+        if tm:
+            teams[tm.group(1)] = [re.match(r'(\w+)', p).group(1) for p in tm.group(2).split(', ')]
+    result.append((set(teams) == {'Red', 'Blue'}, 'the scoreboard has a red and a blue team (%s)' % board))
+    result.append(('Ranger' in teams.get('Red', []) and 'Scout' in teams.get('Blue', []),
+                   'the players are in the teams of their pants'))
+    sizes = sorted(len(v) for v in teams.values())
+    result.append((len(sizes) == 2 and sizes[1] - sizes[0] <= 1 and sum(sizes) == 5,
+                   'the bots even the teams (%s)' % sizes))
+    # After the last change of teams, a bot fights only the other team
+    team_of = {n: t for t, names in teams.items() for n in names}
+    after = h.split('joins team')[-1]
+    fights = re.findall(r'Bot "(\w+)" fights (\w+)', after)
+    friendly = [f for f in fights if f[1] in team_of and team_of.get(f[0]) == team_of[f[1]]]
+    result.append((not friendly, 'no bot fights its own team (%d fights, %s)' % (len(fights), friendly)))
+    return result
+
+
 def check_dmrules(logs):
     result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
     h, c = logs['dhost'], logs['dclient']
@@ -1443,6 +1470,13 @@ SCENARIOS = [
                        ('nclient', ['-name', 'Scout', '-color', '13', '3', '--autotest', 'connect:127.0.0.1:26008',
                                     '{out}/nclient', '--demo', 'W:4,A:0,P:-10,W:0.5,S,SB,Q'], 2)],
              check_names, [], frame_checks=frames_names),
+    # Teamplay: a red host and a blue client with three bots, who even the
+    # teams and fight only the other one
+    Scenario('teamplay', [('thost', ['-name', 'Ranger', '-color', '4', '4', '-teamplay', '1', '--autotest', 'host:e1m1',
+                                     '{out}/thost', '--demo', 'W:30,SB,S,Q', '-port', '26009', '-bots', '3'], 0),
+                          ('tclient', ['-name', 'Scout', '-color', '13', '13', '--autotest', 'connect:127.0.0.1:26009',
+                                       '{out}/tclient', '--demo', 'W:25,SB,S,Q'], 2)],
+             check_teamplay, [], dark=('thost', 'tclient')),
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows

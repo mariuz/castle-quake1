@@ -1096,3 +1096,51 @@ msgstr "Culoarea cămășii"
 
 msgid "Pants Color"
 msgstr "Culoarea pantalonilor"
+
+msgid "%s team: %d"
+msgstr "Echipa %s: %d"
+
+msgid "White"
+msgstr "Alb"
+
+msgid "Brown"
+msgstr "Maro"
+
+msgid "Light Blue"
+msgstr "Bleu deschis"
+
+msgid "Green"
+msgstr "Verde"
+
+msgid "Red"
+msgstr "Roșu"
+
+msgid "Olive"
+msgstr "Oliv"
+
+msgid "Orange"
+msgstr "Portocaliu"
+
+msgid "Peach"
+msgstr "Piersică"
+
+msgid "Purple"
+msgstr "Mov"
+
+msgid "Magenta"
+msgstr "Magenta"
+
+msgid "Tan"
+msgstr "Bej"
+
+msgid "Teal"
+msgstr "Turcoaz"
+
+msgid "Yellow"
+msgstr "Galben"
+
+msgid "Blue"
+msgstr "Albastru"
+
+msgid "Team Deathmatch with 3 bots"
+msgstr "Deathmatch pe echipe cu 3 boți"

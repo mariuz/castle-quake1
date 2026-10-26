@@ -349,6 +349,7 @@ begin
         FItems.Add('Host Deathmatch: random map (port 26000)');
         FItems.Add('Deathmatch vs 3 bots: start');
         FItems.Add('Deathmatch vs 3 bots: e1m1');
+        FItems.Add('Team Deathmatch with 3 bots: e1m1');
         FItems.Add('Coop with 2 bots: e1m1');
         FItems.Add('Find LAN Games');
         FItems.Add('Join: localhost');
@@ -841,6 +842,8 @@ begin
             FOnMenuAction(maHostGame, 'bots:start')
           else if ItemText = 'Deathmatch vs 3 bots: e1m1' then
             FOnMenuAction(maHostGame, 'bots:e1m1')
+          else if ItemText = 'Team Deathmatch with 3 bots: e1m1' then
+            FOnMenuAction(maHostGame, 'teambots:e1m1')
           else if ItemText = 'Coop with 2 bots: e1m1' then
             FOnMenuAction(maHostGame, 'coopbots:e1m1')
           else if Pos('Host Deathmatch: random', ItemText) = 1 then

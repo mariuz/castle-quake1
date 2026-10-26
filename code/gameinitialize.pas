@@ -414,6 +414,11 @@ begin
         Inc(I);
       end;
     end else
+    if ((Parameters[I] = '-teamplay') or (Parameters[I] = '--teamplay')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerTeamPlay := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 2);
+      Inc(I);
+    end else
     if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
     begin
       ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
@@ -673,6 +678,8 @@ begin
   { ?bots=N: deathmatch bots on the page's listen server }
   if PageParameter('bots') <> '' then
     CmdBots := StrToIntDef(PageParameter('bots'), 0);
+  if PageParameter('teamplay') <> '' then
+    ServerTeamPlay := EnsureRange(StrToIntDef(PageParameter('teamplay'), 0), 0, 2);
   { ?lang=<code>: the language of this visit }
   if PageParameter('lang') <> '' then
     CmdLang := PageParameter('lang');
