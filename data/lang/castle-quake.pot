@@ -258,11 +258,23 @@ msgid "No LAN game %d (lan lists them)"
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "%d map records"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "Name: \"%s\""
 msgstr ""
 
 #: code/gameviewplay.pas
 msgid "Colors: shirt %d, pants %d"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "Records of %s forgotten"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "All map records forgotten"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -323,6 +335,10 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "  records [map], records_reset [map] - Best time, kills and secrets of each map and skill"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -690,6 +706,10 @@ msgid "%d maps from Quaddicted: Enter shows one, Escape goes back"
 msgstr ""
 
 #: code/quakemenu.pas
+msgid "Records: %s"
+msgstr ""
+
+#: code/quakemenu.pas
 msgid "D-pad to navigate, %s to select, %s to go back"
 msgstr ""
 
@@ -1043,6 +1063,50 @@ msgstr ""
 
 #: code/quakemenu.pas
 msgid "Installed"
+msgstr ""
+
+#: code/quakerecords.pas
+msgid "%s: %s, kills %d/%d, secrets %d/%d"
+msgstr ""
+
+#: code/quakerecords.pas
+msgid "Easy"
+msgstr ""
+
+#: code/quakerecords.pas
+msgid "Normal"
+msgstr ""
+
+#: code/quakerecords.pas
+msgid "Hard"
+msgstr ""
+
+#: code/quakerecords.pas
+msgid "Nightmare"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "First finish on %s: the record to beat"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "time %s"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "kills %d/%d"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "secrets %d/%d"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "New record on %s: %s"
+msgstr ""
+
+#: code/world/quakeworld_ghost.inc
+msgid "Record on %s: %s, kills %d/%d, secrets %d/%d"
 msgstr ""
 
 #: data/ui/hud.castle-user-interface

@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeMdl, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
+  QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
   CastleUnicode, ZStream, StrUtils;
 
@@ -1784,6 +1784,42 @@ begin
 end;
 
 { Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestMapRecords;
+var
+  Recs, Back: TMapRecords;
+  News: TRecordNews;
+  R: TMapRecord;
+begin
+  StartTest('Map records');
+  Recs := TMapRecords.Create;
+  Back := TMapRecords.Create;
+  try
+    News := Recs.Finish('E1M1', 1, 95.123, 10, 23, 2, 6);
+    Check(News.First and not News.Time, 'the first run is the record');
+    News := Recs.Finish('e1m1', 1, 100, 15, 23, 1, 6);
+    Check(not News.Time and News.Kills and not News.Secrets, 'a slower run with more kills');
+    News := Recs.Finish('e1m1', 1, 95.12, 3, 23, 6, 6);
+    Check(not News.Time and News.Secrets, 'the same time in hundredths is no record');
+    News := Recs.Finish('e1m1', 1, 80.5, 0, 23, 0, 6);
+    Check(News.Time and not News.Kills, 'a shorter time');
+    Recs.Finish('e1m1', 2, 120, 23, 23, 6, 6);
+    Back.LoadFromText(Recs.SaveToText);
+    CheckEquals(2, Back.Count, 'two skills of one map kept');
+    Check(Back.Find('e1m1', 1, R), 'found again after saving');
+    Check(SameValue(R.BestTime, 80.5, 0.001), 'the best time');
+    CheckEquals(15, R.Kills, 'the most kills');
+    CheckEquals(6, R.Secrets, 'the most secrets');
+    CheckEquals(4, R.Runs, 'the runs');
+    CheckEqualsStr('Normal: 1:20.50, kills 15/23, secrets 6/6; Hard: 2:00.00, kills 23/23, secrets 6/6',
+      Back.Describe('e1m1'), 'the map list text');
+    Back.Reset('e1m1');
+    CheckEquals(0, Back.Count, 'reset forgets the map');
+  finally
+    Recs.Free;
+    Back.Free;
+  end;
+end;
+
 procedure TestPlayerColors;
 begin
   StartTest('Player colors');
@@ -1887,6 +1923,7 @@ begin
   TestCaptions;
   TestSaveList;
   TestPlayerColors;
+  TestMapRecords;
   TestLoopback;
   TestLanDiscovery;
   TestDiskArchives;

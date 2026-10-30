@@ -108,6 +108,7 @@ type
     procedure SetPhotoMode(const On: Boolean);
     procedure SaveThumbnail(const Slot: String);
     procedure ListSavesCommand;
+    procedure ListRecordsCommand(const AMap: String);
     function PhotoPrefix: String;
     procedure SetCameraMode(const Mode: TCameraMode);
 
@@ -129,7 +130,7 @@ var
 
 implementation
 
-uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet;
+uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -694,6 +695,28 @@ begin
     FConsole.Print('  ' + Line);
     WritelnLog('GameViewPlay', '  Save %s', [Line]);
   end;
+end;
+
+procedure TViewPlay.ListRecordsCommand(const AMap: String);
+var
+  I, N: Integer;
+  R: TMapRecord;
+  Line: String;
+begin
+  N := 0;
+  for I := 0 to MapRecords.Count - 1 do
+  begin
+    R := MapRecords.Item(I);
+    if (AMap <> '') and (R.Map <> AMap) then
+      Continue;
+    Line := Format('%s on %s: %s, kills %d/%d, secrets %d/%d, %d runs', [R.Map, SkillNames[R.Skill],
+      FormatRecordTime(R.BestTime), R.Kills, R.TotalKills, R.Secrets, R.TotalSecrets, R.Runs]);
+    FConsole.Print('  ' + Line);
+    WritelnLog('Records', '  Record %s', [Line]);
+    Inc(N);
+  end;
+  FConsole.Print(Format(Tr('%d map records'), [N]));
+  WritelnLog('Records', 'Map records: %d', [N]);
 end;
 
 procedure TViewPlay.LoadGameSlot(const Slot: String);
@@ -1694,6 +1717,24 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
+  if Cmd = 'records' then
+    ListRecordsCommand(LowerCase(Args))
+  else
+  if Cmd = 'records_reset' then
+  begin
+    { records_reset [map]: forget a map's records, or all of them }
+    MapRecords.Reset(LowerCase(Args));
+    SaveMapRecords;
+    if Args <> '' then
+    begin
+      FConsole.Print(Format(Tr('Records of %s forgotten'), [LowerCase(Args)]));
+      WritelnLog('Records', 'Records reset: %s', [LowerCase(Args)]);
+    end else
+    begin
+      FConsole.Print(Tr('All map records forgotten'));
+      WritelnLog('Records', 'Records reset: all');
+    end;
+  end else
   if Cmd = 'saves' then
     ListSavesCommand
   else
@@ -1776,6 +1817,7 @@ begin
     FConsole.Print(Tr('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility'));
     FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
+    FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));

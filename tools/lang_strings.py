@@ -114,7 +114,7 @@ def collect():
                 item_parts(whole, lambda s: add(s, rel))
             elif ': ' in first:
                 add(first.split(': ')[0], rel)
-        for name in ('BindingCaptions', 'PhotoEffectCaptions', 'SortNames', 'TeamColorNames'):
+        for name in ('BindingCaptions', 'PhotoEffectCaptions', 'SortNames', 'TeamColorNames', 'SkillNames'):
             m = re.search(name + r'\s*:\s*array\[[^\]]*\]\s*of\s*String\s*=\s*\(', text)
             if m:
                 for lit in re.findall(LITERAL, call_args(text, m.end() - 1)):

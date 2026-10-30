@@ -342,3 +342,53 @@ begin
     Result := Result + 'GHOST ' + FormatRunDelta(FGhostDelta);
   end;
 end;
+
+procedure TQuakeWorld.FinishRecord;
+var
+  News: TRecordNews;
+  R: TMapRecord;
+  SkillName, Parts, Line: String;
+begin
+  { Horde mode is no run of the map }
+  if FHordeActive then
+    Exit;
+  News := MapRecords.Finish(MapName, FSkill, FPlayerStats.LevelTime, FPlayerStats.Kills,
+    FPlayerStats.TotalKills, FPlayerStats.Secrets, FPlayerStats.TotalSecrets);
+  SaveMapRecords;
+  MapRecords.Find(MapName, FSkill, R);
+  Parts := '';
+  if News.Time then
+    Parts := Parts + ' time';
+  if News.Kills then
+    Parts := Parts + ' kills';
+  if News.Secrets then
+    Parts := Parts + ' secrets';
+  if News.First then
+    Parts := ' first run';
+  if Parts = '' then
+    Parts := ' none';
+  WritelnLog('Records', 'Record of "%s" on %s: %s, kills %d/%d, secrets %d/%d, %d runs; new:%s',
+    [MapName, SkillNames[EnsureRange(FSkill, 0, 3)], FormatRecordTime(R.BestTime), R.Kills, R.TotalKills,
+     R.Secrets, R.TotalSecrets, R.Runs, Parts]);
+  if FHud = nil then
+    Exit;
+  SkillName := Tr(SkillNames[EnsureRange(FSkill, 0, 3)]);
+  if News.First then
+    Line := Format(Tr('First finish on %s: the record to beat'), [SkillName])
+  else
+  begin
+    Parts := '';
+    if News.Time then
+      Parts := Format(Tr('time %s'), [FormatRecordTime(R.BestTime)]);
+    if News.Kills then
+      Parts := Parts + IfThen(Parts <> '', ', ', '') + Format(Tr('kills %d/%d'), [R.Kills, R.TotalKills]);
+    if News.Secrets then
+      Parts := Parts + IfThen(Parts <> '', ', ', '') + Format(Tr('secrets %d/%d'), [R.Secrets, R.TotalSecrets]);
+    if Parts <> '' then
+      Line := Format(Tr('New record on %s: %s'), [SkillName, Parts])
+    else
+      Line := Format(Tr('Record on %s: %s, kills %d/%d, secrets %d/%d'), [SkillName,
+        FormatRecordTime(R.BestTime), R.Kills, R.TotalKills, R.Secrets, R.TotalSecrets]);
+  end;
+  FHud.IntermissionRecord := Line;
+end;

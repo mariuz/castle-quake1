@@ -233,3 +233,5 @@ Command line parameters:
   - `K` give all
   - `Y` god mode
   - `Q` quit
+
+- Map records (`QuakeRecords`): `TMapRecords` holds a `TMapRecord` per map and skill (best time, kills, secrets with the totals, runs) and reads / writes `castle-config:/records.txt` as tab separated lines (`MapRecords` loads it once, `SaveMapRecords`). `Finish` returns a `TRecordNews` (first run, a new time, more kills, more secrets); `TQuakeWorld.StartIntermission` calls `FinishRecord`, which saves, logs and sets `TQuakeHud.IntermissionRecord` (drawn under the tallies once they are counted). `TQuakeMenu` puts `Describe(map)` of the selected Map Warp item in the hint line.
