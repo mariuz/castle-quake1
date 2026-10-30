@@ -142,6 +142,7 @@ begin
   if FHud <> nil then
     FHud.StartIntermission(Title, FPlayerStats.LevelTime, FPlayerStats.Kills,
       FPlayerStats.TotalKills, FPlayerStats.Secrets, FPlayerStats.TotalSecrets);
+  FinishRecord;
   Sounds.PlayMusic('track03.ogg');
 end;
 

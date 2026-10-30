@@ -11,7 +11,7 @@ uses
   CastleVectors, CastleTransform, CastleScene, CastleLog, CastleColors, CastleQuaternions,
   QuakeBsp, QuakeGeometry, QuakeMdl, QuakeLight, QuakeSound, QuakeHud,
   QuakeParticles, QuakeEntities, QuakeAmbient, QuakePhysics, QuakeMonsters, QuakePak, QuakeSaveGame, QuakeDemo,
-  QuakeBehaviors, QuakeDebug;
+  QuakeBehaviors, QuakeDebug, QuakeRecords;
 
 type
   { A moment of a run: the time in the level, the origin and the yaw
@@ -215,6 +215,8 @@ type
     procedure UpdateGhostPose;
     procedure UpdateGhost(const SecondsPassed: Single);
     procedure FinishRun;
+    { Map records: this finished level's time, kills and secrets }
+    procedure FinishRecord;
     function HordeClass: String;
     function HordeSpot(const Def: TMonsterDef; const AllowVisible: Boolean; out Spot: TVector3): Boolean;
     function SpawnHordeMonster(const AClassName: String): Boolean;
@@ -369,7 +371,7 @@ type
 implementation
 
 uses
-  CastleDownload, CastleUriUtils, X3DNodes;
+  CastleDownload, CastleUriUtils, X3DNodes, StrUtils, GameTranslate;
 
 const
   { Trace entity numbers of monsters: MonsterEntityBase - index in FMonsters }

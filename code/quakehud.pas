@@ -65,6 +65,7 @@ type
     { Intermission (Sbar_IntermissionOverlay) with counting tallies }
     FIntermission: Boolean;
     FInterTitle: String;
+    FInterRecord: String;
     FInterTime: Single;
     FInterKills, FInterTotalKills, FInterSecrets, FInterTotalSecrets: Integer;
     FInterClock: Single;
@@ -122,6 +123,8 @@ type
       typed out at 8 characters per second over gfx/finale.lmp }
     procedure StartFinale(const AText: String);
     property Intermission: Boolean read FIntermission;
+    { The map's record, shown under the tallies }
+    property IntermissionRecord: String read FInterRecord write FInterRecord;
     { Set by the world once the intermission may be left }
     property IntermissionReady: Boolean read FInterReady write FInterReady;
 
@@ -433,6 +436,7 @@ procedure TQuakeHud.StartIntermission(const ATitle: String; const ATime: Single;
 begin
   FIntermission := True;
   FInterTitle := ATitle;
+  FInterRecord := '';
   FInterTime := ATime;
   FInterKills := AKills;
   FInterTotalKills := ATotalKills;
@@ -651,6 +655,10 @@ begin
     DrawSeparator(232, 144, 'num_slash', '/');
     DrawNumber(240, 144, FInterTotalKills, 3);
   end;
+
+  { The map's record, under the tallies once they are counted }
+  if (FInterRecord <> '') and (FInterStage > 2) and not FScoreboardLabel.Exists then
+    DrawText(160, 170, FInterRecord, True);
 
   if FInterReady and (FInterStage > 2) then
   begin

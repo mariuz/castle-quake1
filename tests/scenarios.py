@@ -444,6 +444,22 @@ def check_teamplay(logs):
     return result
 
 
+def check_records(logs):
+    result = common_checks(logs, 'rec1') + common_checks(logs, 'rec2')
+    a, b = logs['rec1'], logs['rec2']
+    m = re.search(r'Record of "e1m1" on Normal: (\d+):(\d+\.\d+), kills 0/23, secrets 0/6, 1 runs; new: first run', a)
+    result.append((m is not None, 'the first finish of E1M1 is its record'))
+    first = int(m.group(1)) * 60 + float(m.group(2)) if m else 0
+    m = re.search(r'Record of "e1m1" on Normal: (\d+):(\d+\.\d+), kills 0/23, secrets 0/6, 2 runs; new: time', b)
+    second = int(m.group(1)) * 60 + float(m.group(2)) if m else 0
+    result.append((m is not None and second < first, 'a faster second run is a new record (%.2f s after %.2f s)'
+                   % (second, first)))
+    result.append(('Record e1m1 on Normal:' in b and 'Map records: 1' in b, 'the console lists the record'))
+    result.append((re.search(r'Menu: Hint: Records: Normal: 0:\d\d\.\d\d, kills 0/23, secrets 0/6', b) is not None,
+                   'the map list shows the record of the selected map'))
+    return result
+
+
 def check_dmrules(logs):
     result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
     h, c = logs['dhost'], logs['dclient']
@@ -1477,6 +1493,14 @@ SCENARIOS = [
                           ('tclient', ['-name', 'Scout', '-color', '13', '13', '--autotest', 'connect:127.0.0.1:26009',
                                        '{out}/tclient', '--demo', 'W:25,SB,S,Q'], 2)],
              check_teamplay, [], dark=('thost', 'tclient')),
+    # Map records: E1M1 finished after a walk, then straight away (a new
+    # best time), listed in the console and in Map Warp's hint
+    Scenario('records', [('rec1', ['--autotest', 'e1m1', '{out}/rec1', '--demo',
+                                   'W:0.5,CMD:records_reset e1m1,Y,V:1;0;0,W:2,V:0;0;0,G:1312;-230;-544,W:6.5,S,Q'], 0),
+                         ('rec2', ['--autotest', 'e1m1', '{out}/rec2', '--demo',
+                                   'W:0.5,Y,G:1312;-230;-544,W:6.5,S,CMD:records e1m1,X,W:2,GB:start,W:0.5,GB:down,'
+                                   'W:0.3,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.5,S,Q'], 18)],
+             check_records, []),
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows

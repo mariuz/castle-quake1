@@ -1144,3 +1144,51 @@ msgstr "Bleu"
 
 msgid "Team Deathmatch with 3 bots"
 msgstr "Deathmatch en équipe avec 3 bots"
+
+msgid "%d map records"
+msgstr "%d records de cartes"
+
+msgid "Records of %s forgotten"
+msgstr "Records de %s oubliés"
+
+msgid "All map records forgotten"
+msgstr "Tous les records de cartes oubliés"
+
+msgid "  records [map], records_reset [map] - Best time, kills and secrets of each map and skill"
+msgstr "  records [carte], records_reset [carte] - Meilleur temps, victimes et secrets de chaque carte et difficulté"
+
+msgid "Records: %s"
+msgstr "Records : %s"
+
+msgid "%s: %s, kills %d/%d, secrets %d/%d"
+msgstr "%s : %s, victimes %d/%d, secrets %d/%d"
+
+msgid "Easy"
+msgstr "Facile"
+
+msgid "Normal"
+msgstr "Normal"
+
+msgid "Hard"
+msgstr "Difficile"
+
+msgid "Nightmare"
+msgstr "Cauchemar"
+
+msgid "First finish on %s: the record to beat"
+msgstr "Premier passage en %s : le record à battre"
+
+msgid "time %s"
+msgstr "temps %s"
+
+msgid "kills %d/%d"
+msgstr "victimes %d/%d"
+
+msgid "secrets %d/%d"
+msgstr "secrets %d/%d"
+
+msgid "New record on %s: %s"
+msgstr "Nouveau record en %s : %s"
+
+msgid "Record on %s: %s, kills %d/%d, secrets %d/%d"
+msgstr "Record en %s : %s, victimes %d/%d, secrets %d/%d"

@@ -89,7 +89,7 @@ implementation
 
 uses
   GameTranslate,
-  StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame, QuakeNet;
+  StrUtils, CastleLog, QuakeRandomMap, QuakeCaptions, QuakeWorld, QuakeSaveGame, QuakeNet, QuakeRecords;
 
 constructor TQuakeMenu.Create(AOwner: TComponent);
 begin
@@ -211,6 +211,12 @@ begin
   else
   if FSubMenu in [smBrowser, smBrowserMap] then
     FHintLabel.Caption := Format(Tr('%d maps from Quaddicted: Enter shows one, Escape goes back'), [MapBrowser.Count])
+  else
+  if (FSubMenu = smMaps) and (FSelectedIdx >= 0) and (FSelectedIdx < FItems.Count) and
+     (MapRecords.Describe(ChangeFileExt(ExtractFileName(FItems[FSelectedIdx]), '')) <> '') then
+    { The records of the selected map }
+    FHintLabel.Caption := Format(Tr('Records: %s'),
+      [MapRecords.Describe(ChangeFileExt(ExtractFileName(FItems[FSelectedIdx]), ''))])
   else
   if GamepadConnected then
     FHintLabel.Caption := Format(Tr('D-pad to navigate, %s to select, %s to go back'), [
