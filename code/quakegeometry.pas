@@ -183,6 +183,7 @@ type
     FLiquidTimeFields: TSFFloatList;
     FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
     FLiquidAlpha: Single;
+    FLoggedLiquidAlpha: Boolean;
     FSkyTime, FLiquidTime: Single;
     FLightmapSets: array of TQuakeLightmapSet;
     FLastStyles: array[0..63] of Single;
@@ -1347,6 +1348,7 @@ var
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
   Batch: TQuakeGeomBatch;
   SkySurface: TQuakeSkySurface;
+  MapAlpha: Single;
 begin
   for BatchPair in Batches do
   begin
@@ -1371,7 +1373,21 @@ begin
         FSkySurfaces.Add(SkySurface);
       end;
       if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
-        FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
+      begin
+        { The map's own opacity of this liquid kind (QuakeSpasm's
+          worldspawn keys) stays; the others follow r_wateralpha }
+        if WorldspawnLiquidAlpha(FBsp, Batch.TextureName, MapAlpha) then
+        begin
+          TUnlitMaterialNode(Batch.Appearance.Material).Transparency := 1 - MapAlpha;
+          if MapAlpha >= 0.999 then
+            Batch.Appearance.AlphaMode := amOpaque;
+          if not FLoggedLiquidAlpha then
+            WritelnLog('QuakeGeometry', 'Liquid alpha of "%s": %s from the worldspawn',
+              [Batch.TextureName, FormatFloat('0.##', MapAlpha)]);
+          FLoggedLiquidAlpha := True;
+        end else
+          FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
+      end;
       if Batch.LiquidTimeField <> nil then
         FLiquidTimeFields.Add(Batch.LiquidTimeField);
     end;

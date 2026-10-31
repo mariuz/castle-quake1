@@ -237,6 +237,8 @@ type
     function GetFaceCount: Integer; inline;
     function GetModelCount: Integer; inline;
     function ParseEntities(const Text: String): TQuakeEntityList;
+    { QuakeSpasm's external_ents: maps/<name>.ent replaces the entity lump }
+    procedure LoadExternalEntities(const AMapPath: String);
     procedure MakeHulls(const RawClipNodes: array of TBSPClipNode);
     function RecursiveHullCheck(const HullIdx, Num: Integer; const P1F, P2F: Single;
       const P1, P2: TVector3; var Trace: TQuakeTrace): Boolean;
@@ -349,6 +351,10 @@ function WorldspawnFog(const Bsp: TQuakeBsp; out Density: Single; out Color: TVe
 
 { The worldspawn sky key (a skybox name, gfx/env/<name>), lowercase, '' for none }
 function WorldspawnSky(const Bsp: TQuakeBsp): String;
+{ QuakeSpasm's worldspawn wateralpha, slimealpha, lavaalpha and telealpha
+  (with or without a leading underscore) for a liquid texture (*name):
+  False when the map does not set the one of its kind }
+function WorldspawnLiquidAlpha(const Bsp: TQuakeBsp; const TexName: String; out Alpha: Single): Boolean;
 
 { The world reaches beyond the 16-bit coordinates of protocols 15 and 666
   (-4096..4095.875 units): demos and network games need protocol 999 }
@@ -402,6 +408,41 @@ begin
   World := Bsp.FindEntity('worldspawn');
   if World <> nil then
     Result := LowerCase(Trim(World.GetField('sky', '')));
+end;
+
+function WorldspawnLiquidAlpha(const Bsp: TQuakeBsp; const TexName: String; out Alpha: Single): Boolean;
+var
+  World: TQuakeEntity;
+  Name, Key, V: String;
+  Fmt: TFormatSettings;
+begin
+  Result := False;
+  Alpha := 1;
+  if Bsp = nil then
+    Exit;
+  World := Bsp.FindEntity('worldspawn');
+  if World = nil then
+    Exit;
+  Name := LowerCase(TexName);
+  if Pos('*lava', Name) = 1 then
+    Key := 'lavaalpha'
+  else if Pos('*slime', Name) = 1 then
+    Key := 'slimealpha'
+  else if Pos('*tele', Name) = 1 then
+    Key := 'telealpha'
+  else
+    Key := 'wateralpha';
+  V := Trim(World.GetField(Key, ''));
+  if V = '' then
+    V := Trim(World.GetField('_' + Key, ''));
+  if V = '' then
+    Exit;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Alpha := StrToFloatDef(V, -1, Fmt);
+  Result := (Alpha >= 0) and (Alpha <= 1);
+  if not Result then
+    Alpha := 1;
 end;
 
 function EntityNotInSkill(const Ent: TQuakeEntity; const Skill: Integer): Boolean;
@@ -580,6 +621,34 @@ begin
   FMiptexes.Free;
   FEntities.Free;
   inherited Destroy;
+end;
+
+procedure TQuakeBsp.LoadExternalEntities(const AMapPath: String);
+var
+  EntPath: String;
+  Stream: TMemoryStream;
+  Text: String;
+begin
+  if not SameText(ExtractFileExt(AMapPath), '.bsp') then
+    Exit;
+  EntPath := ChangeFileExt(AMapPath, '.ent');
+  if not Pak.FileExists(EntPath) then
+    Exit;
+  Stream := Pak.GetStream(EntPath);
+  if Stream = nil then
+    Exit;
+  try
+    Text := '';
+    SetLength(Text, Stream.Size);
+    if Stream.Size > 0 then
+      Move(Stream.Memory^, Text[1], Stream.Size);
+  finally
+    Stream.Free;
+  end;
+  FEntitiesText := Text;
+  FEntities.Free;
+  FEntities := ParseEntities(FEntitiesText);
+  WritelnLog('QuakeBsp', 'Entities from "%s": %d', [EntPath, FEntities.Count]);
 end;
 
 function TQuakeBsp.ParseEntities(const Text: String): TQuakeEntityList;
@@ -1213,6 +1282,7 @@ begin
     FEntities := ParseEntities(FEntitiesText);
     WritelnLog('QuakeBsp', 'Parsed %d entities', [FEntities.Count]);
   end;
+  LoadExternalEntities(AMapPath);
 
   { 1: Planes, 3: Vertices, 13: SurfEdges, 6: TexInfo, 14: Models }
   SetLength(FPlanes, PlainCount(LUMP_PLANES, SizeOf(TBSPPlane)));

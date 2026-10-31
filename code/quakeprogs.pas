@@ -1797,7 +1797,7 @@ end;
 
 procedure TQuakeProgs.PF_dprint;
 begin
-  WritelnLog('QuakeC', Trim(ParmString(0)));
+  WritelnLog('QuakeC', Trim(QuakeText(ParmString(0))));
 end;
 
 procedure TQuakeProgs.PF_ftos;

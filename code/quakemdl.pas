@@ -148,6 +148,11 @@ var
 { A palette index of a player skin in the colors shirt * 16 + pants }
 function TranslatePlayerColor(const Index, Colors: Integer): Byte;
 
+{ An entity's alpha (FitzQuake / QuakeSpasm, 0..1) on a model or sprite
+  scene: blended below 1, else back to OpaqueMode (the scene's own) }
+procedure SetSceneOpacity(const Scene: TCastleScene; const Opacity: Single;
+  const OpaqueMode: TAlphaMode);
+
 implementation
 
 type
@@ -702,6 +707,43 @@ begin
     if Pos(Target, FFrames[I].Name) = 1 then
       Exit(I);
   Result := 0;
+end;
+
+type
+  TOpacitySetter = class
+    Opacity: Single;
+    OpaqueMode: TAlphaMode;
+    procedure Apply(Node: TX3DNode);
+  end;
+
+procedure TOpacitySetter.Apply(Node: TX3DNode);
+var
+  App: TAppearanceNode;
+begin
+  App := Node as TAppearanceNode;
+  if Opacity < 0.999 then
+    App.AlphaMode := amBlend
+  else
+    App.AlphaMode := OpaqueMode;
+  if App.Material is TUnlitMaterialNode then
+    TUnlitMaterialNode(App.Material).Transparency := 1 - Opacity;
+end;
+
+procedure SetSceneOpacity(const Scene: TCastleScene; const Opacity: Single;
+  const OpaqueMode: TAlphaMode);
+var
+  Setter: TOpacitySetter;
+begin
+  if (Scene = nil) or (Scene.RootNode = nil) then
+    Exit;
+  Setter := TOpacitySetter.Create;
+  try
+    Setter.Opacity := EnsureRange(Opacity, 0, 1);
+    Setter.OpaqueMode := OpaqueMode;
+    Scene.RootNode.EnumerateNodes(TAppearanceNode, @Setter.Apply, False);
+  finally
+    Setter.Free;
+  end;
 end;
 
 { TQuakeMdlManager }

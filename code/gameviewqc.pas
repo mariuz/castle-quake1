@@ -11,7 +11,7 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras, CastleBehaviors,
+  CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
@@ -24,11 +24,21 @@ type
     Model: String;
     Frame, Skin: Integer;
     TrailTimer: Single;
+    { The entity alpha the scene was last given (0: opaque, its own) }
+    Alpha: Single;
   end;
 
   TViewQc = class(TCastleView)
   private
     FViewport: TCastleViewport;
+    { Stuffed console commands (stuffcmd): the text up to its newline, and
+      what the commands of this level set }
+    FStuffBuffer: String;
+    FStuffFogSet: Boolean;
+    FStuffFogDensity: Single;
+    FStuffFogColor: TVector3;
+    FStuffLiquidAlpha: Single;
+    FStuffIgnored: String;
     FNavigation: TCastleWalkNavigation;
     FGame: TQuakeQcGame;
     FGeometry: TQuakeGeometry;
@@ -85,6 +95,9 @@ type
     procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
     procedure ShowSprite(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
       const Frame: Integer);
+    procedure ApplyAlpha(var V: TQcVisual; const Alpha: Single);
+    procedure ApplyStuffed;
+    procedure RunStuffedCommand(const Command: String);
     procedure UpdateWeapon;
     procedure UpdateHudStats(const SecondsPassed: Single);
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
@@ -245,6 +258,7 @@ begin
   V.Mdl := nil;
   V.Model := '';
   V.Frame := -1;
+  V.Alpha := 0;
 end;
 
 procedure TViewQc.CullVisuals;
@@ -299,6 +313,10 @@ var
 begin
   Result := False;
   ClearLevel;
+  { The stuffed commands of the last level are forgotten }
+  FStuffBuffer := '';
+  FStuffFogSet := False;
+  FStuffLiquidAlpha := -1;
   if not FGame.LoadLevel(AMapName, Skill, KeepParms) then
     Exit;
   MapName := AMapName;
@@ -321,6 +339,8 @@ begin
   FGeometry := TQuakeGeometry.Create(FGame.Bsp);
   FGeometry.AddToWorld(FViewport.Items);
   ApplyWorldFog(FViewport, FGeometry);
+  { What the progs stuffed while spawning the level }
+  ApplyStuffed;
   Lighting.CreateLightsFromBsp(FGame.Bsp, FViewport.Items);
   Lighting.ResetStyles;
   { The lightstyles the progs set while spawning (or the saved ones) }
@@ -492,6 +512,7 @@ begin
       St.Frame := FGame.EntityFrame(E);
       St.Skin := FGame.EntitySkin(E);
       St.Effects := FGame.EntityEffects(E);
+      St.Alpha := EncodeEntityAlpha(FGame.EntityAlpha(E));
       St.Origin := FGame.EntityOrigin(E);
       St.Angles := FGame.EntityAngles(E);
       FRecorder.WriteEntity(E, St);
@@ -562,11 +583,89 @@ begin
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
-procedure TViewQc.HandleStuffCmd(const E: Integer; const S: String);
+procedure TViewQc.ApplyStuffed;
 begin
-  { bf = bonus flash, the rest (cd tracks, cvars) is ignored }
-  if S = 'bf' then
-    FHud.BonusFlash;
+  if FGeometry = nil then
+    Exit;
+  if FStuffFogSet then
+    SetViewportFog(FViewport, FStuffFogDensity, FStuffFogColor);
+  if FStuffLiquidAlpha >= 0 then
+    FGeometry.LiquidAlpha := FStuffLiquidAlpha;
+end;
+
+procedure TViewQc.RunStuffedCommand(const Command: String);
+var
+  Parts: TStringArray;
+  CmdName: String;
+  Fmt: TFormatSettings;
+begin
+  Parts := Trim(Command).Split([' ', #9], TStringSplitOptions.ExcludeEmpty);
+  if Length(Parts) = 0 then
+    Exit;
+  CmdName := LowerCase(Parts[0]);
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  if CmdName = 'bf' then
+    FHud.BonusFlash
+  else
+  if CmdName = 'fog' then
+  begin
+    { fog <density> keeps the color it had }
+    if not FStuffFogSet and not WorldspawnFog(FGame.Bsp, FStuffFogDensity, FStuffFogColor) then
+    begin
+      FStuffFogDensity := 0;
+      FStuffFogColor := Vector3(0.3, 0.3, 0.3);
+    end;
+    if ParseFogCommand(Parts, FStuffFogDensity, FStuffFogColor) then
+    begin
+      FStuffFogSet := True;
+      WritelnLog('GameViewQc', 'Stuffed fog: density %s, color %s', [FormatFloat('0.####', FStuffFogDensity),
+        FStuffFogColor.ToString]);
+      ApplyStuffed;
+    end;
+  end else
+  if ((CmdName = 'r_wateralpha') or (CmdName = 'r_lavaalpha') or (CmdName = 'r_slimealpha') or (CmdName = 'r_telealpha')) and
+     (Length(Parts) >= 2) then
+  begin
+    { The liquids' opacity (Arcane Dimensions sends its water_alpha key
+      as r_wateralpha); the liquids are one material here }
+    if CmdName = 'r_wateralpha' then
+    begin
+      FStuffLiquidAlpha := EnsureRange(StrToFloatDef(Parts[1], 1, Fmt), 0, 1);
+      WritelnLog('GameViewQc', 'Stuffed r_wateralpha %s', [FormatFloat('0.##', FStuffLiquidAlpha)]);
+      ApplyStuffed;
+    end;
+  end else
+  if Pos(' ' + CmdName + ' ', FStuffIgnored + ' ') = 0 then
+  begin
+    { Logged once per command name }
+    FStuffIgnored := FStuffIgnored + ' ' + CmdName;
+    WritelnLog('GameViewQc', 'Stuffed command not run: ' + Trim(Command));
+  end;
+end;
+
+procedure TViewQc.HandleStuffCmd(const E: Integer; const S: String);
+var
+  P: Integer;
+  Line, Command: String;
+begin
+  { Only the player's (client 1) console, like the local client of Quake }
+  if E > 1 then
+    Exit;
+  { The progs send a command in pieces (stuffcmd "fog ", a number...):
+    whole lines run, like the console's command buffer }
+  FStuffBuffer := FStuffBuffer + S;
+  P := Pos(#10, FStuffBuffer);
+  while P > 0 do
+  begin
+    Line := Copy(FStuffBuffer, 1, P - 1);
+    Delete(FStuffBuffer, 1, P);
+    for Command in Line.Split([';']) do
+      RunStuffedCommand(Command);
+    P := Pos(#10, FStuffBuffer);
+  end;
+  if Length(FStuffBuffer) > 4096 then
+    FStuffBuffer := '';
 end;
 
 procedure TViewQc.HandleDamage(const E, Armor, Blood: Integer);
@@ -863,6 +962,24 @@ begin
     V.Transform.Rotation := (QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Angles.Y)) *
       QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(Angles.X)) *
       QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Angles.Z))).ToAxisAngle;
+end;
+
+procedure TViewQc.ApplyAlpha(var V: TQcVisual; const Alpha: Single);
+var
+  OpaqueMode: TAlphaMode;
+begin
+  { A new scene is opaque (Alpha 0); only a change touches the nodes }
+  if (V.Scene = nil) or (V.Alpha = Alpha) then
+    Exit;
+  V.Alpha := Alpha;
+  if LowerCase(ExtractFileExt(V.Model)) = '.spr' then
+    OpaqueMode := amMask
+  else
+    OpaqueMode := amAuto;
+  if Alpha = 0 then
+    SetSceneOpacity(V.Scene, 1, OpaqueMode)
+  else
+    SetSceneOpacity(V.Scene, Alpha, OpaqueMode);
 end;
 
 procedure TViewQc.UpdateWeapon;
@@ -1195,9 +1312,11 @@ begin
     FSubmodelUsed[I] := False;
   for E := 2 to FGame.Progs.NumEdicts - 1 do
     if FGame.EntityVisible(E) then
+    begin
       ShowVisual(FVisuals[E], FGame.EntityModel(E), FGame.EntityOrigin(E), FGame.EntityAngles(E),
-        FGame.EntityFrame(E), FGame.EntitySkin(E), FGame.EntityEffects(E), SecondsPassed)
-    else
+        FGame.EntityFrame(E), FGame.EntitySkin(E), FGame.EntityEffects(E), SecondsPassed);
+      ApplyAlpha(FVisuals[E], FGame.EntityAlpha(E));
+    end else
       HideVisual(FVisuals[E]);
   for E := FGame.Progs.NumEdicts to High(FVisuals) do
     HideVisual(FVisuals[E]);

@@ -476,6 +476,8 @@ begin
       State.ModelIndex := BigModel - I;
       State.Frame := 270 + I;
       State.Origin := Vector3(10, 20, 30 + I);
+      { FitzQuake's entity alpha: in the baseline, then changed }
+      State.Alpha := 100 + I * 50;
       W.WriteEntity(700, State);
       W.WriteSound(9000, 5, BigSound, 1, 1, Vector3(1, 2, 3));
       W.EndFrame(TVector3.Zero);
@@ -493,6 +495,8 @@ begin
     CheckEquals(270, R.Entities[700].Baseline.Frame, 'baseline frame above 255');
     CheckEquals(BigModel - 1, R.Entities[700].Msg[0].ModelIndex, 'updated model above 255');
     CheckEquals(271, R.Entities[700].Msg[0].Frame, 'updated frame above 255');
+    CheckEquals(100, R.Entities[700].Baseline.Alpha, 'baseline alpha');
+    CheckEquals(150, R.Entities[700].Msg[0].Alpha, 'updated alpha');
     CheckEquals(BigModel, R.ClientData.Weapon, 'weapon model above 255');
     CheckEquals(300, R.ClientData.Armor, 'armor above 255');
     CheckEquals(400, R.ClientData.Cells, 'cells above 255');
@@ -804,16 +808,24 @@ begin
 
     { Mods change the fog by stuffcmd }
     R.FogChanged := False;
-    R.ParseStuffText('echo hello' + #10 + 'fog 0.05 1 0 0.5;bf');
+    R.ParseStuffText('echo hello' + #10 + 'fog 0.05 1 0 0.5;bf' + #10);
     Check(R.FogChanged, 'a stuffed fog command');
     CheckNear(0.05, R.FogDensity, 1e-5, 'stuffed fog density');
     CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'stuffed fog color');
-    R.ParseStuffText('fog 0.3');
+    R.ParseStuffText('fog 0.3' + #10);
     CheckNear(0.3, R.FogDensity, 1e-5, 'fog <density> keeps the color');
     CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'the color kept');
     R.FogChanged := False;
-    R.ParseStuffText('fog 0.1 0.2');
+    R.ParseStuffText('fog 0.1 0.2' + #10);
     Check(not R.FogChanged, 'a fog command of three words is ignored');
+    { The progs send a command in pieces: it runs at the end of the line }
+    R.ParseStuffText('fog ');
+    R.ParseStuffText('0.4');
+    Check(not R.FogChanged, 'half a command waits for the rest');
+    R.ParseStuffText(' 0 1 0' + #10);
+    Check(R.FogChanged, 'the whole line runs');
+    CheckNear(0.4, R.FogDensity, 1e-5, 'the density sent in pieces');
+    CheckVector(Vector3(0, 1, 0), R.FogColor, 1e-5, 'the color sent in pieces');
   finally
     R.Free;
     W.Free;
@@ -1784,6 +1796,19 @@ begin
 end;
 
 { Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestQuakeSpasmBits;
+begin
+  StartTest('QuakeSpasm compatibility');
+  CheckEqualsStr('Hello [12]', QuakeText(#$C8#$E5#$EC#$EC#$EF' '#16#19#20#17), 'gold text and digits as plain text');
+  CheckEqualsStr('a b'#10, QuakeText('a'#1'b'#10), 'symbols as spaces, the newline kept');
+  CheckEquals(0, EncodeEntityAlpha(0), 'alpha 0 is the default');
+  CheckEquals(255, EncodeEntityAlpha(1), 'alpha 1 is opaque');
+  CheckEquals(128, EncodeEntityAlpha(0.5), 'half');
+  CheckEquals(1, EncodeEntityAlpha(0.001), 'almost invisible stays apart from the default');
+  CheckNear(1, DecodeEntityAlpha(0), 1e-6, 'the default draws opaque');
+  CheckNear(0.5, DecodeEntityAlpha(128), 0.01, 'half again');
+end;
+
 procedure TestSprites;
 var
   Spr: TQuakeSprite;
@@ -1956,6 +1981,7 @@ begin
   TestPlayerColors;
   TestMapRecords;
   TestSprites;
+  TestQuakeSpasmBits;
   TestLoopback;
   TestLanDiscovery;
   TestDiskArchives;

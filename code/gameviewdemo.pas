@@ -17,7 +17,7 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras, CastleBehaviors,
+  CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
@@ -31,6 +31,9 @@ type
     { The colors its skin is painted in (svc_updatecolors of its colormap's client) }
     Colors: Integer;
     TrailTimer: Single;
+    { The alpha byte the scene was last given (0: opaque, its own) }
+    Alpha: Integer;
+    Sprite: Boolean;
   end;
 
   { One input sent to the server, kept until the server reports it applied }
@@ -200,6 +203,7 @@ type
     procedure HandleCdTrack(const Track, LoopTrack: Integer);
     procedure HandleIntermission;
     procedure ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
+    procedure ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
     procedure HideVisual(var V: TDemoVisual);
     { Draw only the entities and brush models in the camera's PVS }
@@ -1221,6 +1225,8 @@ begin
   V.Mdl := nil;
   V.ModelIndex := 0;
   V.Frame := -1;
+  V.Alpha := 0;
+  V.Sprite := False;
 end;
 
 procedure TViewDemo.CullVisuals;
@@ -1727,6 +1733,21 @@ begin
   Sounds.PlayMusic('track03.ogg');
 end;
 
+procedure TViewDemo.ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
+var
+  OpaqueMode: TAlphaMode;
+begin
+  { A new scene is opaque (Alpha 0); only a change touches the nodes }
+  if (V.Scene = nil) or (V.Alpha = Alpha) then
+    Exit;
+  V.Alpha := Alpha;
+  if V.Sprite then
+    OpaqueMode := amMask
+  else
+    OpaqueMode := amAuto;
+  SetSceneOpacity(V.Scene, DecodeEntityAlpha(Alpha), OpaqueMode);
+end;
+
 procedure TViewDemo.ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
 var
   Spr: TQuakeSprite;
@@ -1752,6 +1773,7 @@ begin
       V.Transform.AddBehavior(Billboard);
     FViewport.Items.Add(V.Transform);
     V.ModelIndex := State.ModelIndex;
+    V.Sprite := True;
   end;
   V.Transform.Exists := True;
   Spr.ApplyFrame(V.Scene, State.Frame, FDemo.Time);
@@ -2439,8 +2461,10 @@ begin
     FSubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
     if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit or (Spectate and FSpecFree)) then
-      ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt)
-    else
+    begin
+      ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt);
+      ApplyAlpha(FVisuals[I], FDemo.Entities[I].State.Alpha);
+    end else
       HideVisual(FVisuals[I]);
   for I := 1 to High(FSubmodels) do
     if (FSubmodels[I] <> nil) and not FSubmodelUsed[I] then
