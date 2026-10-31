@@ -70,6 +70,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Recording network games: `-record <name>` with `-host` or `-connect` saves the game you play as a demo that plays back like any other.
 - Names and colors: `-name Ranger -color 4 12` (or the console's `name` / `color`, Options > Shirt Color / Pants Color) — the others see your name on the scoreboard and your player in your shirt and pants colors.
 - QuakeSpasm mods: Arcane Dimensions and other mods made for QuakeSpasm run with their own QuakeC (Map Browser > a map of the mod) — thousands of entities, fence textures, sprites, translucent entities, their fog, water alpha and music, and smoothly animated models.
+- Texture packs: `textures/<map>/<name>.tga` or `textures/<name>.tga` (or `.png`) in a mod directory replace a map's textures, with `_luma` / `_glow` glow maps, like QuakeSpasm-Spiked.
 - Map records: every finished level keeps your best time, kills and secrets per skill — the intermission tells you when you beat them, Map Warp shows them.
 - Host console: as the host of a network game, type `/status`, `/kick <name>`, `/map <name>`, `/fraglimit 10`, `/timelimit 5`, `/teamplay 1` or `/addbot` in the chat line (T).
 - Teamplay: `-host e1m1 -teamplay 1 -bots 3` (or Multiplayer > Team Deathmatch with 3 bots) — teams by pants color, no friendly fire, bots even the teams and the scoreboard shows the team totals.
