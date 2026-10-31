@@ -636,6 +636,16 @@ begin
   if CmdName = 'bf' then
     FHud.BonusFlash
   else
+  if CmdName = 'v_cshift' then
+  begin
+    { The screen's tint out of liquids, for the mods' effects (QuakeSpasm's
+      cshift_empty): v_cshift r g b percent, all 0 none }
+    if Length(Parts) >= 5 then
+      FHud.SetEmptyShift(StrToFloatDef(Parts[1], 0, Fmt), StrToFloatDef(Parts[2], 0, Fmt),
+        StrToFloatDef(Parts[3], 0, Fmt), StrToFloatDef(Parts[4], 0, Fmt))
+    else
+      FHud.SetEmptyShift(0, 0, 0, 0);
+  end else
   if CmdName = 'fog' then
   begin
     { fog <density> keeps the color it had }

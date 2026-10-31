@@ -653,9 +653,32 @@ const
   function LoadRgba(const Path: String): TRGBAlphaImage;
   var
     Loaded: TCastleImage;
+    Stream: TMemoryStream;
+    Mime: String;
   begin
     Result := nil;
-    Loaded := LoadImage('quakepak:/' + Path, [TRGBAlphaImage, TRGBImage]);
+    { The paks give no MIME type: the extension's }
+    if SameText(ExtractFileExt(Path), '.png') then
+      Mime := 'image/png'
+    else
+      Mime := 'image/x-tga';
+    Stream := Pak.GetStream(Path);
+    if Stream = nil then
+      Exit;
+    try
+      try
+        Loaded := LoadImage(Stream, Mime, [TRGBAlphaImage, TRGBImage]);
+      except
+        on E: Exception do
+        begin
+          { A file the image loader cannot read keeps the map's texture }
+          WritelnWarning('QuakeBsp', 'Cannot read the external texture "%s": %s', [Path, E.Message]);
+          Exit;
+        end;
+      end;
+    finally
+      Stream.Free;
+    end;
     if Loaded is TRGBAlphaImage then
       Result := TRGBAlphaImage(Loaded)
     else
