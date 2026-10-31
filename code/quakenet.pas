@@ -151,6 +151,8 @@ type
     { A player's client number (svc_updatecolors), 0 for the rest }
     ColorMap: Integer;
     Origin, Angles: TVector3;
+    { FitzQuake's alpha byte (ENTALPHA_ENCODE, 0 opaque), not in protocol 15 }
+    Alpha: Integer;
   end;
 
   { Builds svc messages; the boundaries let the signon be cut into
@@ -1071,7 +1073,7 @@ const
   U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_FRAME = 64; U_SIGNAL = 128;
   U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_COLORMAP = 2048; U_SKIN = 4096; U_EFFECTS = 8192;
   U_LONGENTITY = 16384;
-  U_EXTEND1 = 1 shl 15; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
+  U_EXTEND1 = 1 shl 15; U_ALPHA = 1 shl 16; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
 var
   Bits: Integer;
 
@@ -1122,6 +1124,8 @@ begin
   { FitzQuake: the high bytes of a model or frame above 255 }
   if NetGameProtocol <> 15 then
   begin
+    if State.Alpha <> Baseline.Alpha then
+      Bits := Bits or U_ALPHA or U_EXTEND1;
     if ((Bits and U_MODEL) <> 0) and (State.ModelIndex > 255) then
       Bits := Bits or U_MODEL2 or U_EXTEND1;
     if ((Bits and U_FRAME) <> 0) and (State.Frame > 255) then
@@ -1160,6 +1164,8 @@ begin
     WriteCoord(State.Origin.Z);
   if (Bits and U_ANGLE3) <> 0 then
     WriteAngle(State.Angles.Z);
+  if (Bits and U_ALPHA) <> 0 then
+    WriteByte(State.Alpha);
   if (Bits and U_FRAME2) <> 0 then
     WriteByte(State.Frame shr 8);
   if (Bits and U_MODEL2) <> 0 then
@@ -1169,11 +1175,14 @@ end;
 procedure TQuakeNetMessage.SpawnBaseline(const Num: Integer; const Baseline: TNetEntityState);
 begin
   BeginMessage;
-  if (NetGameProtocol <> 15) and ((Baseline.ModelIndex > 255) or (Baseline.Frame > 255)) then
+  if (NetGameProtocol <> 15) and ((Baseline.ModelIndex > 255) or (Baseline.Frame > 255) or (Baseline.Alpha <> 0)) then
   begin
-    WriteByte(42); { svc_spawnbaseline2: B_LARGEMODEL, B_LARGEFRAME }
+    WriteByte(42); { svc_spawnbaseline2: B_LARGEMODEL, B_LARGEFRAME (and B_ALPHA) }
     WriteShort(Num);
-    WriteByte(3);
+    if Baseline.Alpha <> 0 then
+      WriteByte(3 or 4)
+    else
+      WriteByte(3);
     WriteShort(Baseline.ModelIndex);
     WriteShort(Baseline.Frame);
   end else
@@ -1191,6 +1200,8 @@ begin
   WriteAngle(Baseline.Angles.Y);
   WriteCoord(Baseline.Origin.Z);
   WriteAngle(Baseline.Angles.Z);
+  if (NetGameProtocol <> 15) and (Baseline.Alpha <> 0) then
+    WriteByte(Baseline.Alpha);
 end;
 
 procedure TQuakeNetMessage.ClientData(const ViewHeight: Single; const Velocity: TVector3; const Items: Cardinal;

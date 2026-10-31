@@ -1192,3 +1192,6 @@ msgstr "Record nou pe %s: %s"
 
 msgid "Record on %s: %s, kills %d/%d, secrets %d/%d"
 msgstr "Record pe %s: %s, victime %d/%d, secrete %d/%d"
+
+msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
+msgstr "  r_lerpmodels <0|1> - Trecere lină a modelelor între poze (modul QuakeC, demo-uri, rețea)"

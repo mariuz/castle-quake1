@@ -119,6 +119,8 @@ Player dimensions:
 
 ## 5. QuakeBsp & QuakeGeometry: 3D Map Generation
 
+![Arcane Dimensions' hub: lightmaps, a skybox and fence textures](screenshots/arcane-dimensions-hub.jpg)
+
 - Reads Quake BSP version 29 lumps:
   - Faces, vertices, edges, surfedges, planes, texinfo, miptex, models, entities, nodes, leaves, marksurfaces, visibility, clipnodes, lightmaps.
 - BSP2 and 2PSB (`TQuakeBsp.Format`): `LoadFromStream` reads the nodes, leaves, clipnodes, edges, faces and marksurfaces of each format's on-disk layout (`TBSP29Node`, `TBSP2PSBNode`, `TBSP2Node`...) into the same wide records (32-bit indexes, float node / leaf bounds), so the rest of the engine does not know the difference. BSP29 node and clipnode children are read as unsigned shorts like QuakeSpasm (maps with more than 32767 nodes). `tests/bsp2convert.py` rewrites a BSP29 map in both formats; the `bsp2` gameplay scenario loads E1M1 converted to each and compares it with the original.
@@ -159,6 +161,8 @@ Player dimensions:
 ---
 
 ## 7. QuakeMdl: 3D Alias Models
+
+![A player model in its network colors (shirt 4, pants 12)](screenshots/player-colors.jpg)
 
 - Decodes Quake 1 Alias `.mdl` files (`IDPO`, version 6).
 - Converts skins into CGE textures.
@@ -235,3 +239,5 @@ Command line parameters:
   - `Q` quit
 
 - Map records (`QuakeRecords`): `TMapRecords` holds a `TMapRecord` per map and skill (best time, kills, secrets with the totals, runs) and reads / writes `castle-config:/records.txt` as tab separated lines (`MapRecords` loads it once, `SaveMapRecords`). `Finish` returns a `TRecordNews` (first run, a new time, more kills, more secrets); `TQuakeWorld.StartIntermission` calls `FinishRecord`, which saves, logs and sets `TQuakeHud.IntermissionRecord` (drawn under the tallies once they are counted). `TQuakeMenu` puts `Describe(map)` of the selected Map Warp item in the hint line.
+
+- QuakeSpasm compatibility: `QuakeSprite` (`TQuakeSprite`, `SpriteManager`) reads `.spr` version 1 into a scene whose `SpriteFrames` Switch holds a quad per image; `ApplyFrame` picks the frame (a group's image by its intervals) and `CreateBillboard` returns the `TCastleBillboard` of the sprite type, which the views add to the visual's transform (`TViewQc.ShowSprite`, `TViewDemo.ShowSprite`). Entity alpha: `TQuakeQcGame.EntityAlpha` → `TQuakeServer.EntityState` (`EncodeEntityAlpha`, protocol 666 when `UsesAlpha`) → `TQuakeNetMessage.Entity` / `SpawnBaseline` (`U_ALPHA`, `B_ALPHA`) → `TQuakeDemoReader` (`TDemoEntityState.Alpha`, the baseline when the bit is missing) → `ApplyAlpha` / `SetSceneOpacity` (appearances blended with the unlit material's transparency, back to the scene's own alpha mode when opaque). Fence textures: `TQuakeGeomBatch.IsFence` gives the appearance `amMask` and, with lightmaps, `CreateFenceEffect` before the lightmap effect (it discards alpha below 0.5 and sets the alpha to 0, the lightmap shader's "not fullbright"). Stuffed text: `TViewQc.HandleStuffCmd` and `TQuakeDemoReader.ParseStuffText` buffer it to a newline and split it at semicolons; `ParseFogCommand` is shared. Pose blending: `TQcVisual` / `TDemoVisual` keep `PrevFrame`, `LerpStart` and `LerpDone`, and `UpdatePose` calls `TQuakeMdl.ApplyLerp` until `ModelLerpTime` passed.

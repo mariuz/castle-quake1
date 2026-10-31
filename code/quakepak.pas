@@ -187,6 +187,11 @@ type
   'id1/maps/'), the longest matching prefix wins; True with the path in
   the paks (relative to its directory) when it lands in id1 or GameDir (a
   mod's: quoth, ad...) }
+{ Text in Quake's character set as plain text, like QuakeSpasm's console
+  shows it: the gold half (128..255) as the plain one, the gold digits and
+  brackets as digits and brackets, the other symbols as spaces }
+function QuakeText(const S: String): String;
+
 function MapArchivePath(const Mapping, ZipPath: String; out PakPath: String;
   const GameDir: String = 'id1'): Boolean;
 
@@ -201,6 +206,26 @@ implementation
 
 var
   NameCounters: specialize TDictionary<String, Integer>;
+
+function QuakeText(const S: String): String;
+var
+  I, C: Integer;
+begin
+  Result := S;
+  for I := 1 to Length(Result) do
+  begin
+    C := Ord(Result[I]) and 127;
+    case C of
+      10, 13: ;
+      16: C := Ord('[');
+      17: C := Ord(']');
+      18..27: C := Ord('0') + C - 18;
+      28: C := Ord('.');
+      0..9, 11, 12, 14, 15, 29..31, 127: C := Ord(' ');
+    end;
+    Result[I] := Chr(C);
+  end;
+end;
 
 function ComponentName(const Base: String): String;
 var

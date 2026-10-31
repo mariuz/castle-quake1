@@ -14,7 +14,7 @@ interface
 uses
   SysUtils, Classes, Math, StrUtils, Generics.Collections,
   CastleVectors, CastleLog,
-  QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots;
+  QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots, QuakeDemo;
 
 type
   TQuakeServer = class
@@ -216,6 +216,18 @@ end;
 procedure TQuakeServer.BuildLists;
 var
   I: Integer;
+
+  { An entity of the level is translucent (FitzQuake's alpha field) }
+  function UsesAlpha: Boolean;
+  var
+    E: Integer;
+  begin
+    for E := 1 to FGame.Progs.NumEdicts - 1 do
+      if not FGame.Progs.EdictFree(E) and (FGame.EntityAlpha(E) <> 0) then
+        Exit(True);
+    Result := False;
+  end;
+
 begin
   { The protocol's model 1 is the map; the progs' precache list follows,
     so a progs modelindex is one more on the wire }
@@ -234,7 +246,8 @@ begin
   if (NetForceProtocol = 999) or MapNeedsLargeCoords(FGame.Bsp) then
     NetGameProtocol := 999
   else
-  if (NetForceProtocol = 666) or (FModels.Count > 255) or (FSounds.Count > 255) or (FSkybox <> '') or FHasFog then
+  if (NetForceProtocol = 666) or (FModels.Count > 255) or (FSounds.Count > 255) or (FSkybox <> '') or FHasFog or
+     UsesAlpha then
     NetGameProtocol := 666
   else
     NetGameProtocol := 15;
@@ -257,6 +270,8 @@ begin
   if (E >= 1) and (E <= FGame.MaxClients) then
     Result.ColorMap := FGame.EntityColorMap(E) and 255;
   Result.Effects := FGame.EntityEffects(E) and 255;
+  if NetGameProtocol <> 15 then
+    Result.Alpha := EncodeEntityAlpha(FGame.EntityAlpha(E));
   Result.Origin := FGame.EntityOrigin(E);
   Result.Angles := FGame.EntityAngles(E);
 end;
@@ -595,7 +610,9 @@ begin
   ForClients(E, True, First, Last);
   for C := First to Last do
     if (C > 0) and FNet.ClientActive(C) then
-      FReliable[C].StuffText(S + #10);
+      { The progs' text as it is: a command may come in pieces, its
+        newline ends it on the client }
+      FReliable[C].StuffText(S);
 end;
 
 procedure TQuakeServer.HandleLightStyle(const Style: Integer; const Value: String);

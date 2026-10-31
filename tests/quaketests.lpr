@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
+  QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
   CastleUnicode, ZStream, StrUtils;
 
@@ -476,6 +476,8 @@ begin
       State.ModelIndex := BigModel - I;
       State.Frame := 270 + I;
       State.Origin := Vector3(10, 20, 30 + I);
+      { FitzQuake's entity alpha: in the baseline, then changed }
+      State.Alpha := 100 + I * 50;
       W.WriteEntity(700, State);
       W.WriteSound(9000, 5, BigSound, 1, 1, Vector3(1, 2, 3));
       W.EndFrame(TVector3.Zero);
@@ -493,6 +495,8 @@ begin
     CheckEquals(270, R.Entities[700].Baseline.Frame, 'baseline frame above 255');
     CheckEquals(BigModel - 1, R.Entities[700].Msg[0].ModelIndex, 'updated model above 255');
     CheckEquals(271, R.Entities[700].Msg[0].Frame, 'updated frame above 255');
+    CheckEquals(100, R.Entities[700].Baseline.Alpha, 'baseline alpha');
+    CheckEquals(150, R.Entities[700].Msg[0].Alpha, 'updated alpha');
     CheckEquals(BigModel, R.ClientData.Weapon, 'weapon model above 255');
     CheckEquals(300, R.ClientData.Armor, 'armor above 255');
     CheckEquals(400, R.ClientData.Cells, 'cells above 255');
@@ -804,16 +808,24 @@ begin
 
     { Mods change the fog by stuffcmd }
     R.FogChanged := False;
-    R.ParseStuffText('echo hello' + #10 + 'fog 0.05 1 0 0.5;bf');
+    R.ParseStuffText('echo hello' + #10 + 'fog 0.05 1 0 0.5;bf' + #10);
     Check(R.FogChanged, 'a stuffed fog command');
     CheckNear(0.05, R.FogDensity, 1e-5, 'stuffed fog density');
     CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'stuffed fog color');
-    R.ParseStuffText('fog 0.3');
+    R.ParseStuffText('fog 0.3' + #10);
     CheckNear(0.3, R.FogDensity, 1e-5, 'fog <density> keeps the color');
     CheckVector(Vector3(1, 0, 0.5), R.FogColor, 1e-5, 'the color kept');
     R.FogChanged := False;
-    R.ParseStuffText('fog 0.1 0.2');
+    R.ParseStuffText('fog 0.1 0.2' + #10);
     Check(not R.FogChanged, 'a fog command of three words is ignored');
+    { The progs send a command in pieces: it runs at the end of the line }
+    R.ParseStuffText('fog ');
+    R.ParseStuffText('0.4');
+    Check(not R.FogChanged, 'half a command waits for the rest');
+    R.ParseStuffText(' 0 1 0' + #10);
+    Check(R.FogChanged, 'the whole line runs');
+    CheckNear(0.4, R.FogDensity, 1e-5, 'the density sent in pieces');
+    CheckVector(Vector3(0, 1, 0), R.FogColor, 1e-5, 'the color sent in pieces');
   finally
     R.Free;
     W.Free;
@@ -1784,6 +1796,50 @@ begin
 end;
 
 { Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestQuakeSpasmBits;
+begin
+  StartTest('QuakeSpasm compatibility');
+  CheckEqualsStr('Hello [12]', QuakeText(#$C8#$E5#$EC#$EC#$EF' '#16#19#20#17), 'gold text and digits as plain text');
+  CheckEqualsStr('a b'#10, QuakeText('a'#1'b'#10), 'symbols as spaces, the newline kept');
+  CheckEquals(0, EncodeEntityAlpha(0), 'alpha 0 is the default');
+  CheckEquals(255, EncodeEntityAlpha(1), 'alpha 1 is opaque');
+  CheckEquals(128, EncodeEntityAlpha(0.5), 'half');
+  CheckEquals(1, EncodeEntityAlpha(0.001), 'almost invisible stays apart from the default');
+  CheckNear(1, DecodeEntityAlpha(0), 1e-6, 'the default draws opaque');
+  CheckNear(0.5, DecodeEntityAlpha(128), 0.01, 'half again');
+end;
+
+procedure TestSprites;
+var
+  Spr: TQuakeSprite;
+  Scene: TCastleScene;
+  Switch: TSwitchNode;
+begin
+  StartTest('Sprites');
+  Spr := SpriteManager.GetSprite('progs/s_explod.spr');
+  Check(Spr <> nil, 'the explosion sprite loads');
+  if Spr = nil then
+    Exit;
+  CheckEquals(6, Spr.FrameCount, 'six explosion frames');
+  CheckEquals(SPR_VP_PARALLEL, Spr.SpriteType, 'it faces the view');
+  Scene := Spr.CreateScene;
+  try
+    Switch := Scene.RootNode.TryFindNodeByName(TSwitchNode, 'SpriteFrames', False) as TSwitchNode;
+    Check(Switch <> nil, 'the frames are in a switch');
+    if Switch <> nil then
+    begin
+      CheckEquals(6, Switch.FdChildren.Count, 'one quad per frame');
+      Spr.ApplyFrame(Scene, 3, 0);
+      CheckEquals(3, Switch.WhichChoice, 'frame 3 shown');
+      Spr.ApplyFrame(Scene, 99, 0);
+      CheckEquals(0, Switch.WhichChoice, 'a frame out of range shows the first');
+    end;
+  finally
+    Scene.Free;
+  end;
+  Check(SpriteManager.GetSprite('progs/nothing.spr') = nil, 'a missing sprite is nil');
+end;
+
 procedure TestMapRecords;
 var
   Recs, Back: TMapRecords;
@@ -1924,6 +1980,8 @@ begin
   TestSaveList;
   TestPlayerColors;
   TestMapRecords;
+  TestSprites;
+  TestQuakeSpasmBits;
   TestLoopback;
   TestLanDiscovery;
   TestDiskArchives;

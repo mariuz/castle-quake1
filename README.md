@@ -27,6 +27,14 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | "Dynamic PBR" world lighting with shadow maps, instead of the lightmaps | QuakeC mode: `progs.dat` runs the level |
 | ![Demo playback](docs/screenshots/demo-playback.jpg) | ![Multiplayer](docs/screenshots/multiplayer.jpg) |
 | The PAK demos play back (protocol 15) | Deathmatch over UDP with the scoreboard |
+| ![Arcane Dimensions hub](docs/screenshots/arcane-dimensions-hub.jpg) | ![Arcane Dimensions first map](docs/screenshots/arcane-dimensions-e1m1.jpg) |
+| Arcane Dimensions, made for QuakeSpasm, with its own QuakeC: fence textures (the vines) and thousands of entities | AD's first map with the fog and water alpha its QuakeC sets |
+| ![Player colors](docs/screenshots/player-colors.jpg) | ![Map record](docs/screenshots/map-record.jpg) |
+| Player names and shirt / pants colors in a network game | Map records: the intermission tells you about a new best |
+| ![Four player split-screen](docs/screenshots/split-screen-four.jpg) | ![Random map](docs/screenshots/random-map.jpg) |
+| Split-screen coop for up to four players | Random maps built from a seed |
+| ![Photo mode](docs/screenshots/photo-mode-dof.jpg) | ![Horde mode](docs/screenshots/horde-mode.jpg) |
+| Photo mode with depth of field | Horde mode: waves of monsters with a score |
 
 ---
 
@@ -61,6 +69,7 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 - Chat: in a network game T opens a line to say something to everyone.
 - Recording network games: `-record <name>` with `-host` or `-connect` saves the game you play as a demo that plays back like any other.
 - Names and colors: `-name Ranger -color 4 12` (or the console's `name` / `color`, Options > Shirt Color / Pants Color) — the others see your name on the scoreboard and your player in your shirt and pants colors.
+- QuakeSpasm mods: Arcane Dimensions and other mods made for QuakeSpasm run with their own QuakeC (Map Browser > a map of the mod) — thousands of entities, fence textures, sprites, translucent entities, their fog, water alpha and music, and smoothly animated models.
 - Map records: every finished level keeps your best time, kills and secrets per skill — the intermission tells you when you beat them, Map Warp shows them.
 - Teamplay: `-host e1m1 -teamplay 1 -bots 3` (or Multiplayer > Team Deathmatch with 3 bots) — teams by pants color, no friendly fire, bots even the teams and the scoreboard shows the team totals.
 - Spectators: `-connect host -spectate` (or Multiplayer > Spectate) watches a network game without playing: fire follows the next player, jump flies freely.

@@ -206,6 +206,9 @@ type
   TDemoEntityState = record
     ModelIndex, Frame, ColorMap, Skin, Effects: Integer;
     Origin, Angles: TVector3;
+    { FitzQuake's entity alpha (ENTALPHA_ENCODE): 0 the default (opaque),
+      1 invisible .. 255 opaque }
+    Alpha: Integer;
   end;
 
   TDemoEntity = record
@@ -248,6 +251,7 @@ type
     FMsg: PByte;
     FMsgSize, FMsgPos: Integer;
     FBadMessage: Boolean;
+    FStuffBuffer: String;
     FDisconnected: Boolean;
     FNetwork: Boolean;
     FNetBlocks: specialize TQueue<TBytes>;
@@ -469,7 +473,55 @@ const
   MaxFitzModels = 2048;
   MaxFitzSounds = 2048;
 
+{ ENTALPHA_ENCODE / ENTALPHA_DECODE: the progs' alpha (0 the default,
+  else 0..1) as the protocol's byte, and back as the opacity 0..1 }
+function EncodeEntityAlpha(const A: Single): Integer;
+function DecodeEntityAlpha(const B: Integer): Single;
+
+{ FitzQuake's fog command: fog <density>, fog <r g b>, fog <density r g b>
+  [time]; False when Parts is not one }
+function ParseFogCommand(const Parts: TStringArray; var Density: Single; var Color: TVector3): Boolean;
+
 implementation
+
+function ParseFogCommand(const Parts: TStringArray; var Density: Single; var Color: TVector3): Boolean;
+var
+  Fmt: TFormatSettings;
+begin
+  Result := (Length(Parts) >= 2) and SameText(Parts[0], 'fog') and (Length(Parts) <> 3);
+  if not Result then
+    Exit;
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  case Length(Parts) of
+    2: Density := StrToFloatDef(Parts[1], Density, Fmt);
+    4: Color := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
+         StrToFloatDef(Parts[3], 0.3, Fmt));
+    else
+      begin
+        { density r g b, and a fade time that is not used }
+        Density := StrToFloatDef(Parts[1], Density, Fmt);
+        Color := Vector3(StrToFloatDef(Parts[2], 0.3, Fmt), StrToFloatDef(Parts[3], 0.3, Fmt),
+          StrToFloatDef(Parts[4], 0.3, Fmt));
+      end;
+  end;
+end;
+
+function EncodeEntityAlpha(const A: Single): Integer;
+begin
+  if A = 0 then
+    Result := 0
+  else
+    Result := EnsureRange(Round(A * 254) + 1, 1, 255);
+end;
+
+function DecodeEntityAlpha(const B: Integer): Single;
+begin
+  if B = 0 then
+    Result := 1
+  else
+    Result := (B - 1) / 254;
+end;
 
 function StandardLightStyle(const Index: Integer): String;
 begin
@@ -736,39 +788,34 @@ end;
 
 procedure TQuakeDemoReader.ParseStuffText(const Text: String);
 var
-  Command: String;
+  Line, Command: String;
   Parts: TStringArray;
-  Fmt: TFormatSettings;
+  P: Integer;
 begin
-  { Only the commands that change what is drawn: FitzQuake's fog <density>,
-    fog <r g b>, fog <density r g b> [time] (mods send them by stuffcmd) }
-  Fmt := DefaultFormatSettings;
-  Fmt.DecimalSeparator := '.';
-  for Command in Text.Split([#10, ';'], TStringSplitOptions.ExcludeEmpty) do
+  { The progs send a command in pieces (stuffcmd "fog ", a number, ...):
+    only whole lines are run, like the console's command buffer. Only the
+    commands that change what is drawn: FitzQuake's fog and the team play
+    of the server }
+  FStuffBuffer := FStuffBuffer + Text;
+  P := Pos(#10, FStuffBuffer);
+  while P > 0 do
   begin
-    Parts := Trim(Command).Split([' '], TStringSplitOptions.ExcludeEmpty);
-    if (Length(Parts) = 2) and SameText(Parts[0], 'teamplay') then
+    Line := Copy(FStuffBuffer, 1, P - 1);
+    Delete(FStuffBuffer, 1, P);
+    for Command in Line.Split([';'], TStringSplitOptions.ExcludeEmpty) do
     begin
-      TeamPlay := StrToIntDef(Parts[1], 0);
-      Continue;
-    end;
-    if (Length(Parts) < 2) or not SameText(Parts[0], 'fog') then
-      Continue;
-    case Length(Parts) of
-      2: FogDensity := StrToFloatDef(Parts[1], FogDensity, Fmt);
-      3: Continue; { not a fog form }
-      4: FogColor := Vector3(StrToFloatDef(Parts[1], 0.3, Fmt), StrToFloatDef(Parts[2], 0.3, Fmt),
-           StrToFloatDef(Parts[3], 0.3, Fmt));
+      Parts := Trim(Command).Split([' '], TStringSplitOptions.ExcludeEmpty);
+      if (Length(Parts) = 2) and SameText(Parts[0], 'teamplay') then
+        TeamPlay := StrToIntDef(Parts[1], 0)
       else
-      begin
-        { density r g b, and a fade time that is not used }
-        FogDensity := StrToFloatDef(Parts[1], FogDensity, Fmt);
-        FogColor := Vector3(StrToFloatDef(Parts[2], 0.3, Fmt), StrToFloatDef(Parts[3], 0.3, Fmt),
-          StrToFloatDef(Parts[4], 0.3, Fmt));
-      end;
+      if ParseFogCommand(Parts, FogDensity, FogColor) then
+        FogChanged := True;
     end;
-    FogChanged := True;
+    P := Pos(#10, FStuffBuffer);
   end;
+  { A command never ended is dropped }
+  if Length(FStuffBuffer) > 4096 then
+    FStuffBuffer := '';
 end;
 
 procedure TQuakeDemoReader.ParseServerInfo;
@@ -844,8 +891,9 @@ begin
   State.Origin.Z := ReadCoord;
   State.Angles.Z := ReadAngle;
   State.Effects := 0;
+  State.Alpha := 0;
   if (Bits and B_ALPHA) <> 0 then
-    ReadByte;
+    State.Alpha := ReadByte;
 end;
 
 procedure TQuakeDemoReader.ParseUpdate(Bits: Integer);
@@ -930,10 +978,11 @@ begin
 
   { PROTOCOL_FITZQUAKE: the high bytes of the model and frame, alpha,
     scale (RMQ) and the lerp finish time }
+  E^.Msg[0].Alpha := E^.Baseline.Alpha;
   if Protocol <> ProtocolNetQuake then
   begin
     if (Bits and U_ALPHA) <> 0 then
-      ReadByte;
+      E^.Msg[0].Alpha := ReadByte;
     if (Bits and U_SCALE) <> 0 then
       ReadByte;
     if (Bits and U_FRAME2) <> 0 then
@@ -1131,7 +1180,7 @@ begin
         end;
       svc_print:
         begin
-          S := ReadString;
+          S := QuakeText(ReadString);
           if Assigned(OnPrint) then
             OnPrint(S);
         end;
@@ -1239,7 +1288,7 @@ begin
         end;
       svc_centerprint:
         begin
-          S := ReadString;
+          S := QuakeText(ReadString);
           if Assigned(OnCenterPrint) then
             OnCenterPrint(S);
         end;
@@ -1874,7 +1923,9 @@ begin
     Bits := Bits or U_ANGLE3;
   if Num > 255 then
     Bits := Bits or U_LONGENTITY;
-  { PROTOCOL_FITZQUAKE: the high bytes of a model or frame above 255 }
+  { PROTOCOL_FITZQUAKE: the alpha, the high bytes of a model or frame above 255 }
+  if State.Alpha <> B.Alpha then
+    Bits := Bits or U_ALPHA;
   if ((Bits and U_MODEL) <> 0) and (State.ModelIndex > 255) then
     Bits := Bits or U_MODEL2;
   if ((Bits and U_FRAME) <> 0) and (State.Frame > 255) then
@@ -1916,6 +1967,8 @@ begin
     WriteCoord(State.Origin.Z);
   if (Bits and U_ANGLE3) <> 0 then
     WriteAngle(State.Angles.Z);
+  if (Bits and U_ALPHA) <> 0 then
+    WriteByte(State.Alpha);
   if (Bits and U_FRAME2) <> 0 then
     WriteByte(State.Frame shr 8);
   if (Bits and U_MODEL2) <> 0 then
@@ -2122,7 +2175,8 @@ begin
       WriteString(#2 + #10 + 'Castle Quake demo' + #10);
       { Baselines above 255 need PROTOCOL_FITZQUAKE too }
       for I := 1 to MaxDemoEntities - 1 do
-        if Sec.HasBaseline[I] and ((Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255)) then
+        if Sec.HasBaseline[I] and ((Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255) or
+           (Sec.Baselines[I].Alpha <> 0)) then
           Sec.Fitz := True;
       { The section's coordinates and angles are written in its encoding }
       FLarge := Sec.LargeCoords;
@@ -2174,12 +2228,16 @@ begin
       for I := 1 to MaxDemoEntities - 1 do
         if Sec.HasBaseline[I] then
         begin
-          if (Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255) then
+          if (Sec.Baselines[I].ModelIndex > 255) or (Sec.Baselines[I].Frame > 255) or
+             (Sec.Baselines[I].Alpha <> 0) then
           begin
-            { svc_spawnbaseline2 with 16-bit model and frame }
+            { svc_spawnbaseline2 with 16-bit model and frame (and the alpha) }
             WriteByte(svc_spawnbaseline2);
             WriteWord(I);
-            WriteByte(B_LARGEMODEL or B_LARGEFRAME);
+            if Sec.Baselines[I].Alpha <> 0 then
+              WriteByte(B_LARGEMODEL or B_LARGEFRAME or B_ALPHA)
+            else
+              WriteByte(B_LARGEMODEL or B_LARGEFRAME);
             WriteWord(Sec.Baselines[I].ModelIndex);
             WriteWord(Sec.Baselines[I].Frame);
           end else
@@ -2197,6 +2255,8 @@ begin
           WriteAngle(Sec.Baselines[I].Angles.Y);
           WriteCoord(Sec.Baselines[I].Origin.Z);
           WriteAngle(Sec.Baselines[I].Angles.Z);
+          if Sec.Baselines[I].Alpha <> 0 then
+            WriteByte(Sec.Baselines[I].Alpha);
         end;
       WriteByte(svc_updatestat);
       WriteByte(STAT_TOTALSECRETS);

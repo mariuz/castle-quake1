@@ -42,6 +42,8 @@ type
     Material: TMaterialNode;
     IsSky: Boolean;
     IsLiquid: Boolean;
+    { A fence texture (its name starts with a brace): palette index 255 is a hole }
+    IsFence: Boolean;
     { Index of the lightmap atlas page the batch's lightmap coordinates use }
     LightmapPage: Integer;
     { Shader uniforms of the sky effect (only when IsSky), owned by the X3D graph }
@@ -181,6 +183,7 @@ type
     FLiquidTimeFields: TSFFloatList;
     FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
     FLiquidAlpha: Single;
+    FLoggedLiquidAlpha: Boolean;
     FSkyTime, FLiquidTime: Single;
     FLightmapSets: array of TQuakeLightmapSet;
     FLastStyles: array[0..63] of Single;
@@ -475,6 +478,15 @@ const
     '  fragment_color.a = 1.0;' + LineEnding +
     '}' + LineEnding;
 
+  { Fence textures: the holes (alpha 0) are discarded, the rest is lit by
+    the lightmap shader that runs next (alpha 0: no fullbright texel) }
+  FenceFragmentShader =
+    'void PLUG_main_texture_apply(inout vec4 fragment_color, const in vec3 normal)' + LineEnding +
+    '{' + LineEnding +
+    '  if (fragment_color.a < 0.5) discard;' + LineEnding +
+    '  fragment_color.a = 0.0;' + LineEnding +
+    '}' + LineEnding;
+
   { Both layers repeat after 128 texels: 16 s for the back one, 8 s for the front one.
     Wrapping keeps the shader time small (float precision). }
   SkyTimePeriod = 16.0;
@@ -569,6 +581,21 @@ begin
   Indices := TInt32List.Create;
   IsSky := (Pos('sky', LowerCase(ATexName)) = 1);
   IsLiquid := (Length(ATexName) > 0) and (ATexName[1] = '*');
+  IsFence := (Length(ATexName) > 0) and (ATexName[1] = '{');
+end;
+
+{ The fence texture's hole cutting, a node of its own for each batch (the
+  X3D graph owns it) }
+function CreateFenceEffect: TEffectNode;
+var
+  FragmentPart: TEffectPartNode;
+begin
+  Result := TEffectNode.Create;
+  Result.Language := slGLSL;
+  FragmentPart := TEffectPartNode.Create;
+  FragmentPart.ShaderType := stFragment;
+  FragmentPart.Contents := FenceFragmentShader;
+  Result.SetParts([FragmentPart]);
 end;
 
 destructor TQuakeGeomBatch.Destroy;
@@ -719,7 +746,10 @@ begin
     StylesAttrib.FdValue.Items.Assign(LMStyles);
     Geometry.FdAttrib.Add(LMCoordAttrib);
     Geometry.FdAttrib.Add(StylesAttrib);
-    Appearance.SetEffects([Lightmaps.Effect]);
+    if IsFence then
+      Appearance.SetEffects([CreateFenceEffect, Lightmaps.Effect])
+    else
+      Appearance.SetEffects([Lightmaps.Effect]);
   end else
   begin
     if UnlitMat <> nil then
@@ -743,6 +773,10 @@ begin
     LiquidEffect.SetParts([FragmentPart]);
     Appearance.SetEffects([LiquidEffect]);
   end else
+  if IsFence then
+    { The holes are cut out in every lighting mode }
+    Appearance.AlphaMode := amMask
+  else
     Appearance.AlphaMode := amOpaque;
 
   Shape := TShapeNode.Create;
@@ -1314,6 +1348,7 @@ var
   BatchPair: specialize TPair<String, TQuakeGeomBatch>;
   Batch: TQuakeGeomBatch;
   SkySurface: TQuakeSkySurface;
+  MapAlpha: Single;
 begin
   for BatchPair in Batches do
   begin
@@ -1338,7 +1373,21 @@ begin
         FSkySurfaces.Add(SkySurface);
       end;
       if Batch.IsLiquid and (Batch.Appearance.Material is TUnlitMaterialNode) then
-        FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
+      begin
+        { The map's own opacity of this liquid kind (QuakeSpasm's
+          worldspawn keys) stays; the others follow r_wateralpha }
+        if WorldspawnLiquidAlpha(FBsp, Batch.TextureName, MapAlpha) then
+        begin
+          TUnlitMaterialNode(Batch.Appearance.Material).Transparency := 1 - MapAlpha;
+          if MapAlpha >= 0.999 then
+            Batch.Appearance.AlphaMode := amOpaque;
+          if not FLoggedLiquidAlpha then
+            WritelnLog('QuakeGeometry', 'Liquid alpha of "%s": %s from the worldspawn',
+              [Batch.TextureName, FormatFloat('0.##', MapAlpha)]);
+          FLoggedLiquidAlpha := True;
+        end else
+          FLiquidMaterials.Add(TUnlitMaterialNode(Batch.Appearance.Material));
+      end;
       if Batch.LiquidTimeField <> nil then
         FLiquidTimeFields.Add(Batch.LiquidTimeField);
     end;

@@ -17,10 +17,10 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras,
+  CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
 type
   TDemoVisual = record
@@ -31,6 +31,13 @@ type
     { The colors its skin is painted in (svc_updatecolors of its colormap's client) }
     Colors: Integer;
     TrailTimer: Single;
+    { The alpha byte the scene was last given (0: opaque, its own) }
+    Alpha: Integer;
+    Sprite: Boolean;
+    { r_lerpmodels: the pose blends from PrevFrame since LerpStart }
+    PrevFrame: Integer;
+    LerpStart: Single;
+    LerpDone: Boolean;
   end;
 
   { One input sent to the server, kept until the server reports it applied }
@@ -199,6 +206,9 @@ type
     procedure HandleLightStyle(const Index: Integer; const Pattern: String);
     procedure HandleCdTrack(const Track, LoopTrack: Integer);
     procedure HandleIntermission;
+    procedure ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
+    procedure ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
+    procedure UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
     procedure HideVisual(var V: TDemoVisual);
     { Draw only the entities and brush models in the camera's PVS }
@@ -1220,6 +1230,8 @@ begin
   V.Mdl := nil;
   V.ModelIndex := 0;
   V.Frame := -1;
+  V.Alpha := 0;
+  V.Sprite := False;
 end;
 
 procedure TViewDemo.CullVisuals;
@@ -1726,6 +1738,85 @@ begin
   Sounds.PlayMusic('track03.ogg');
 end;
 
+procedure TViewDemo.UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
+var
+  F: Integer;
+  T: Single;
+begin
+  F := EnsureRange(Frame, 0, Max(0, Mdl.FrameCount - 1));
+  if V.Frame <> F then
+  begin
+    { A new pose: blend from the last one (a new scene starts at it) }
+    if V.Frame < 0 then
+      V.PrevFrame := F
+    else
+      V.PrevFrame := V.Frame;
+    V.Frame := F;
+    V.LerpStart := Time;
+    V.LerpDone := False;
+  end;
+  if V.LerpDone then
+    Exit;
+  T := (Time - V.LerpStart) / ModelLerpTime;
+  if not ModelLerp or (V.PrevFrame = F) or (T >= 1) or (T < 0) then
+  begin
+    Mdl.ApplyFrame(V.Scene, F);
+    V.LerpDone := True;
+  end else
+    Mdl.ApplyLerp(V.Scene, V.PrevFrame, F, T);
+end;
+
+procedure TViewDemo.ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
+var
+  OpaqueMode: TAlphaMode;
+begin
+  { A new scene is opaque (Alpha 0); only a change touches the nodes }
+  if (V.Scene = nil) or (V.Alpha = Alpha) then
+    Exit;
+  V.Alpha := Alpha;
+  if V.Sprite then
+    OpaqueMode := amMask
+  else
+    OpaqueMode := amAuto;
+  SetSceneOpacity(V.Scene, DecodeEntityAlpha(Alpha), OpaqueMode);
+end;
+
+procedure TViewDemo.ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
+var
+  Spr: TQuakeSprite;
+  Billboard: TCastleBillboard;
+begin
+  Spr := SpriteManager.GetSprite(MdlName);
+  if Spr = nil then
+  begin
+    HideVisual(V);
+    Exit;
+  end;
+  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) then
+  begin
+    FreeVisual(V);
+    V.Transform := TCastleTransform.Create(nil);
+    V.Transform.Name := ComponentName('entity');
+    V.Scene := Spr.CreateScene;
+    V.Scene.Name := V.Transform.Name + '_scene';
+    V.Transform.Add(V.Scene);
+    V.Transform.InsertComponent(V.Scene);
+    Billboard := Spr.CreateBillboard(V.Transform);
+    if Billboard <> nil then
+      V.Transform.AddBehavior(Billboard);
+    FViewport.Items.Add(V.Transform);
+    V.ModelIndex := State.ModelIndex;
+    V.Sprite := True;
+  end;
+  V.Transform.Exists := True;
+  Spr.ApplyFrame(V.Scene, State.Frame, FDemo.Time);
+  V.Transform.Translation := QuakeToCge(State.Origin);
+  if Spr.SpriteType = SPR_ORIENTED then
+    V.Transform.Rotation := (QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(State.Angles.Y)) *
+      QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(State.Angles.X)) *
+      QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(State.Angles.Z))).ToAxisAngle;
+end;
+
 procedure TViewDemo.ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
 var
   MdlName: String;
@@ -1751,6 +1842,8 @@ begin
     begin
       FSubmodels[Skin].Transform.Exists := True;
       FSubmodels[Skin].Transform.Translation := QuakeToCge(State.Origin);
+      { Rotating brush entities turn around their origin (R_RotateForEntity) }
+      FSubmodels[Skin].Transform.Rotation := QuakeAnglesRotation(State.Angles);
       FSubmodelOrigin[Skin] := State.Origin;
       FSubmodelUsed[Skin] := True;
     end;
@@ -1782,9 +1875,13 @@ begin
     Exit;
   end;
 
+  if LowerCase(ExtractFileExt(MdlName)) = '.spr' then
+  begin
+    ShowSprite(V, MdlName, State);
+    Exit;
+  end;
   if LowerCase(ExtractFileExt(MdlName)) <> '.mdl' then
   begin
-    { Sprites are not drawn }
     HideVisual(V);
     Exit;
   end;
@@ -1818,11 +1915,7 @@ begin
     V.TrailTimer := 0;
   end;
   V.Transform.Exists := True;
-  if V.Frame <> State.Frame then
-  begin
-    V.Frame := State.Frame;
-    Mdl.ApplyFrame(V.Scene, EnsureRange(State.Frame, 0, Max(0, Mdl.FrameCount - 1)));
-  end;
+  UpdatePose(V, Mdl, State.Frame, FDemo.Time);
 
   Pos := QuakeToCge(State.Origin);
   V.Transform.Translation := Pos;
@@ -2399,8 +2492,10 @@ begin
     FSubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
     if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit or (Spectate and FSpecFree)) then
-      ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt)
-    else
+    begin
+      ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt);
+      ApplyAlpha(FVisuals[I], FDemo.Entities[I].State.Alpha);
+    end else
       HideVisual(FVisuals[I]);
   for I := 1 to High(FSubmodels) do
     if (FSubmodels[I] <> nil) and not FSubmodelUsed[I] then

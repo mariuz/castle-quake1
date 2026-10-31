@@ -15,7 +15,8 @@ uses
 
 const
   ProgsVersion = 6;
-  MaxEdicts = 600;
+  { QuakeSpasm's max_edicts: mods like Arcane Dimensions need thousands }
+  MaxEdicts = 8192;
   MaxProgStack = 32;
   LocalStackSize = 2048;
   MaxRunaway = 100000;
@@ -865,20 +866,28 @@ var
   I: Integer;
   T: Single;
 begin
-  { ED_Alloc: reuse a slot freed more than 0.5 s ago, else a new one }
+  { ED_Alloc: reuse a slot of the ones in use freed more than 0.5 s ago,
+    else the next one (only the edicts in use are searched) }
   T := Global(FGTime)^.F;
-  for I := 1 to MaxEdicts - 1 do
+  for I := 1 to FNumEdicts - 1 do
     if FEdictFree[I] and ((FEdictFreeTime[I] < 2) or (T - FEdictFreeTime[I] > 0.5)) then
     begin
       FEdictFree[I] := False;
       FillChar(FEdicts[I * FEntityFields], FEntityFields * SizeOf(TProgCell), 0);
-      if I >= FNumEdicts then
-        FNumEdicts := I + 1;
       Inc(Statistics.Spawned);
       Exit(I);
     end;
-  Error('ED_Alloc: no free edicts');
-  Result := 0;
+  I := Max(FNumEdicts, 1);
+  if I >= MaxEdicts then
+  begin
+    Error('ED_Alloc: no free edicts');
+    Exit(0);
+  end;
+  FEdictFree[I] := False;
+  FillChar(FEdicts[I * FEntityFields], FEntityFields * SizeOf(TProgCell), 0);
+  FNumEdicts := I + 1;
+  Inc(Statistics.Spawned);
+  Result := I;
 end;
 
 procedure TQuakeProgs.FreeEdict(const E: Integer);
@@ -1788,7 +1797,7 @@ end;
 
 procedure TQuakeProgs.PF_dprint;
 begin
-  WritelnLog('QuakeC', Trim(ParmString(0)));
+  WritelnLog('QuakeC', Trim(QuakeText(ParmString(0))));
 end;
 
 procedure TQuakeProgs.PF_ftos;

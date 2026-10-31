@@ -118,7 +118,7 @@ type
     FFTeleportTime, FFTakeDamage, FFDeadFlag, FFFrame, FFSkin, FFEffects, FFWeaponModel, FFWeaponFrame,
     FFNextThink, FFThink, FFClassName, FFGoalEntity, FFEnemy, FFIdealYaw, FFSpawnFlags, FFTarget,
     FFTargetName, FFMoveDir, FFItems, FFItems2, FFArmorValue, FFCurrentAmmo, FFAmmoShells, FFAmmoNails,
-    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags, FFTeam: Integer;
+    FFAmmoRockets, FFAmmoCells, FFWeapon, FFView_Ofs, FFNetName, FFColorMap, FFDmgTake, FFFrags, FFTeam, FFAlpha: Integer;
     { Function indexes }
     FFnStartFrame, FFnPlayerPreThink, FFnPlayerPostThink, FFnClientConnect, FFnPutClientInServer,
     FFnSetNewParms, FFnSetChangeParms, FFnClientKill, FFnClientDisconnect: Integer;
@@ -293,6 +293,9 @@ type
     function EntityFrame(const E: Integer): Integer;
     function EntitySkin(const E: Integer): Integer;
     function EntityEffects(const E: Integer): Integer;
+    { The progs' alpha field (FitzQuake / QuakeSpasm): 0 the default
+      (opaque), else the opacity 0..1 }
+    function EntityAlpha(const E: Integer): Single;
     { The progs' colormap: a player's client number, 0 for the others }
     function EntityColorMap(const E: Integer): Integer;
     function EntityVisible(const E: Integer): Boolean;
@@ -442,6 +445,7 @@ begin
   FFNetName := FProgs.FieldOfs('netname');
   FFColorMap := FProgs.FieldOfs('colormap');
   FFTeam := FProgs.FieldOfs('team');
+  FFAlpha := FProgs.FieldOfs('alpha');
   FFFrags := FProgs.FieldOfs('frags');
   FFDmgTake := FProgs.FieldOfs('dmg_take');
 
@@ -1673,14 +1677,14 @@ end;
 procedure TQuakeQcGame.CenterPrint(const Progs: TQuakeProgs; const E: Integer; const S: String);
 begin
   if Assigned(OnCenterPrint) then
-    OnCenterPrint(E, S);
+    OnCenterPrint(E, QuakeText(S));
 end;
 
 procedure TQuakeQcGame.Print(const Progs: TQuakeProgs; const S: String);
 begin
-  WritelnLog('QuakeC', Trim(S));
+  WritelnLog('QuakeC', Trim(QuakeText(S)));
   if Assigned(OnPrint) then
-    OnPrint(S);
+    OnPrint(QuakeText(S));
 end;
 
 procedure TQuakeQcGame.AmbientSound(const Progs: TQuakeProgs; const Org: TVector3; const Sample: String;
@@ -1736,7 +1740,7 @@ end;
 procedure TQuakeQcGame.StuffCmd(const Progs: TQuakeProgs; const E: Integer; const Cmd: String);
 begin
   if Assigned(OnStuffCmd) then
-    OnStuffCmd(E, Trim(Cmd));
+    OnStuffCmd(E, Cmd);
 end;
 
 procedure TQuakeQcGame.WriteMessage(const Progs: TQuakeProgs; const Dest, Kind: Integer; const Value: TVector3;
@@ -2082,6 +2086,13 @@ end;
 function TQuakeQcGame.EntityEffects(const E: Integer): Integer;
 begin
   Result := Round(FProgs.Field(E, FFEffects)^.F);
+end;
+
+function TQuakeQcGame.EntityAlpha(const E: Integer): Single;
+begin
+  if FFAlpha < 0 then
+    Exit(0);
+  Result := FProgs.Field(E, FFAlpha)^.F;
 end;
 
 function TQuakeQcGame.EntityIsLiveMonster(const E: Integer): Boolean;

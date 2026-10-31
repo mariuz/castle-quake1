@@ -342,6 +342,10 @@ msgid "  records [map], records_reset [map] - Best time, kills and secrets of ea
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "  saves          - List the saved games (the Load Game menu)"
 msgstr ""
 

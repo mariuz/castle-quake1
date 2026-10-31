@@ -11,6 +11,10 @@ redistribution, so the zips are fetched by URL and checked by SHA-256):
     grim    The Grim Outpost (BSP2)
     udob1_4 Drowning in Space, a map for Copper (the map browser installs
             Copper with it and plays it with Copper's QuakeC)
+    ad      Arcane Dimensions 1.81, the mod made for QuakeSpasm (320 MB, put
+            in the config directory as installed): its hub and first map
+            with its QuakeC, thousands of edicts, fence textures, sprites,
+            translucent entities and the fog and water alpha it stuffs
 
 Run from the repository root after a release build:
 
@@ -69,14 +73,17 @@ def fetch(cache, entry):
     for attempt in range(2):
         if not os.path.exists(path):
             try:
-                with urllib.request.urlopen(URL + entry['zip'], timeout=120) as response, open(path + '.part', 'wb') as f:
+                with urllib.request.urlopen(URL + entry['zip'], timeout=600) as response, open(path + '.part', 'wb') as f:
                     shutil.copyfileobj(response, f)
                 os.replace(path + '.part', path)
             except Exception as e:  # network trouble: reported as a failure of this map
                 print('  download of %s failed: %s' % (entry['zip'], e))
                 return None
+        sha = hashlib.sha256()
         with open(path, 'rb') as f:
-            digest = hashlib.sha256(f.read()).hexdigest()
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                sha.update(chunk)
+        digest = sha.hexdigest()
         if digest == entry['sha256']:
             return path
         print('  %s has SHA-256 %s, expected %s: fetching it again' % (entry['zip'], digest, entry['sha256']))
@@ -212,6 +219,57 @@ def check_map(exe, out, mod, entry, budgets, update, results, measured):
                         % (where, row['ms_average'], b['ms_average'], limit)))
 
 
+AD = {'name': 'ad', 'id': 'ad_v1_80p1final', 'zip': 'ad_v1_80p1final.zip',
+      'sha256': '7ad993da6c760c446ca31fad71e9f5b6c9eee99b6354f161aa746b572fe70a7d'}
+DRAWN_RE = re.compile(r'Entities drawn: (\d+) models, (\d+) sprites, (\d+) translucent')
+
+
+def config_dir():
+    """Where the game keeps castle-config:/ on Linux and macOS"""
+    base = os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
+    return os.path.join(base, 'castle-quake1')
+
+
+def check_arcane_dimensions(exe, out, cache, results):
+    """Arcane Dimensions, QuakeSpasm's showcase mod: the zip goes to the
+    config directory as the map browser keeps an installed one, which then
+    mounts it (unpacking its deflated paks once) and plays two of its maps
+    with AD's progs.dat"""
+    zip_path = fetch(cache, AD)
+    if zip_path is None:
+        results.append((False, 'ad: %s downloaded with the expected SHA-256' % AD['zip']))
+        return
+    os.makedirs(config_dir(), exist_ok=True)
+    installed = os.path.join(config_dir(), 'quaddicted_%s.zip' % AD['id'])
+    if not os.path.exists(installed) or os.path.getsize(installed) != os.path.getsize(zip_path):
+        shutil.copyfile(zip_path, installed)
+    runs = [('start', 'W:0.5,CMD:maps_play %s start,W:10,Y,G:-140;100;230,A:270,W:1,S,Q' % AD['id']),
+            ('ad_e1m1', 'W:0.5,CMD:maps_play %s ad_e1m1,W:10,S,Q' % AD['id'])]
+    for name, demo in runs:
+        code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'ad_' + name), '--demo', demo],
+                        os.path.join(out, 'ad_%s.log' % name))
+        tag = 'ad %s' % name
+        results.append((code == 0 and 'Exception "' not in log, '%s: the run exits with 0 (got %s)' % (tag, code)))
+        results.append(('Playing "%s" in QuakeC mode (ad)' % name in log and
+                        'Level "%s" spawned by the progs' % name in log, '%s: AD\'s QuakeC spawns the level' % tag))
+        errors = re.findall(r'QuakeC error in (\w+)', log)
+        results.append((not errors and 'no free edicts' not in log,
+                        '%s: no QuakeC errors (%s)' % (tag, ', '.join(sorted(set(errors))) or 'none')))
+        qc_lines = [l for l in log.splitlines() if l.startswith('QuakeC: ')]
+        results.append((all(all(ord(c) < 128 for c in l) for l in qc_lines),
+                        '%s: the gold text of the prints reads as plain text' % tag))
+        drawn = DRAWN_RE.findall(log)
+        models, sprites, translucent = (int(x) for x in drawn[-1]) if drawn else (0, 0, 0)
+        if name == 'start':
+            results.append(('Fence textures (alpha tested)' in log, '%s: the fence textures are cut out' % tag))
+            results.append((sprites > 0 and 'Loaded sprite' in log, '%s: sprites drawn (%d)' % (tag, sprites)))
+            results.append((translucent > 0, '%s: translucent entities drawn (%d of %d models and sprites)'
+                            % (tag, translucent, models + sprites)))
+        else:
+            results.append(('Stuffed fog: density' in log and 'Stuffed r_wateralpha' in log,
+                            '%s: the fog and water alpha AD stuffs are applied' % tag))
+
+
 def check_mod_map(exe, out, results):
     """A map for a mod through the map browser: udob1_4 (Drowning in Space)
     needs Copper, which the game downloads first from Quaddicted, mounts in
@@ -268,6 +326,11 @@ def main():
     print('=== udob1_4 (needs Copper)', flush=True)
     start = len(results)
     check_mod_map(args.exe, args.out, results)
+    for ok, text in results[start:]:
+        print('  %s %s' % ('ok  ' if ok else 'FAIL', text), flush=True)
+    print('=== Arcane Dimensions', flush=True)
+    start = len(results)
+    check_arcane_dimensions(args.exe, args.out, args.cache, results)
     for ok, text in results[start:]:
         print('  %s %s' % ('ok  ' if ok else 'FAIL', text), flush=True)
     with open(os.path.join(args.out, 'community.json'), 'w') as f:

@@ -185,8 +185,11 @@ begin
 
   StopMusic;
 
-  { Look in castle-data:/music/ first, or quakepak }
-  MusicUrl := 'castle-data:/music/' + TrackName;
+  { A full URL (a mod's music in the paks), else the bundled tracks }
+  if Pos(':', TrackName) > 0 then
+    MusicUrl := TrackName
+  else
+    MusicUrl := 'castle-data:/music/' + TrackName;
   try
     FMusicSound := TCastleSound.Create(nil);
     FMusicSound.Url := MusicUrl;
@@ -209,6 +212,19 @@ var
 begin
   if Track <= 0 then
     Exit;
+  { QuakeSpasm plays the game directory's music/trackNN first: a mod's
+    own tracks (Arcane Dimensions' track180) come from its paks }
+  Name := Format('music/track%.2d', [Track]);
+  if Pak.FileExists(Name + '.ogg') then
+  begin
+    PlayMusic('quakepak:/' + Name + '.ogg');
+    Exit;
+  end;
+  if Pak.FileExists(Name + '.wav') then
+  begin
+    PlayMusic('quakepak:/' + Name + '.wav');
+    Exit;
+  end;
   Name := Format('track%.2d.ogg', [Track]);
   if UriExists('castle-data:/music/' + Name) <> ueFile then
   begin
