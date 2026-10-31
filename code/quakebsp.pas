@@ -1890,7 +1890,7 @@ var
   SurfEdgeIdx: LongInt;
   EdgeIdx: LongInt;
   Edge: TBSPEdge;
-  VIdx: Word;
+  VIdx: LongWord; { BSP2 maps have more than 65535 vertices }
 begin
   Result := Vector3(0, 0, 0);
   if (FaceIdx < 0) or (FaceIdx >= Length(FFaces)) then

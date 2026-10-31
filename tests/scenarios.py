@@ -851,12 +851,15 @@ def prepare_bsp2(out_dir):
     data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
     bsp2convert.write_pak(os.path.join(out_dir, 'pak0.pak'),
                           [('maps/e1m1_bsp2.bsp', bsp2convert.convert(data, 'BSP2')),
-                           ('maps/e1m1_2psb.bsp', bsp2convert.convert(data, '2PSB'))])
+                           ('maps/e1m1_2psb.bsp', bsp2convert.convert(data, '2PSB')),
+                           # every edge names a vertex above 65535, like the
+                           # largest BSP2 maps (Arcane Dimensions' Sepulcher)
+                           ('maps/e1m1_bigv.bsp', bsp2convert.convert(data, 'BSP2', vertex_offset=65536))])
 
 
 def check_bsp2(logs):
     result = []
-    for prefix, kind in (('bsp2', 'BSP2'), ('psb', '2PSB')):
+    for prefix, kind in (('bsp2', 'BSP2'), ('psb', '2PSB'), ('bigv', 'BSP2')):
         log = logs[prefix]
         result += common_checks(logs, prefix)
         result.append(('(%s): 5516 faces' % kind in log, '%s map loads with the faces of e1m1' % kind))
@@ -1368,8 +1371,10 @@ SCENARIOS = [
     Scenario('bsp2', [('bsp2', ['-game', '{out}', '--autotest', 'e1m1_bsp2', '{out}/bsp2', '--demo',
                                 'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0),
                       ('psb', ['-game', '{out}', '--autotest', 'e1m1_2psb', '{out}/psb', '--demo',
-                               'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
-             check_bsp2, ['bsp2_1', 'psb_1'], prepare=prepare_bsp2),
+                               'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0),
+                      ('bigv', ['-game', '{out}', '--autotest', 'e1m1_bigv', '{out}/bigv', '--demo',
+                                'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
+             check_bsp2, ['bsp2_1', 'psb_1', 'bigv_1'], prepare=prepare_bsp2),
     # Loose files, pak0.pak and a .pk3 in a -game directory, and which one
     # wins; the views are the finish_1 start view (copied references)
     Scenario('gamedir', [('loose', ['-game', '{out}/mod', '--autotest', 'e1m1_loose', '{out}/loose', '--demo',
