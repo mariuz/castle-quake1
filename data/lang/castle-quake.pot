@@ -166,6 +166,10 @@ msgid "%s team: %d"
 msgstr ""
 
 #: code/gameviewdemo.pas
+msgid "Only the host of the game runs commands"
+msgstr ""
+
+#: code/gameviewdemo.pas
 msgid "say:"
 msgstr ""
 

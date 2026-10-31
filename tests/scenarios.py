@@ -460,6 +460,28 @@ def check_records(logs):
     return result
 
 
+def check_hostcmd(logs):
+    result = common_checks(logs, 'khost') + common_checks(logs, 'kclient')
+    h, c = logs['khost'], logs['kclient']
+    status = re.findall(r'Host: status: (.*)', h)
+    result.append((len(status) == 3 and 'Raven' in status[0] and 'Scout' in status[0],
+                   'status lists the bots and the client (%s)' % (status[0] if status else '-')))
+    result.append(('Host: kick Raven: Kicked Raven' in h and 'Bot "Raven" left' in h, 'the host kicks a bot'))
+    result.append(('Host: fraglimit 5: fraglimit 5' in h and 'Host: addbot: 1 bots added' in h,
+                   'the host sets the frag limit and adds a bot'))
+    result.append(('Demo: Raven was kicked by the host' in c and 'Demo: The host sets fraglimit to 5' in c,
+                   'the client is told'))
+    result.append(('Host command "kick Wolf" refused: not the host' in c and 'Bot "Wolf" left' not in h,
+                   'a client cannot run host commands'))
+    result.append(('Host: kick Scout: Kicked Scout' in h and 'Connection ended' in c,
+                   'the host kicks the client, whose connection ends'))
+    result.append((len(status) == 3 and 'Scout' not in status[1] and 'Scout' not in status[2],
+                   'the kicked player leaves the game (%s)' % (status[1] if len(status) > 1 else '-')))
+    result.append(('Host: map start: Level changed to start' in h and 'Loaded map "maps/start.bsp"' in h,
+                   'the host changes the level'))
+    return result
+
+
 def check_dmrules(logs):
     result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
     h, c = logs['dhost'], logs['dclient']
@@ -1501,6 +1523,15 @@ SCENARIOS = [
                                    'W:0.5,Y,G:1312;-230;-544,W:6.5,S,CMD:records e1m1,X,W:2,GB:start,W:0.5,GB:down,'
                                    'W:0.3,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.5,S,Q'], 18)],
              check_records, []),
+    # Host console: the listen server's host lists the players, kicks a bot,
+    # sets the frag limit, adds a bot, kicks the client and changes the map;
+    # the client is told and cannot run host commands itself
+    Scenario('hostcmd', [('khost', ['--autotest', 'host:e1m1', '{out}/khost', '--demo',
+                                    'W:6,CMD:status,CMD:kick Raven,CMD:fraglimit 5,CMD:addbot,W:6,CMD:kick Scout,W:1,'
+                                    'CMD:status,CMD:map start,W:4,S,CMD:status,Q', '-port', '26012', '-bots', '2'], 0),
+                         ('kclient', ['-name', 'Scout', '--autotest', 'connect:127.0.0.1:26012', '{out}/kclient',
+                                      '--demo', 'W:5,SAY:/kick Wolf,W:4,SB,W:8,S,Q'], 2)],
+             check_hostcmd, [], dark=('khost', 'kclient')),
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows

@@ -177,6 +177,9 @@ type
     FPing: Single;
     FIntermissionBoard: Boolean;
     procedure ShowChatLine;
+    { Send a chat line, or run a host command (a line starting with /) }
+    procedure SendChatLine(const Text: String);
+    procedure RunHostCommand(const Line: String);
     function ScoreboardText: String;
     function ScoreboardLog: String;
     procedure ClearLevel;
@@ -1693,6 +1696,31 @@ begin
   end;
 end;
 
+procedure TViewDemo.SendChatLine(const Text: String);
+begin
+  { A line starting with a slash is a command of the host's console }
+  if Copy(Trim(Text), 1, 1) = '/' then
+    RunHostCommand(Copy(Trim(Text), 2, MaxInt))
+  else
+  if FClient <> nil then
+    FClient.SendChat(Text);
+end;
+
+procedure TViewDemo.RunHostCommand(const Line: String);
+var
+  Answer: String;
+begin
+  if ListenServer = nil then
+  begin
+    FHud.ShowMessage(Tr('Only the host of the game runs commands'), 3);
+    WritelnLog('GameViewDemo', 'Host command "%s" refused: not the host', [Line]);
+    Exit;
+  end;
+  Answer := ListenServer.HostCommand(Line, FDemo.ViewEntity);
+  if Answer <> '' then
+    FHud.ShowMessage(Answer, 4);
+end;
+
 procedure TViewDemo.ShowChatLine;
 begin
   FHud.ShowMessage(Tr('say:') + ' ' + FChatText + '_', 30);
@@ -2264,15 +2292,19 @@ begin
       if Copy(Param, 1, P - 1) = 'photo' then
         SetPhotoMode(Trim(Copy(Param, P + 1, MaxInt)) <> '0')
       else
-        FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix);
+      if Pos('photo_', Param) = 1 then
+        FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix)
+      else
+      if NetMode then
+        { The listen server's host console }
+        RunHostCommand(Param);
     end else
     if (Action = 'SB') and NetMode then { Log the scoreboard (and show it a moment) }
       WritelnLog('GameViewDemo', 'Scoreboard: %s', [ScoreboardLog])
     else
     if (Action = 'SAY') and NetMode then { A line of chat }
     begin
-      if FClient <> nil then
-        FClient.SendChat(Param);
+      SendChatLine(Param);
     end else
     if (Action = 'R') and NetMode then { Record the network game (R:name), stop (R) }
     begin
@@ -2625,9 +2657,8 @@ begin
         if Event.IsKey(keyEnter) then
         begin
           FChatting := False;
-          if FClient <> nil then
-            FClient.SendChat(FChatText);
           FHud.ShowMessage('', 0.1);
+          SendChatLine(FChatText);
         end else
         if Event.IsKey(keyEscape) then
         begin

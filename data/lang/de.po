@@ -1195,3 +1195,6 @@ msgstr "Rekord auf %s: %s, Kills %d/%d, Geheimnisse %d/%d"
 
 msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
 msgstr "  r_lerpmodels <0|1> - Modelle von Pose zu Pose überblenden (QuakeC-Modus, Demos, Netzwerk)"
+
+msgid "Only the host of the game runs commands"
+msgstr "Nur der Gastgeber des Spiels führt Befehle aus"

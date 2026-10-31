@@ -99,6 +99,9 @@ type
     constructor Create(const AGame: TQuakeQcGame);
     { Add a bot; its edict, 0 when no client slot is free }
     function Add: Integer;
+    { Forget the bot of edict E (the server disconnects its client); False
+      when E is no bot }
+    function Remove(const E: Integer): Boolean;
     function Count: Integer;
     { Teamplay: put each bot in the team (pants color) with the fewest
       players, the humans' teams first (red and blue when they have fewer
@@ -153,6 +156,20 @@ end;
 function TQuakeBots.Count: Integer;
 begin
   Result := Length(FBots);
+end;
+
+function TQuakeBots.Remove(const E: Integer): Boolean;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FBots) do
+    if FBots[I].E = E then
+    begin
+      WritelnLog('Bots', 'Bot "%s" left', [FBots[I].Name]);
+      Delete(FBots, I, 1);
+      Exit(True);
+    end;
+  Result := False;
 end;
 
 function TQuakeBots.BalanceTeams: TIntegerArray;

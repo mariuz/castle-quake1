@@ -354,6 +354,8 @@ type
     function ClientRequestedName(const C: Integer): String;
     function ClientColors(const C: Integer): Integer;
     procedure SetClientEdict(const C, E: Integer);
+    { The host drops a client: it is told (pkDisconnect) and leaves the game }
+    procedure KickClient(const C: Integer);
   end;
 
   TRendezvousEntry = record
@@ -1982,6 +1984,12 @@ begin
   FClients[C].ResendTimer := 0;
 end;
 
+procedure TQuakeNetServer.KickClient(const C: Integer);
+begin
+  if (C >= 1) and (C <= MaxNetClients) then
+    DropClient(C, True);
+end;
+
 procedure TQuakeNetServer.DropClient(const C: Integer; const Notify: Boolean);
 var
   P: TNetBytes;
@@ -1994,10 +2002,12 @@ begin
     SendPacket(C, P);
   end;
   WritelnLog('QuakeNet', 'Client %d (%s) left', [C, ClientAddress(C)]);
-  FClients[C].Active := False;
-  FClients[C].Reliable.Clear;
+  { The handler still finds the client's player (ClientEdict needs it
+    active), so the player leaves the game too }
   if Assigned(OnDisconnect) then
     OnDisconnect(C);
+  FClients[C].Active := False;
+  FClients[C].Reliable.Clear;
 end;
 
 procedure TQuakeNetServer.Update(const SecondsPassed: Single);
