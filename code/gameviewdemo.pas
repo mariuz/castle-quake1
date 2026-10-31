@@ -17,10 +17,10 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras,
+  CastleCameras, CastleBehaviors,
   GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
 
 type
   TDemoVisual = record
@@ -199,6 +199,7 @@ type
     procedure HandleLightStyle(const Index: Integer; const Pattern: String);
     procedure HandleCdTrack(const Track, LoopTrack: Integer);
     procedure HandleIntermission;
+    procedure ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
     procedure HideVisual(var V: TDemoVisual);
     { Draw only the entities and brush models in the camera's PVS }
@@ -1726,6 +1727,41 @@ begin
   Sounds.PlayMusic('track03.ogg');
 end;
 
+procedure TViewDemo.ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
+var
+  Spr: TQuakeSprite;
+  Billboard: TCastleBillboard;
+begin
+  Spr := SpriteManager.GetSprite(MdlName);
+  if Spr = nil then
+  begin
+    HideVisual(V);
+    Exit;
+  end;
+  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) then
+  begin
+    FreeVisual(V);
+    V.Transform := TCastleTransform.Create(nil);
+    V.Transform.Name := ComponentName('entity');
+    V.Scene := Spr.CreateScene;
+    V.Scene.Name := V.Transform.Name + '_scene';
+    V.Transform.Add(V.Scene);
+    V.Transform.InsertComponent(V.Scene);
+    Billboard := Spr.CreateBillboard(V.Transform);
+    if Billboard <> nil then
+      V.Transform.AddBehavior(Billboard);
+    FViewport.Items.Add(V.Transform);
+    V.ModelIndex := State.ModelIndex;
+  end;
+  V.Transform.Exists := True;
+  Spr.ApplyFrame(V.Scene, State.Frame, FDemo.Time);
+  V.Transform.Translation := QuakeToCge(State.Origin);
+  if Spr.SpriteType = SPR_ORIENTED then
+    V.Transform.Rotation := (QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(State.Angles.Y)) *
+      QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(State.Angles.X)) *
+      QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(State.Angles.Z))).ToAxisAngle;
+end;
+
 procedure TViewDemo.ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
 var
   MdlName: String;
@@ -1782,9 +1818,13 @@ begin
     Exit;
   end;
 
+  if LowerCase(ExtractFileExt(MdlName)) = '.spr' then
+  begin
+    ShowSprite(V, MdlName, State);
+    Exit;
+  end;
   if LowerCase(ExtractFileExt(MdlName)) <> '.mdl' then
   begin
-    { Sprites are not drawn }
     HideVisual(V);
     Exit;
   end;

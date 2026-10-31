@@ -11,10 +11,10 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras,
+  CastleCameras, CastleBehaviors,
   GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
 
 type
   TQcVisual = record
@@ -83,6 +83,8 @@ type
     procedure CullVisuals;
     procedure FreeVisual(var V: TQcVisual);
     procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
+    procedure ShowSprite(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
+      const Frame: Integer);
     procedure UpdateWeapon;
     procedure UpdateHudStats(const SecondsPassed: Single);
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
@@ -750,6 +752,11 @@ begin
     V.Transform.Translation := QuakeToCge(Origin);
     Exit;
   end;
+  if LowerCase(ExtractFileExt(Model)) = '.spr' then
+  begin
+    ShowSprite(V, Model, Origin, Angles, Frame);
+    Exit;
+  end;
   if LowerCase(ExtractFileExt(Model)) <> '.mdl' then
   begin
     HideVisual(V);
@@ -819,6 +826,43 @@ begin
         Particles.SpawnTrail(Pos, Vector3(0.7, 0.3, 0.9));
     end;
   end;
+end;
+
+procedure TViewQc.ShowSprite(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
+  const Frame: Integer);
+var
+  Spr: TQuakeSprite;
+  Billboard: TCastleBillboard;
+begin
+  Spr := SpriteManager.GetSprite(Model);
+  if Spr = nil then
+  begin
+    HideVisual(V);
+    Exit;
+  end;
+  if (V.Transform = nil) or (V.Model <> Model) then
+  begin
+    FreeVisual(V);
+    V.Transform := TCastleTransform.Create(nil);
+    V.Transform.Name := ComponentName('edict');
+    V.Scene := Spr.CreateScene;
+    V.Scene.Name := V.Transform.Name + '_scene';
+    V.Transform.Add(V.Scene);
+    { The transform owns the scene and the billboard }
+    V.Transform.InsertComponent(V.Scene);
+    Billboard := Spr.CreateBillboard(V.Transform);
+    if Billboard <> nil then
+      V.Transform.AddBehavior(Billboard);
+    FViewport.Items.Add(V.Transform);
+    V.Model := Model;
+  end;
+  V.Transform.Exists := True;
+  Spr.ApplyFrame(V.Scene, Frame, FGame.Time);
+  V.Transform.Translation := QuakeToCge(Origin);
+  if Spr.SpriteType = SPR_ORIENTED then
+    V.Transform.Rotation := (QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Angles.Y)) *
+      QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(Angles.X)) *
+      QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Angles.Z))).ToAxisAngle;
 end;
 
 procedure TViewQc.UpdateWeapon;

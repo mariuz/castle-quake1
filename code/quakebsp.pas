@@ -759,7 +759,12 @@ begin
       { World textures carry the fullbright mask in their alpha channel for
         the lightmap shader. Liquids (*name) have no lightmap and are blended
         by their alpha (r_wateralpha): they stay opaque, or they vanished. }
-      Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, Copy(NameStr, 1, 1) <> '*');
+      { Fence textures (names starting with a brace, QuakeSpasm's alpha test): palette index 255
+        is a hole, marked by alpha 0, the rest opaque (no fullbright mask) }
+      if Copy(NameStr, 1, 1) = '{' then
+        Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, 255, False)
+      else
+        Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, Copy(NameStr, 1, 1) <> '*');
       Palette.CacheImage(ImageId, Img);
       if Pos('sky', NameStr) = 1 then
         CacheSkyLayers(Mip);

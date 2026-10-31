@@ -11,7 +11,7 @@ uses
   SysUtils, Classes, Math, Generics.Collections,
   CastleVectors, CastleUriUtils, CastleLog, CastleDownload, CastleFilesUtils,
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
-  QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
+  QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
   CastleUnicode, ZStream, StrUtils;
 
@@ -1784,6 +1784,37 @@ begin
 end;
 
 { Savegame listing: the info the Load Game menu shows, the newest first }
+procedure TestSprites;
+var
+  Spr: TQuakeSprite;
+  Scene: TCastleScene;
+  Switch: TSwitchNode;
+begin
+  StartTest('Sprites');
+  Spr := SpriteManager.GetSprite('progs/s_explod.spr');
+  Check(Spr <> nil, 'the explosion sprite loads');
+  if Spr = nil then
+    Exit;
+  CheckEquals(6, Spr.FrameCount, 'six explosion frames');
+  CheckEquals(SPR_VP_PARALLEL, Spr.SpriteType, 'it faces the view');
+  Scene := Spr.CreateScene;
+  try
+    Switch := Scene.RootNode.TryFindNodeByName(TSwitchNode, 'SpriteFrames', False) as TSwitchNode;
+    Check(Switch <> nil, 'the frames are in a switch');
+    if Switch <> nil then
+    begin
+      CheckEquals(6, Switch.FdChildren.Count, 'one quad per frame');
+      Spr.ApplyFrame(Scene, 3, 0);
+      CheckEquals(3, Switch.WhichChoice, 'frame 3 shown');
+      Spr.ApplyFrame(Scene, 99, 0);
+      CheckEquals(0, Switch.WhichChoice, 'a frame out of range shows the first');
+    end;
+  finally
+    Scene.Free;
+  end;
+  Check(SpriteManager.GetSprite('progs/nothing.spr') = nil, 'a missing sprite is nil');
+end;
+
 procedure TestMapRecords;
 var
   Recs, Back: TMapRecords;
@@ -1924,6 +1955,7 @@ begin
   TestSaveList;
   TestPlayerColors;
   TestMapRecords;
+  TestSprites;
   TestLoopback;
   TestLanDiscovery;
   TestDiskArchives;
