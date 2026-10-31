@@ -27,6 +27,14 @@ Everything is parsed from the PAK archives at run time: BSP levels become X3D sc
 | "Dynamic PBR" world lighting with shadow maps, instead of the lightmaps | QuakeC mode: `progs.dat` runs the level |
 | ![Demo playback](docs/screenshots/demo-playback.jpg) | ![Multiplayer](docs/screenshots/multiplayer.jpg) |
 | The PAK demos play back (protocol 15) | Deathmatch over UDP with the scoreboard |
+| ![Arcane Dimensions hub](docs/screenshots/arcane-dimensions-hub.jpg) | ![Arcane Dimensions first map](docs/screenshots/arcane-dimensions-e1m1.jpg) |
+| Arcane Dimensions, made for QuakeSpasm, with its own QuakeC: fence textures (the vines) and thousands of entities | AD's first map with the fog and water alpha its QuakeC sets |
+| ![Player colors](docs/screenshots/player-colors.jpg) | ![Map record](docs/screenshots/map-record.jpg) |
+| Player names and shirt / pants colors in a network game | Map records: the intermission tells you about a new best |
+| ![Four player split-screen](docs/screenshots/split-screen-four.jpg) | ![Random map](docs/screenshots/random-map.jpg) |
+| Split-screen coop for up to four players | Random maps built from a seed |
+| ![Photo mode](docs/screenshots/photo-mode-dof.jpg) | ![Horde mode](docs/screenshots/horde-mode.jpg) |
+| Photo mode with depth of field | Horde mode: waves of monsters with a score |
 
 ---
 
