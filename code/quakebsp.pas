@@ -234,12 +234,16 @@ type
     FLitData: PByte;
     FEntitiesText: String;
     FFenceTextures: Integer;
+    FExternalTextures: Integer;
     FEntities: TQuakeEntityList;
     function GetFaceCount: Integer; inline;
     function GetModelCount: Integer; inline;
     function ParseEntities(const Text: String): TQuakeEntityList;
     { QuakeSpasm's external_ents: maps/<name>.ent replaces the entity lump }
     procedure LoadExternalEntities(const AMapPath: String);
+    { textures/<map>/<name> or textures/<name> (.tga, .png; * as #) with its
+      _luma / _glow as the fullbright mask in the alpha channel }
+    function LoadExternalTexture(const TexName: String; out Img: TRGBAlphaImage): Boolean;
     procedure MakeHulls(const RawClipNodes: array of TBSPClipNode);
     function RecursiveHullCheck(const HullIdx, Num: Integer; const P1F, P2F: Single;
       const P1, P2: TVector3; var Trace: TQuakeTrace): Boolean;
@@ -624,6 +628,103 @@ begin
   inherited Destroy;
 end;
 
+function TQuakeBsp.LoadExternalTexture(const TexName: String; out Img: TRGBAlphaImage): Boolean;
+const
+  Exts: array[0..1] of String = ('.tga', '.png');
+
+  function Find(const Base: String; out Path: String): Boolean;
+  var
+    Dirs: array[0..1] of String;
+    Dir, Ext: String;
+  begin
+    { The map's own folder first }
+    Dirs[0] := 'textures/' + LowerCase(FMapName) + '/';
+    Dirs[1] := 'textures/';
+    for Dir in Dirs do
+      for Ext in Exts do
+        if Pak.FileExists(Dir + Base + Ext) then
+        begin
+          Path := Dir + Base + Ext;
+          Exit(True);
+        end;
+    Result := False;
+  end;
+
+  function LoadRgba(const Path: String): TRGBAlphaImage;
+  var
+    Loaded: TCastleImage;
+  begin
+    Result := nil;
+    Loaded := LoadImage('quakepak:/' + Path, [TRGBAlphaImage, TRGBImage]);
+    if Loaded is TRGBAlphaImage then
+      Result := TRGBAlphaImage(Loaded)
+    else
+    if Loaded is TRGBImage then
+    begin
+      Result := TRGBImage(Loaded).ToRGBAlphaImage;
+      Loaded.Free;
+    end else
+      Loaded.Free;
+  end;
+
+var
+  Base, Path, LumaPath: String;
+  Luma: TRGBAlphaImage;
+  X, Y: Integer;
+  P, L: PVector4Byte;
+  Fence, Liquid: Boolean;
+begin
+  Result := False;
+  Img := nil;
+  Base := LowerCase(StringReplace(TexName, '*', '#', [rfReplaceAll]));
+  if not Find(Base, Path) then
+    Exit;
+  Img := LoadRgba(Path);
+  if Img = nil then
+    Exit;
+  Fence := Copy(TexName, 1, 1) = '{';
+  Liquid := Copy(TexName, 1, 1) = '*';
+  Luma := nil;
+  if not Fence and not Liquid and (Find(Base + '_luma', LumaPath) or Find(Base + '_glow', LumaPath)) then
+  begin
+    Luma := LoadRgba(LumaPath);
+    if (Luma <> nil) and ((Luma.Width <> Img.Width) or (Luma.Height <> Img.Height)) then
+      Luma.Resize(Img.Width, Img.Height);
+  end;
+  try
+    for Y := 0 to Img.Height - 1 do
+      for X := 0 to Img.Width - 1 do
+      begin
+        P := Img.PixelPtr(X, Y);
+        if Fence then
+        begin
+          { The holes: the image's alpha, cut at half }
+          if P^.W < 128 then
+            P^.W := 0
+          else
+            P^.W := 255;
+        end else
+        if Liquid then
+          P^.W := 255
+        else
+        if Luma <> nil then
+        begin
+          { The fullbright mask of the lightmap shader: the luma's brightness,
+            its color added to the texture's }
+          L := Luma.PixelPtr(X, Y);
+          P^.W := Max(L^.X, Max(L^.Y, L^.Z));
+          P^.X := Min(255, Integer(P^.X) + L^.X);
+          P^.Y := Min(255, Integer(P^.Y) + L^.Y);
+          P^.Z := Min(255, Integer(P^.Z) + L^.Z);
+        end else
+          P^.W := 0;
+      end;
+  finally
+    Luma.Free;
+  end;
+  Result := True;
+end;
+
 procedure TQuakeBsp.LoadExternalEntities(const AMapPath: String);
 var
   EntPath: String;
@@ -794,7 +895,7 @@ var
   Raw: ^TMiptexRaw;
   Mip: TQuakeMiptex;
   NameStr, ImageId: String;
-  Img: TRGBAlphaImage;
+  Img, ExtImg: TRGBAlphaImage;
 begin
   if Size < 4 then
     Exit;
@@ -835,6 +936,14 @@ begin
         Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, 255, False)
       else
         Img := Palette.DecodeIndexed(Mip.Pixels, Mip.Width, Mip.Height, -1, Copy(NameStr, 1, 1) <> '*');
+      { QuakeSpasm-Spiked's external textures replace the miptex (not the
+        sky, whose two layers come from the miptex) }
+      if (Pos('sky', LowerCase(NameStr)) <> 1) and LoadExternalTexture(NameStr, ExtImg) then
+      begin
+        Img.Free;
+        Img := ExtImg;
+        Inc(FExternalTextures);
+      end;
       Palette.CacheImage(ImageId, Img);
       if Pos('sky', NameStr) = 1 then
         CacheSkyLayers(Mip);
@@ -846,6 +955,8 @@ begin
   end;
   if FFenceTextures > 0 then
     WritelnLog('QuakeBsp', 'Fence textures (alpha tested): %d', [FFenceTextures]);
+  if FExternalTextures > 0 then
+    WritelnLog('QuakeBsp', 'External textures of "%s": %d of %d', [FMapName, FExternalTextures, FMiptexes.Count]);
 end;
 
 function TQuakeBsp.LoadFromPak(const AMapPath: String): Boolean;

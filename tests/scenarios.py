@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -896,6 +897,57 @@ def check_gamedir(logs):
     return result
 
 
+def bsp_texture_names(data):
+    """The miptex names of a BSP29 / BSP2 map"""
+    off, _ = struct.unpack('<ii', data[4 + 2 * 8:4 + 2 * 8 + 8])
+    count = struct.unpack('<i', data[off:off + 4])[0]
+    names = []
+    for i in range(count):
+        o = struct.unpack('<i', data[off + 4 + 4 * i:off + 8 + 4 * i])[0]
+        if o >= 0:
+            names.append(data[off + o:off + o + 16].split(b'\0')[0].decode('latin-1'))
+    return names
+
+
+def prepare_exttex(out_dir):
+    # A texture pack the way QuakeSpasm-Spiked reads one: loose
+    # textures/e1m1/<name>.tga in a game directory, here a red and white
+    # check for each of E1M1's wall textures (not the sky or the liquids),
+    # with a _luma for one of them
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    tex = os.path.join(out_dir, 'texmod', 'textures', 'e1m1')
+    os.makedirs(tex, exist_ok=True)
+    check = Image.new('RGB', (256, 256), (230, 30, 30))
+    for y in range(0, 256, 32):
+        for x in range(0, 256, 32):
+            if (x // 32 + y // 32) % 2:
+                check.paste((240, 240, 240), (x, y, x + 32, y + 32))
+    names = [n for n in bsp_texture_names(data) if not n.lower().startswith(('sky', '*'))]
+    for name in names:
+        check.save(os.path.join(tex, name.lower() + '.tga'))
+    Image.new('RGB', (256, 256), (0, 0, 80)).save(os.path.join(tex, names[0].lower() + '_luma.tga'))
+
+
+def check_exttex(logs):
+    result = common_checks(logs, 'tex')
+    m = re.search(r'External textures of "e1m1": (\d+) of (\d+)', logs['tex'])
+    result.append((m is not None and int(m.group(1)) >= 60, 'the pack replaces E1M1\'s textures (%s of %s)'
+                   % (m.group(1), m.group(2)) if m else 'the pack replaces E1M1\'s textures'))
+    return result
+
+
+def frames_exttex(out_dir):
+    """The walls are red and white checks: a red dominated view"""
+    path = os.path.join(out_dir, 'tex_1.png')
+    if not os.path.exists(path):
+        return [(False, 'tex_1.png exists')]
+    img = Image.open(path).convert('RGB').resize((160, 90))
+    red = sum(1 for r, g, b in img.getdata() if r > 2 * g + 10 and r > 2 * b + 10)
+    return [(red > 160 * 90 * 0.1, 'the red checks show on the walls (%d of %d pixels red)' % (red, 160 * 90))]
+
+
 def prepare_litfog(out_dir):
     # E1M1 with a .lit of its own gray light (must look unchanged), with a
     # red tinted .lit, and with a worldspawn fog key
@@ -1523,6 +1575,10 @@ SCENARIOS = [
                                    'W:0.5,Y,G:1312;-230;-544,W:6.5,S,CMD:records e1m1,X,W:2,GB:start,W:0.5,GB:down,'
                                    'W:0.3,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.5,S,Q'], 18)],
              check_records, []),
+    # External textures: a texture pack in a game directory replaces E1M1's
+    # wall textures (QuakeSpasm-Spiked's textures/<map>/<name>.tga)
+    Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
+             check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),
     # Host console: the listen server's host lists the players, kicks a bot,
     # sets the frag limit, adds a bot, kicks the client and changes the map;
     # the client is told and cannot run host commands itself
