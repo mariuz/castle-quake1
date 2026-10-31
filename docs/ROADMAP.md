@@ -317,3 +317,31 @@ Everything is built in code today: no editor designs, almost no component has a 
   - Done: `QuakeRecords` (`TMapRecords`, `MapRecords`) keeps one line per map and skill in `castle-config:/records.txt` (the browser's localStorage on the web): the best time (in the hundredths shown), the most kills and secrets of one run with the level's totals, and the runs. `TQuakeWorld.FinishRecord` adds every level the play view finishes (not horde mode) when its intermission starts; the intermission shows `First finish on Normal: the record to beat`, `New record on Normal: time 0:41.20, kills 20/23` or the record to beat under the tallies. Map Warp's hint shows the selected map's records on every skill, the console has `records [map]` and `records_reset [map]`. The log says `Record of "<map>" on <skill>: m:ss.cc, kills K/T, secrets S/T, N runs; new: time kills secrets | first run | none`. The `records` scenario finishes E1M1 after a walk and then straight away (a new best time), lists it in the console and finds it in Map Warp's hint; a unit test checks the rules and a save and load of the file.
 - [ ] **Host Console**:
   - The listen server's host can kick a player or bot, change the map (`map <name>`) and the limits from the console during a network game, and the clients are told.
+
+### Phase 17: QuakeSpasm Compatibility
+The mods made for QuakeSpasm and QuakeSpasm-Spiked, Arcane Dimensions first, run with their own QuakeC and look as their authors meant.
+- [x] **Mod Limits**:
+  - The QuakeC VM holds QuakeSpasm's 8192 edicts (Arcane Dimensions' hub alone ran out of the vanilla 600 slots), and `ED_Alloc` searches only the edicts in use.
+  - Done: `QuakeProgs.MaxEdicts` is 8192; `AllocEdict` reuses a slot of the edicts in use freed more than 0.5 s ago, else takes the next one (`NumEdicts`), so a large mod pays for the edicts it uses. AD's hub spawns 681 edicts without the `ED_Alloc: no free edicts` errors it had.
+- [x] **Fence Textures**:
+  - Textures whose name starts with a brace cut out palette index 255 (QuakeSpasm's alpha test), on the world and brush entities, with the lightmaps and in the dynamic lighting mode.
+  - Done: `TQuakeBsp` decodes them with index 255 transparent and no fullbright mask (log `Fence textures (alpha tested): N`); their surfaces get `amMask` and, before the lightmap shader, a small effect that discards the holes and marks the rest lit. AD's hub's hanging vines show over the walls instead of pink squares.
+- [x] **Sprites**:
+  - Sprites (`.spr`) are drawn in QuakeC mode, demos and network games: the original game's explosion, bubble and light and the many effect sprites of mods.
+  - Done: `QuakeSprite` reads version 1 sprites (single and group frames, palette index 255 transparent) into an X3D Switch of quads, one per image, and picks the frame (a group's image by time); the views face them to the camera with `TCastleBillboard` (upright types around the up axis, oriented ones turned by the entity's angles). Log `Loaded sprite "<name>": N frames, type T`; a unit test reads the explosion. AD's bubbles, flames and dots show.
+- [x] **Entity Alpha**:
+  - FitzQuake's `alpha` field makes entities translucent in QuakeC mode, demos and network games.
+  - Done: `TQuakeQcGame.EntityAlpha` reads the progs' field; the server sends it as `U_ALPHA` and in `svc_spawnbaseline2` (`B_ALPHA`) with `ENTALPHA_ENCODE`, and a level whose entities are translucent uses protocol 666; the demo writer and reader carry it too (`TDemoEntityState.Alpha`), and `SetSceneOpacity` blends a model or sprite scene. A unit test writes and reads it through a demo.
+- [x] **Mod Text and Commands**:
+  - Prints in Quake's gold character set read as plain text, `maps/<name>.ent` replaces a map's entities, the worldspawn `wateralpha`, `slimealpha`, `lavaalpha` and `telealpha` keys set the liquids' opacity, stuffed commands run a whole line at a time, and a mod's own music plays.
+  - Done: `QuakePak.QuakeText` maps the gold half and the gold digits for prints, center prints, the log and the demo / network view (AD's `[COOP] Spawn locations found`); `TQuakeBsp.LoadExternalEntities` loads an `.ent` (log `Entities from "...": N`); `WorldspawnLiquidAlpha` gives a liquid batch its map's opacity. The progs send a command in pieces (`stuffcmd "fog "`, a number...): QuakeC mode and the client reader keep the text until its newline (the server now passes it on unchanged), and QuakeC mode runs `fog` and `r_wateralpha` (AD's `water_alpha`), logging `Stuffed fog: ...`, `Stuffed r_wateralpha ...` and the commands it does not run. `PlayTrack` plays `music/trackNN.ogg` / `.wav` from the paks before the bundled tracks (AD's track180).
+- [x] **Smooth Models and Turning Brush Entities**:
+  - Models blend from pose to pose (`r_lerpmodels`) in QuakeC mode, demos and network games, and brush entities turn with their angles.
+  - Done: the views keep each visual's previous frame and blend it into the new one over 0.1 s with `TQuakeMdl.ApplyLerp` (console `r_lerpmodels 0|1`, `GameVideo.ModelLerp`); brush entities get the rotation of their angles around their origin (`QuakeAnglesRotation`, R_RotateForEntity).
+- [x] **Arcane Dimensions Regression**:
+  - The community map test plays Arcane Dimensions 1.81: its hub and first map with its QuakeC.
+  - Done: `tests/community_maps.py` fetches the 320 MB zip by SHA-256 into its cache, puts it in the config directory as an installed map browser release and plays `start` and `ad_e1m1` in QuakeC mode: the levels spawn without QuakeC errors or running out of edicts, the prints are plain text, the hub's fence textures, sprites and translucent entities are drawn (the screenshots log `Entities drawn: M models, S sprites, T translucent`) and the first map's stuffed fog and water alpha apply.
+- [ ] **QuakeSpasm-Spiked Extensions**:
+  - The FTE / DP QuakeC extensions mods ask for with `checkextension` (`tracebox`, `pointparticles`, `sv_protocol` 999 with `scale`, the `cvar_string` builtins...), `effectinfo.txt` particles, and MD3 / IQM models.
+- [ ] **External Textures**:
+  - `textures/<map>/<name>.tga` and `textures/<name>.tga` replace a map's textures (with `_glow` and `_luma`), like QuakeSpasm-Spiked.

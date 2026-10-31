@@ -16,6 +16,8 @@ const
   DefaultFov = 90;
   DefaultGamma = 1.0;
   DefaultViewBob = 0.02;
+  { Quake's 10 frames a second }
+  ModelLerpTime = 0.1;
 
 var
   { fov: the horizontal field of view in degrees at a 4:3 aspect; wider
@@ -32,6 +34,10 @@ var
   PlayerName: String = '';
   PlayerShirt: Integer = 0;
   PlayerPants: Integer = 0;
+  { r_lerpmodels: models in QuakeC mode, demos and network games blend
+    from one pose to the next over ModelLerpTime seconds (the play view's
+    animations always blend) }
+  ModelLerp: Boolean = True;
   { Changes are not saved (headless tests) }
   VideoSettingsVolatile: Boolean = False;
 

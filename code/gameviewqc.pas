@@ -26,6 +26,10 @@ type
     TrailTimer: Single;
     { The entity alpha the scene was last given (0: opaque, its own) }
     Alpha: Single;
+    { r_lerpmodels: the pose blends from PrevFrame since LerpStart }
+    PrevFrame: Integer;
+    LerpStart: Single;
+    LerpDone: Boolean;
   end;
 
   TViewQc = class(TCastleView)
@@ -97,6 +101,8 @@ type
       const Frame: Integer);
     procedure ApplyAlpha(var V: TQcVisual; const Alpha: Single);
     procedure ApplyStuffed;
+    procedure LogDrawnEntities;
+    procedure UpdatePose(var V: TQcVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
     procedure RunStuffedCommand(const Command: String);
     procedure UpdateWeapon;
     procedure UpdateHudStats(const SecondsPassed: Single);
@@ -583,6 +589,28 @@ begin
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
+procedure TViewQc.LogDrawnEntities;
+var
+  I, Models, Sprites, Translucent: Integer;
+begin
+  { What the entities look like (QuakeSpasm features): drawn models,
+    sprites and the translucent ones among them }
+  Models := 0;
+  Sprites := 0;
+  Translucent := 0;
+  for I := 0 to High(FVisuals) do
+    if (FVisuals[I].Transform <> nil) and FVisuals[I].Transform.Exists then
+    begin
+      if LowerCase(ExtractFileExt(FVisuals[I].Model)) = '.spr' then
+        Inc(Sprites)
+      else
+        Inc(Models);
+      if (FVisuals[I].Alpha > 0) and (FVisuals[I].Alpha < 1) then
+        Inc(Translucent);
+    end;
+  WritelnLog('GameViewQc', 'Entities drawn: %d models, %d sprites, %d translucent', [Models, Sprites, Translucent]);
+end;
+
 procedure TViewQc.ApplyStuffed;
 begin
   if FGeometry = nil then
@@ -823,6 +851,8 @@ begin
     begin
       FSubmodels[Idx].Transform.Exists := True;
       FSubmodels[Idx].Transform.Translation := QuakeToCge(Origin);
+      { Rotating brush entities turn around their origin (R_RotateForEntity) }
+      FSubmodels[Idx].Transform.Rotation := QuakeAnglesRotation(Angles);
       FSubmodelUsed[Idx] := True;
     end;
     Exit;
@@ -885,11 +915,7 @@ begin
     V.TrailTimer := 0;
   end;
   V.Transform.Exists := True;
-  if V.Frame <> Frame then
-  begin
-    V.Frame := Frame;
-    Mdl.ApplyFrame(V.Scene, EnsureRange(Frame, 0, Max(0, Mdl.FrameCount - 1)));
-  end;
+  UpdatePose(V, Mdl, Frame, FGame.Time);
   Pos := QuakeToCge(Origin);
   V.Transform.Translation := Pos;
   Q := QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Angles.Y)) *
@@ -980,6 +1006,34 @@ begin
     SetSceneOpacity(V.Scene, 1, OpaqueMode)
   else
     SetSceneOpacity(V.Scene, Alpha, OpaqueMode);
+end;
+
+procedure TViewQc.UpdatePose(var V: TQcVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
+var
+  F: Integer;
+  T: Single;
+begin
+  F := EnsureRange(Frame, 0, Max(0, Mdl.FrameCount - 1));
+  if V.Frame <> F then
+  begin
+    { A new pose: blend from the last one (a new scene starts at it) }
+    if V.Frame < 0 then
+      V.PrevFrame := F
+    else
+      V.PrevFrame := V.Frame;
+    V.Frame := F;
+    V.LerpStart := Time;
+    V.LerpDone := False;
+  end;
+  if V.LerpDone then
+    Exit;
+  T := (Time - V.LerpStart) / ModelLerpTime;
+  if not ModelLerp or (V.PrevFrame = F) or (T >= 1) or (T < 0) then
+  begin
+    Mdl.ApplyFrame(V.Scene, F);
+    V.LerpDone := True;
+  end else
+    Mdl.ApplyLerp(V.Scene, V.PrevFrame, F, T);
 end;
 
 procedure TViewQc.UpdateWeapon;
@@ -1129,6 +1183,7 @@ begin
       Img.Free;
       WritelnLog('GameViewQc', 'Saved screenshot to "%s" (health %d, kills %d/%d, edicts %d)',
         [OutPath, FGame.PlayerHealth, FGame.KilledMonsters, FGame.TotalMonsters, FGame.Progs.NumEdicts]);
+      LogDrawnEntities;
     end;
   except
     on E: Exception do

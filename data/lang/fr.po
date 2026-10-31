@@ -1192,3 +1192,6 @@ msgstr "Nouveau record en %s : %s"
 
 msgid "Record on %s: %s, kills %d/%d, secrets %d/%d"
 msgstr "Record en %s : %s, victimes %d/%d, secrets %d/%d"
+
+msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
+msgstr "  r_lerpmodels <0|1> - Fondre les modèles d'une pose à l'autre (mode QuakeC, démos, réseau)"

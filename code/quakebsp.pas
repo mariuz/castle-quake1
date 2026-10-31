@@ -233,6 +233,7 @@ type
     FLightmapsSize: Cardinal;
     FLitData: PByte;
     FEntitiesText: String;
+    FFenceTextures: Integer;
     FEntities: TQuakeEntityList;
     function GetFaceCount: Integer; inline;
     function GetModelCount: Integer; inline;
@@ -840,7 +841,11 @@ begin
     end;
 
     FMiptexes.Add(Mip);
+    if Copy(NameStr, 1, 1) = '{' then
+      Inc(FFenceTextures);
   end;
+  if FFenceTextures > 0 then
+    WritelnLog('QuakeBsp', 'Fence textures (alpha tested): %d', [FFenceTextures]);
 end;
 
 function TQuakeBsp.LoadFromPak(const AMapPath: String): Boolean;

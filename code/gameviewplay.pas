@@ -1717,6 +1717,13 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
+  if Cmd = 'r_lerpmodels' then
+  begin
+    { Pose blending of the models in QuakeC mode, demos and network games }
+    if Args <> '' then
+      ModelLerp := Args <> '0';
+    FConsole.Print(Format('r_lerpmodels %d', [Ord(ModelLerp)]));
+  end else
   if Cmd = 'records' then
     ListRecordsCommand(LowerCase(Args))
   else
@@ -1818,6 +1825,7 @@ begin
     FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
+    FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));

@@ -34,6 +34,10 @@ type
     { The alpha byte the scene was last given (0: opaque, its own) }
     Alpha: Integer;
     Sprite: Boolean;
+    { r_lerpmodels: the pose blends from PrevFrame since LerpStart }
+    PrevFrame: Integer;
+    LerpStart: Single;
+    LerpDone: Boolean;
   end;
 
   { One input sent to the server, kept until the server reports it applied }
@@ -204,6 +208,7 @@ type
     procedure HandleIntermission;
     procedure ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
     procedure ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
+    procedure UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
     procedure HideVisual(var V: TDemoVisual);
     { Draw only the entities and brush models in the camera's PVS }
@@ -1733,6 +1738,34 @@ begin
   Sounds.PlayMusic('track03.ogg');
 end;
 
+procedure TViewDemo.UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
+var
+  F: Integer;
+  T: Single;
+begin
+  F := EnsureRange(Frame, 0, Max(0, Mdl.FrameCount - 1));
+  if V.Frame <> F then
+  begin
+    { A new pose: blend from the last one (a new scene starts at it) }
+    if V.Frame < 0 then
+      V.PrevFrame := F
+    else
+      V.PrevFrame := V.Frame;
+    V.Frame := F;
+    V.LerpStart := Time;
+    V.LerpDone := False;
+  end;
+  if V.LerpDone then
+    Exit;
+  T := (Time - V.LerpStart) / ModelLerpTime;
+  if not ModelLerp or (V.PrevFrame = F) or (T >= 1) or (T < 0) then
+  begin
+    Mdl.ApplyFrame(V.Scene, F);
+    V.LerpDone := True;
+  end else
+    Mdl.ApplyLerp(V.Scene, V.PrevFrame, F, T);
+end;
+
 procedure TViewDemo.ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
 var
   OpaqueMode: TAlphaMode;
@@ -1809,6 +1842,8 @@ begin
     begin
       FSubmodels[Skin].Transform.Exists := True;
       FSubmodels[Skin].Transform.Translation := QuakeToCge(State.Origin);
+      { Rotating brush entities turn around their origin (R_RotateForEntity) }
+      FSubmodels[Skin].Transform.Rotation := QuakeAnglesRotation(State.Angles);
       FSubmodelOrigin[Skin] := State.Origin;
       FSubmodelUsed[Skin] := True;
     end;
@@ -1880,11 +1915,7 @@ begin
     V.TrailTimer := 0;
   end;
   V.Transform.Exists := True;
-  if V.Frame <> State.Frame then
-  begin
-    V.Frame := State.Frame;
-    Mdl.ApplyFrame(V.Scene, EnsureRange(State.Frame, 0, Max(0, Mdl.FrameCount - 1)));
-  end;
+  UpdatePose(V, Mdl, State.Frame, FDemo.Time);
 
   Pos := QuakeToCge(State.Origin);
   V.Transform.Translation := Pos;
