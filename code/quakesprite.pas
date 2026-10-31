@@ -96,10 +96,17 @@ function TQuakeSprite.LoadFromStream(const Stream: TStream): Boolean;
 var
   Ident: array[0..3] of AnsiChar;
   Version, NumFrames, I, J, FrameType, Count: LongInt;
+  Bad: Boolean;
 
+  { Reads that fail set Bad instead of raising (WebAssembly cannot catch) }
   function ReadInt: LongInt;
   begin
-    Stream.ReadBuffer(Result, 4);
+    Result := 0;
+    if Bad or (Stream.Read(Result, 4) <> 4) then
+    begin
+      Bad := True;
+      Exit(0);
+    end;
     Result := LEtoN(Result);
   end;
 
@@ -116,15 +123,20 @@ var
     Pixels: TBytes;
     Img: TCastleImage;
   begin
+    Result := Default(TSpriteImage);
     Result.OriginX := ReadInt;
     Result.OriginY := ReadInt;
     Result.Width := ReadInt;
     Result.Height := ReadInt;
-    if (Result.Width <= 0) or (Result.Height <= 0) or (Result.Width > 4096) or (Result.Height > 4096) then
-      raise EReadError.Create('bad sprite frame size');
+    if Bad or (Result.Width <= 0) or (Result.Height <= 0) or (Result.Width > 4096) or (Result.Height > 4096) or
+       (Stream.Size - Stream.Position < Int64(Result.Width) * Result.Height) then
+    begin
+      Bad := True;
+      Exit;
+    end;
     Pixels := nil;
     SetLength(Pixels, Result.Width * Result.Height);
-    Stream.ReadBuffer(Pixels[0], Length(Pixels));
+    Stream.Read(Pixels[0], Length(Pixels));
     Result.ImageId := 'spr/' + FName + '/' + IntToStr(FImageCount);
     Inc(FImageCount);
     { Palette index 255 is transparent, like the GLQuake sprite loader }
@@ -136,39 +148,41 @@ var
 
 begin
   Result := False;
-  try
-    Stream.ReadBuffer(Ident, 4);
-    if Ident <> 'IDSP' then
-      Exit;
-    Version := ReadInt;
-    if Version <> 1 then
+  Bad := False;
+  Ident := '';
+  if (Stream.Read(Ident, 4) <> 4) or (Ident <> 'IDSP') then
+    Exit;
+  Version := ReadInt;
+  if Version <> 1 then
+  begin
+    WritelnWarning('QuakeSprite', 'Sprite "%s" is version %d, only version 1 is read', [FName, Version]);
+    Exit;
+  end;
+  FType := ReadInt;
+  ReadFloat; { bounding radius }
+  ReadInt; { width }
+  ReadInt; { height }
+  NumFrames := ReadInt;
+  ReadFloat; { beam length }
+  ReadInt; { sync type }
+  if Bad or (NumFrames <= 0) or (NumFrames > 10000) then
+    Exit;
+  SetLength(FFrames, NumFrames);
+  for I := 0 to NumFrames - 1 do
+  begin
+    FrameType := ReadInt;
+    FFrames[I].FirstChoice := FImageCount;
+    if FrameType = 0 then
     begin
-      WritelnWarning('QuakeSprite', 'Sprite "%s" is version %d, only version 1 is read', [FName, Version]);
-      Exit;
-    end;
-    FType := ReadInt;
-    ReadFloat; { bounding radius }
-    ReadInt; { width }
-    ReadInt; { height }
-    NumFrames := ReadInt;
-    ReadFloat; { beam length }
-    ReadInt; { sync type }
-    if (NumFrames <= 0) or (NumFrames > 10000) then
-      Exit;
-    SetLength(FFrames, NumFrames);
-    for I := 0 to NumFrames - 1 do
+      SetLength(FFrames[I].Images, 1);
+      FFrames[I].Images[0] := ReadImage;
+    end else
     begin
-      FrameType := ReadInt;
-      FFrames[I].FirstChoice := FImageCount;
-      if FrameType = 0 then
+      Count := ReadInt;
+      if Bad or (Count <= 0) or (Count > 10000) then
+        Bad := True
+      else
       begin
-        SetLength(FFrames[I].Images, 1);
-        FFrames[I].Images[0] := ReadImage;
-      end else
-      begin
-        Count := ReadInt;
-        if (Count <= 0) or (Count > 10000) then
-          Exit;
         SetLength(FFrames[I].Images, Count);
         SetLength(FFrames[I].Intervals, Count);
         for J := 0 to Count - 1 do
@@ -177,11 +191,13 @@ begin
           FFrames[I].Images[J] := ReadImage;
       end;
     end;
-    Result := True;
-  except
-    on E: Exception do
-      WritelnWarning('QuakeSprite', 'Cannot read sprite "%s": %s', [FName, E.Message]);
+    if Bad then
+    begin
+      WritelnWarning('QuakeSprite', 'Sprite "%s" is cut short or damaged', [FName]);
+      Exit;
+    end;
   end;
+  Result := True;
 end;
 
 function TQuakeSprite.CreateScene: TCastleScene;
