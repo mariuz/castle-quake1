@@ -51,6 +51,10 @@ type
     StrafeTime: Single;
     LastPos: TVector3;
     StuckTime, ProgressTime: Single;
+    { No path from where it stands (its navigation spot cut off): it
+      wanders in a direction for a while, jumping when blocked }
+    WanderDir: TVector2;
+    WanderTime: Single;
     JumpTime: Single;
     RespawnToggle: Boolean;
     RespawnTime: Single;
@@ -713,8 +717,17 @@ begin
     if FindPath(FromNode, Random(Max(1, Length(FNodes))), Path) and (Length(Path) > 3) then
     begin
       B.Path := Path;
-      Break;
+      Exit;
     end;
+  { No path at all from here: wander until a connected spot is near }
+  if B.WanderTime <= 0 then
+  begin
+    B.WanderDir := Vector2(Cos(Random * 2 * Pi), Sin(Random * 2 * Pi));
+    B.WanderTime := 1.5;
+    WritelnLog('Bots', 'Bot "%s" has no way from here, wanders', [B.Name]);
+  end;
+  B.GoalName := 'wander';
+  B.Repath := 0.5;
 end;
 
 function TQuakeBots.BestWeaponImpulse(const E: Integer; const Dist: Single): Integer;
@@ -867,6 +880,10 @@ begin
     WorldMove := Vector2(Dir.X, Dir.Y).Normalize
   else
     WorldMove := TVector2.Zero;
+  B.WanderTime := B.WanderTime - Dt;
+  if (B.WanderTime > 0) and (B.PathPos > High(B.Path)) and (B.GoalEdict = 0) then
+    { Lost: the wander direction (the stuck rule below jumps and turns) }
+    WorldMove := B.WanderDir;
 
   { Stuck: jump, strafe the other way, another goal }
   if (WorldMove.Length > 0) and (Moved < 60 * Dt) then
@@ -879,6 +896,9 @@ begin
     B.JumpTime := 0.2;
     B.StrafeDir := -B.StrafeDir;
     B.StrafeTime := 0.5;
+    if B.WanderTime > 0 then
+      { Blocked while wandering: another direction }
+      B.WanderDir := Vector2(-B.WanderDir.Y * B.StrafeDir, B.WanderDir.X * B.StrafeDir);
     if B.StuckTime > 2 then
     begin
       B.StuckTime := 0;
