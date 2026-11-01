@@ -14,7 +14,7 @@ interface
 uses
   SysUtils, Classes, Math, StrUtils, Generics.Collections,
   CastleVectors, CastleLog,
-  QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots, QuakeDemo;
+  QuakePak, QuakeBsp, QuakePhysics, QuakeProgs, QuakeQcGame, QuakeNet, QuakeBots, QuakeDemo;
 
 type
   TQuakeServer = class
@@ -58,7 +58,10 @@ type
     procedure WriteEntities(const Msg: TQuakeNetMessage; const ClientEdict: Integer; const SeeAll: Boolean);
     procedure WriteClientData(const Msg: TQuakeNetMessage; const E: Integer);
     procedure SendFrames;
-    procedure ChangeLevel(const AMap: String);
+    { The progs' next level (Forced: the host's map command, past the rotation) }
+    procedure ChangeLevel(const AMap: String; const Forced: Boolean = False);
+    { A line to every client }
+    procedure PrintAll(const S: String);
     procedure BuildLists;
     { Net events }
     function HandleConnect(const C: Integer): Integer;
@@ -91,6 +94,12 @@ type
     { Deathmatch bots: fake clients that play with the others; how many
       joined (a slot is kept free for the host) }
     function AddBots(const N: Integer; const ASkill: Integer = 1): Integer;
+    { The listen server's host console (the host's own view runs it; OwnEdict
+      is the host's player, who cannot be kicked): status, kick <name or
+      number>, map <name>, fraglimit <n>, timelimit <minutes>, teamplay <n>,
+      addbot [n]. The answer for the host; the changes are printed to every
+      client }
+    function HostCommand(const Line: String; const OwnEdict: Integer): String;
     property Bots: TQuakeBots read FBots;
     property Game: TQuakeQcGame read FGame;
     property Net: TQuakeNetServer read FNet;
@@ -767,14 +776,152 @@ begin
   end;
 end;
 
-procedure TQuakeServer.ChangeLevel(const AMap: String);
+function TQuakeServer.HostCommand(const Line: String; const OwnEdict: Integer): String;
+var
+  Parts: TStringArray;
+  Cmd, Arg, Who: String;
+  E, C, N: Integer;
+  V: Single;
+  Fmt: TFormatSettings;
+
+  { A client by its name (case-insensitive) or edict number; 0 when none }
+  function FindPlayer(const S: String): Integer;
+  var
+    I: Integer;
+  begin
+    I := StrToIntDef(S, 0);
+    if (I >= 1) and (I <= FGame.MaxClients) and FGame.ClientActive(I) then
+      Exit(I);
+    for I := 1 to FGame.MaxClients do
+      if FGame.ClientActive(I) and SameText(FGame.ClientName(I), S) then
+        Exit(I);
+    Result := 0;
+  end;
+
+begin
+  Parts := Trim(Line).Split([' '], TStringSplitOptions.ExcludeEmpty);
+  if Length(Parts) = 0 then
+    Exit('');
+  Cmd := LowerCase(Parts[0]);
+  if Length(Parts) > 1 then
+    Arg := Trim(Copy(Trim(Line), Length(Parts[0]) + 1, MaxInt))
+  else
+    Arg := '';
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  if Cmd = 'status' then
+  begin
+    Result := Format('%s, %d players:', [FMapName, FBots.Count + FNet.ClientCount]);
+    for E := 1 to FGame.MaxClients do
+      if FGame.ClientActive(E) then
+      begin
+        C := ClientOfEdict(E);
+        if C > 0 then
+          Who := FNet.ClientAddress(C)
+        else
+          Who := 'bot';
+        Result := Result + Format(' %d %s %d frags (%s);', [E, FGame.ClientName(E), FGame.PlayerFrags(E), Who]);
+      end;
+  end else
+  if Cmd = 'kick' then
+  begin
+    E := FindPlayer(Arg);
+    if E = 0 then
+      Result := Format('No player "%s"', [Arg])
+    else
+    if E = OwnEdict then
+      Result := 'The host cannot kick himself'
+    else
+    begin
+      Who := FGame.ClientName(E);
+      C := ClientOfEdict(E);
+      if FBots.Remove(E) then
+      begin
+        { A bot has no connection: its client leaves the game here }
+        FGame.DisconnectClient(E);
+        for C := 1 to MaxNetClients do
+          if FNet.ClientActive(C) then
+          begin
+            FReliable[C].UpdateName(E - 1, '');
+            FReliable[C].UpdateFrags(E - 1, 0);
+            FReliable[C].UpdateColors(E - 1, 0);
+          end;
+        BalanceTeams;
+      end else
+      if C > 0 then
+        FNet.KickClient(C);
+      PrintAll(Who + ' was kicked by the host');
+      Result := Format('Kicked %s', [Who]);
+    end;
+  end else
+  if Cmd = 'map' then
+  begin
+    if (Arg = '') or not Pak.FileExists('maps/' + LowerCase(Arg) + '.bsp') then
+      Result := Format('No map "%s"', [Arg])
+    else
+    begin
+      PrintAll('The host changes the level to ' + LowerCase(Arg));
+      ChangeLevel(LowerCase(Arg), True);
+      Result := Format('Level changed to %s', [FMapName]);
+    end;
+  end else
+  if (Cmd = 'fraglimit') or (Cmd = 'timelimit') or (Cmd = 'teamplay') then
+  begin
+    if FGame.Deathmatch = 0 then
+      Exit('Only in deathmatch');
+    if Arg <> '' then
+    begin
+      V := Max(0, StrToFloatDef(Arg, 0, Fmt));
+      if Cmd = 'fraglimit' then
+        FGame.FragLimit := V
+      else if Cmd = 'timelimit' then
+        FGame.TimeLimit := V
+      else
+      begin
+        FGame.TeamPlay := EnsureRange(Round(V), 0, 2);
+        { The clients group the scoreboard; the bots even the new teams }
+        for C := 1 to MaxNetClients do
+          if FNet.ClientActive(C) then
+            FReliable[C].StuffText(Format('teamplay %d'#10, [FGame.TeamPlay]));
+        BalanceTeams;
+      end;
+      PrintAll(Format('The host sets %s to %s', [Cmd, FormatFloat('0.##', V, Fmt)]));
+    end;
+    if Cmd = 'fraglimit' then
+      V := FGame.FragLimit
+    else if Cmd = 'timelimit' then
+      V := FGame.TimeLimit
+    else
+      V := FGame.TeamPlay;
+    Result := Format('%s %s', [Cmd, FormatFloat('0.##', V, Fmt)]);
+  end else
+  if Cmd = 'addbot' then
+  begin
+    N := AddBots(Max(1, StrToIntDef(Arg, 1)), FBots.Skill);
+    PrintAll(Format('The host adds %d bots', [N]));
+    Result := Format('%d bots added', [N]);
+  end else
+    Result := Format('Unknown host command "%s" (status, kick, map, fraglimit, timelimit, teamplay, addbot)', [Cmd]);
+  WritelnLog('QuakeServer', 'Host: %s: %s', [Trim(Line), Result]);
+end;
+
+procedure TQuakeServer.PrintAll(const S: String);
+var
+  O: Integer;
+begin
+  for O := 1 to MaxNetClients do
+    if FNet.ClientActive(O) then
+      FReliable[O].Print(S + #10);
+end;
+
+procedure TQuakeServer.ChangeLevel(const AMap: String; const Forced: Boolean);
 var
   C, I: Integer;
   Map: String;
 begin
   Map := AMap;
   { Deathmatch with a rotation: the map after this one, round }
-  if FRotation.Count > 0 then
+  if (FRotation.Count > 0) and not Forced then
   begin
     I := FRotation.IndexOf(LowerCase(FMapName));
     Map := FRotation[(I + 1) mod FRotation.Count];

@@ -21,6 +21,7 @@ DEFAULT_PAKS = [os.path.join(ROOT, 'data', 'paks', name)
                 for name in ('pak0.pak', 'pak1.pak', 'quake1_demo.pak')]
 
 LUMP_NODES, LUMP_FACES, LUMP_CLIPNODES, LUMP_LEAVES, LUMP_MARKSURFACES, LUMP_EDGES = 5, 7, 9, 10, 11, 12
+LUMP_VERTICES = 3
 
 
 def read_pak_file(paks, name):
@@ -43,8 +44,11 @@ def records(data, offset, length, fmt):
     return [struct.unpack_from(fmt, data, offset + i * size) for i in range(length // size)]
 
 
-def convert(data, kind):
-    """kind: 'BSP2' (float node / leaf bounds) or '2PSB' (short bounds)"""
+def convert(data, kind, vertex_offset=0):
+    """kind: 'BSP2' (float node / leaf bounds) or '2PSB' (short bounds);
+    vertex_offset unused vertices go before the map's own, so every edge
+    names a vertex above that number (BSP2 maps of more than 65535
+    vertices)"""
     version = struct.unpack_from('<i', data, 0)[0]
     if version != 29:
         raise ValueError('not a BSP29 map (version %d)' % version)
@@ -79,7 +83,11 @@ def convert(data, kind):
         buf += struct.pack('<i2i', plane, *children)
     out[LUMP_CLIPNODES] = buf
 
-    out[LUMP_EDGES] = b''.join(struct.pack('<2I', *e) for e in records(data, *lumps[LUMP_EDGES], '<2H'))
+    out[LUMP_EDGES] = b''.join(struct.pack('<2I', e[0] + vertex_offset, e[1] + vertex_offset)
+                               for e in records(data, *lumps[LUMP_EDGES], '<2H'))
+    if vertex_offset:
+        offset, length = lumps[LUMP_VERTICES]
+        out[LUMP_VERTICES] = struct.pack('<3f', 0, 0, 0) * vertex_offset + data[offset:offset + length]
     out[LUMP_MARKSURFACES] = b''.join(struct.pack('<I', *m)
                                       for m in records(data, *lumps[LUMP_MARKSURFACES], '<H'))
     buf = b''

@@ -9,7 +9,7 @@
   author="castle-quake1"
   screen_orientation="landscape"
 >
-  <version value="0.3.58" code="61" />
+  <version value="0.3.59" code="62" />
   <!-- The map browser downloads from Quaddicted: OpenSSL on Windows,
        Android's download_urls service -->
   <dependencies>

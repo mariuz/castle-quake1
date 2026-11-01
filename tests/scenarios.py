@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -460,6 +461,28 @@ def check_records(logs):
     return result
 
 
+def check_hostcmd(logs):
+    result = common_checks(logs, 'khost') + common_checks(logs, 'kclient')
+    h, c = logs['khost'], logs['kclient']
+    status = re.findall(r'Host: status: (.*)', h)
+    result.append((len(status) == 3 and 'Raven' in status[0] and 'Scout' in status[0],
+                   'status lists the bots and the client (%s)' % (status[0] if status else '-')))
+    result.append(('Host: kick Raven: Kicked Raven' in h and 'Bot "Raven" left' in h, 'the host kicks a bot'))
+    result.append(('Host: fraglimit 5: fraglimit 5' in h and 'Host: addbot: 1 bots added' in h,
+                   'the host sets the frag limit and adds a bot'))
+    result.append(('Demo: Raven was kicked by the host' in c and 'Demo: The host sets fraglimit to 5' in c,
+                   'the client is told'))
+    result.append(('Host command "kick Wolf" refused: not the host' in c and 'Bot "Wolf" left' not in h,
+                   'a client cannot run host commands'))
+    result.append(('Host: kick Scout: Kicked Scout' in h and 'Connection ended' in c,
+                   'the host kicks the client, whose connection ends'))
+    result.append((len(status) == 3 and 'Scout' not in status[1] and 'Scout' not in status[2],
+                   'the kicked player leaves the game (%s)' % (status[1] if len(status) > 1 else '-')))
+    result.append(('Host: map start: Level changed to start' in h and 'Loaded map "maps/start.bsp"' in h,
+                   'the host changes the level'))
+    return result
+
+
 def check_dmrules(logs):
     result = common_checks(logs, 'dhost') + common_checks(logs, 'dclient')
     h, c = logs['dhost'], logs['dclient']
@@ -828,12 +851,15 @@ def prepare_bsp2(out_dir):
     data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
     bsp2convert.write_pak(os.path.join(out_dir, 'pak0.pak'),
                           [('maps/e1m1_bsp2.bsp', bsp2convert.convert(data, 'BSP2')),
-                           ('maps/e1m1_2psb.bsp', bsp2convert.convert(data, '2PSB'))])
+                           ('maps/e1m1_2psb.bsp', bsp2convert.convert(data, '2PSB')),
+                           # every edge names a vertex above 65535, like the
+                           # largest BSP2 maps (Arcane Dimensions' Sepulcher)
+                           ('maps/e1m1_bigv.bsp', bsp2convert.convert(data, 'BSP2', vertex_offset=65536))])
 
 
 def check_bsp2(logs):
     result = []
-    for prefix, kind in (('bsp2', 'BSP2'), ('psb', '2PSB')):
+    for prefix, kind in (('bsp2', 'BSP2'), ('psb', '2PSB'), ('bigv', 'BSP2')):
         log = logs[prefix]
         result += common_checks(logs, prefix)
         result.append(('(%s): 5516 faces' % kind in log, '%s map loads with the faces of e1m1' % kind))
@@ -872,6 +898,57 @@ def check_gamedir(logs):
         result += common_checks(logs, prefix)
         result.append(('Loaded map "maps/%s.bsp" (%s)' % (name, kind) in logs[prefix], what))
     return result
+
+
+def bsp_texture_names(data):
+    """The miptex names of a BSP29 / BSP2 map"""
+    off, _ = struct.unpack('<ii', data[4 + 2 * 8:4 + 2 * 8 + 8])
+    count = struct.unpack('<i', data[off:off + 4])[0]
+    names = []
+    for i in range(count):
+        o = struct.unpack('<i', data[off + 4 + 4 * i:off + 8 + 4 * i])[0]
+        if o >= 0:
+            names.append(data[off + o:off + o + 16].split(b'\0')[0].decode('latin-1'))
+    return names
+
+
+def prepare_exttex(out_dir):
+    # A texture pack the way QuakeSpasm-Spiked reads one: loose
+    # textures/e1m1/<name>.tga in a game directory, here a red and white
+    # check for each of E1M1's wall textures (not the sky or the liquids),
+    # with a _luma for one of them
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import bsp2convert
+    data = bsp2convert.read_pak_file(bsp2convert.DEFAULT_PAKS, 'maps/e1m1.bsp')
+    tex = os.path.join(out_dir, 'texmod', 'textures', 'e1m1')
+    os.makedirs(tex, exist_ok=True)
+    check = Image.new('RGB', (256, 256), (230, 30, 30))
+    for y in range(0, 256, 32):
+        for x in range(0, 256, 32):
+            if (x // 32 + y // 32) % 2:
+                check.paste((240, 240, 240), (x, y, x + 32, y + 32))
+    names = [n for n in bsp_texture_names(data) if not n.lower().startswith(('sky', '*'))]
+    for name in names:
+        check.save(os.path.join(tex, name.lower() + '.tga'))
+    Image.new('RGB', (256, 256), (0, 0, 80)).save(os.path.join(tex, names[0].lower() + '_luma.tga'))
+
+
+def check_exttex(logs):
+    result = common_checks(logs, 'tex')
+    m = re.search(r'External textures of "e1m1": (\d+) of (\d+)', logs['tex'])
+    result.append((m is not None and int(m.group(1)) >= 60, 'the pack replaces E1M1\'s textures (%s of %s)'
+                   % (m.group(1), m.group(2)) if m else 'the pack replaces E1M1\'s textures'))
+    return result
+
+
+def frames_exttex(out_dir):
+    """The walls are red and white checks: a red dominated view"""
+    path = os.path.join(out_dir, 'tex_1.png')
+    if not os.path.exists(path):
+        return [(False, 'tex_1.png exists')]
+    img = Image.open(path).convert('RGB').resize((160, 90))
+    red = sum(1 for r, g, b in img.getdata() if r > 2 * g + 10 and r > 2 * b + 10)
+    return [(red > 160 * 90 * 0.1, 'the red checks show on the walls (%d of %d pixels red)' % (red, 160 * 90))]
 
 
 def prepare_litfog(out_dir):
@@ -1294,8 +1371,10 @@ SCENARIOS = [
     Scenario('bsp2', [('bsp2', ['-game', '{out}', '--autotest', 'e1m1_bsp2', '{out}/bsp2', '--demo',
                                 'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0),
                       ('psb', ['-game', '{out}', '--autotest', 'e1m1_2psb', '{out}/psb', '--demo',
-                               'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
-             check_bsp2, ['bsp2_1', 'psb_1'], prepare=prepare_bsp2),
+                               'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0),
+                      ('bigv', ['-game', '{out}', '--autotest', 'e1m1_bigv', '{out}/bigv', '--demo',
+                                'W:0.5,Y,S,V:1;0;0,W:1.5,V:0;0;0,W:0.3,S,Q'], 0)],
+             check_bsp2, ['bsp2_1', 'psb_1', 'bigv_1'], prepare=prepare_bsp2),
     # Loose files, pak0.pak and a .pk3 in a -game directory, and which one
     # wins; the views are the finish_1 start view (copied references)
     Scenario('gamedir', [('loose', ['-game', '{out}/mod', '--autotest', 'e1m1_loose', '{out}/loose', '--demo',
@@ -1501,6 +1580,19 @@ SCENARIOS = [
                                    'W:0.5,Y,G:1312;-230;-544,W:6.5,S,CMD:records e1m1,X,W:2,GB:start,W:0.5,GB:down,'
                                    'W:0.3,GB:down,W:0.3,GB:south,W:0.5,GB:down,W:0.5,S,Q'], 18)],
              check_records, []),
+    # External textures: a texture pack in a game directory replaces E1M1's
+    # wall textures (QuakeSpasm-Spiked's textures/<map>/<name>.tga)
+    Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
+             check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),
+    # Host console: the listen server's host lists the players, kicks a bot,
+    # sets the frag limit, adds a bot, kicks the client and changes the map;
+    # the client is told and cannot run host commands itself
+    Scenario('hostcmd', [('khost', ['--autotest', 'host:e1m1', '{out}/khost', '--demo',
+                                    'W:6,CMD:status,CMD:kick Raven,CMD:fraglimit 5,CMD:addbot,W:6,CMD:kick Scout,W:1,'
+                                    'CMD:status,CMD:map start,W:4,S,CMD:status,Q', '-port', '26012', '-bots', '2'], 0),
+                         ('kclient', ['-name', 'Scout', '--autotest', 'connect:127.0.0.1:26012', '{out}/kclient',
+                                      '--demo', 'W:5,SAY:/kick Wolf,W:4,SB,W:8,S,Q'], 2)],
+             check_hostcmd, [], dark=('khost', 'kclient')),
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows

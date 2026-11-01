@@ -59,6 +59,7 @@ type
     FLanguageVersion: Integer;
     FStatsVisible: Boolean;
     FContentsShift: TQuakeColorShift;
+    FEmptyShift: TQuakeColorShift;
     FDamageShift: TQuakeColorShift;
     FBonusShift: TQuakeColorShift;
     FPowerupShift: TQuakeColorShift;
@@ -113,6 +114,8 @@ type
 
     { Tint for the liquid the view is in (V_SetContentsColor), CONTENTS_xxx value }
     procedure SetContents(const Contents: Integer);
+    { v_cshift: the tint out of liquids (cshift_empty), 0 percent none }
+    procedure SetEmptyShift(const R, G, B, Percent: Single);
 
     { Show the level completed screen: level title, time, secrets and
       kills counted up one after another }
@@ -262,8 +265,13 @@ begin
     CONTENTS_WATER: FContentsShift := ColorShift(130, 80, 50, 128);
     CONTENTS_SLIME: FContentsShift := ColorShift(0, 25, 5, 150);
     CONTENTS_LAVA:  FContentsShift := ColorShift(255, 80, 0, 150);
-    else            FContentsShift := ColorShift(0, 0, 0, 0);
+    else            FContentsShift := FEmptyShift;
   end;
+end;
+
+procedure TQuakeHud.SetEmptyShift(const R, G, B, Percent: Single);
+begin
+  FEmptyShift := ColorShift(R, G, B, Max(0, Min(255, Percent)));
 end;
 
 function TQuakeHud.CalcBlend: TVector4;

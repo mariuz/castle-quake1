@@ -1195,3 +1195,6 @@ msgstr "Record a %s: %s, uccisioni %d/%d, segreti %d/%d"
 
 msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
 msgstr "  r_lerpmodels <0|1> - Sfuma i modelli da una posa all'altra (modalità QuakeC, demo, rete)"
+
+msgid "Only the host of the game runs commands"
+msgstr "Solo l'host della partita esegue comandi"

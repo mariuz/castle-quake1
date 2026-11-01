@@ -68,8 +68,16 @@ type
     FRgb: Boolean;
     FChannels: Integer;
     FLayerUsed: array[0..3] of Boolean;
-    FShelfX, FShelfY, FShelfH: Integer;
+    { Open shelves: rows of faces of about the same height, filled left to
+      right; a face goes into the lowest shelf it fits (at most 2 texels
+      taller), else a new shelf starts below the last one }
+    FShelves: array of record
+      Y, H, X: Integer;
+    end;
+    FNextY: Integer;
     FUsedHeight: Integer;
+    FTexelsUsed: Int64;
+    procedure NeedLayer(const Layer: Integer);
   public
     { ARgb: three bytes per texel (colored .lit lightmaps), else one }
     constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096; const ARgb: Boolean = False);
@@ -83,6 +91,8 @@ type
     property Height: Integer read FHeight;
     { Rows packed so far }
     property UsedHeight: Integer read FUsedHeight;
+    { The texels of the faces packed (without the padding) }
+    property TexelsUsed: Int64 read FTexelsUsed;
     property Rgb: Boolean read FRgb;
   end;
   TQuakeLightmapAtlasList = specialize TObjectList<TQuakeLightmapAtlas>;
@@ -801,46 +811,66 @@ begin
     FChannels := 3
   else
     FChannels := 1;
-  for L := 0 to 3 do
-  begin
-    SetLength(FData[L], FWidth * FHeight * FChannels);
-    FillChar(FData[L][0], Length(FData[L]), 0);
-  end;
+  { Only the lightstyle layers faces use get memory (NeedLayer) }
+  NeedLayer(0);
   { Reserve a 4x4 block at (0,0) filled with 128 (mid-gray = 1.0 with the x2
     overbright) so faces without a lightmap can sample (2,2) without bleeding }
   for Y := 0 to 3 do
     for X := 0 to 3 do
       FillChar(FData[0][(Y * FWidth + X) * FChannels], FChannels, 128);
   FLayerUsed[0] := True;
-  FShelfX := 5; { 1 texel padding after the 4x4 block }
-  FShelfY := 0;
-  FShelfH := 4;
+  { The first shelf holds the block, with 1 texel padding after it }
+  SetLength(FShelves, 1);
+  FShelves[0].Y := 0;
+  FShelves[0].H := 4;
+  FShelves[0].X := 5;
+  FNextY := 5;
   FUsedHeight := 4;
 end;
 
+procedure TQuakeLightmapAtlas.NeedLayer(const Layer: Integer);
+begin
+  if Length(FData[Layer]) = 0 then
+  begin
+    SetLength(FData[Layer], FWidth * FHeight * FChannels);
+    FillChar(FData[Layer][0], Length(FData[Layer]), 0);
+  end;
+end;
+
 function TQuakeLightmapAtlas.Allocate(const W, H: Integer; out X, Y: Integer): Boolean;
+var
+  I, Best: Integer;
 begin
   Result := False;
   X := 0;
   Y := 0;
   if (W > FWidth) or (W <= 0) or (H <= 0) then
     Exit;
-  { 1 texel padding to avoid bleeding with linear filtering }
-  if FShelfX + W + 1 > FWidth then
+  { The lowest open shelf the face fits (1 texel padding against bleeding
+    with linear filtering): mixing tall and short faces in one shelf wasted
+    most of the page on large maps }
+  Best := -1;
+  for I := 0 to High(FShelves) do
+    if (FShelves[I].H >= H) and (FShelves[I].H <= H + 2) and (FShelves[I].X + W + 1 <= FWidth) and
+       ((Best < 0) or (FShelves[I].H < FShelves[Best].H)) then
+      Best := I;
+  if Best < 0 then
   begin
-    FShelfY := FShelfY + FShelfH + 1;
-    FShelfX := 0;
-    FShelfH := 0;
+    if FNextY + H > FHeight then
+      Exit;
+    SetLength(FShelves, Length(FShelves) + 1);
+    Best := High(FShelves);
+    FShelves[Best].Y := FNextY;
+    FShelves[Best].H := H;
+    FShelves[Best].X := 0;
+    FNextY := FNextY + H + 1;
   end;
-  if FShelfY + H > FHeight then
-    Exit;
-  X := FShelfX;
-  Y := FShelfY;
-  FShelfX := FShelfX + W + 1;
-  if H > FShelfH then
-    FShelfH := H;
+  X := FShelves[Best].X;
+  Y := FShelves[Best].Y;
+  FShelves[Best].X := X + W + 1;
   if Y + H > FUsedHeight then
     FUsedHeight := Y + H;
+  Inc(FTexelsUsed, W * H);
   Result := True;
 end;
 
@@ -855,6 +885,7 @@ var
 begin
   if (Layer >= 0) and (Layer <= 3) and (X >= 0) and (X < FWidth) and (Y >= 0) and (Y < FHeight) then
   begin
+    NeedLayer(Layer);
     I := (Y * FWidth + X) * FChannels;
     if FRgb then
     begin
@@ -1596,6 +1627,7 @@ procedure TQuakeGeometry.BuildModelGeometry(const ModelIdx: Integer; const RootN
 var
   Mdl: TBSPModel;
   FaceIdx, C, P: Integer;
+  Texels: Int64;
   Atlases: TQuakeLightmapAtlasList;
   LMSets: array of TQuakeLightmapSet;
   AtlasSize: Integer;
@@ -1668,10 +1700,15 @@ begin
     if ((ModelIdx = 0) and Clustered) or (Atlases.Count > 1) or (FFullbrightFaces > 0) then
     begin
       P := 0;
+      Texels := 0;
       for C := 0 to Atlases.Count - 1 do
+      begin
         Inc(P, Atlases[C].UsedHeight);
-      WritelnLog('QuakeGeometry', 'Lightmaps of model %d: %d atlas page(s) of %dx%d, %d rows used, %d faces without room',
-        [ModelIdx, Atlases.Count, AtlasSize, AtlasSize, P, FFullbrightFaces]);
+        Inc(Texels, Atlases[C].TexelsUsed);
+      end;
+      WritelnLog('QuakeGeometry', 'Lightmaps of model %d: %d atlas page(s) of %dx%d, %d rows used, %d faces without room, %d%% filled',
+        [ModelIdx, Atlases.Count, AtlasSize, AtlasSize, P, FFullbrightFaces,
+         Round(100 * Texels / Max(1, Int64(Atlases.Count) * AtlasSize * AtlasSize))]);
     end;
   finally
     Atlases.Free;
