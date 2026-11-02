@@ -38,6 +38,9 @@ var
     from one pose to the next over ModelLerpTime seconds (the play view's
     animations always blend) }
   ModelLerp: Boolean = True;
+  { r_lerpmove: walking monsters (MOVETYPE_STEP, moved 10 times a second)
+    glide from one spot to the next in QuakeC mode }
+  MoveLerp: Boolean = True;
   { Changes are not saved (headless tests) }
   VideoSettingsVolatile: Boolean = False;
 

@@ -1724,6 +1724,13 @@ begin
       ModelLerp := Args <> '0';
     FConsole.Print(Format('r_lerpmodels %d', [Ord(ModelLerp)]));
   end else
+  if Cmd = 'r_lerpmove' then
+  begin
+    { Walking monsters glide between their steps in QuakeC mode }
+    if Args <> '' then
+      MoveLerp := Args <> '0';
+    FConsole.Print(Format('r_lerpmove %d', [Ord(MoveLerp)]));
+  end else
   if Cmd = 'records' then
     ListRecordsCommand(LowerCase(Args))
   else
@@ -1826,6 +1833,7 @@ begin
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
     FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
+    FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));
