@@ -296,6 +296,8 @@ type
     { The progs' alpha field (FitzQuake / QuakeSpasm): 0 the default
       (opaque), else the opacity 0..1 }
     function EntityAlpha(const E: Integer): Single;
+    { The progs' movetype (MOVETYPE_STEP: walking monsters) }
+    function EntityMoveType(const E: Integer): Integer;
     { The progs' colormap: a player's client number, 0 for the others }
     function EntityColorMap(const E: Integer): Integer;
     function EntityVisible(const E: Integer): Boolean;
@@ -2086,6 +2088,11 @@ end;
 function TQuakeQcGame.EntityEffects(const E: Integer): Integer;
 begin
   Result := Round(FProgs.Field(E, FFEffects)^.F);
+end;
+
+function TQuakeQcGame.EntityMoveType(const E: Integer): Integer;
+begin
+  Result := Round(FProgs.Field(E, FFMoveType)^.F);
 end;
 
 function TQuakeQcGame.EntityAlpha(const E: Integer): Single;

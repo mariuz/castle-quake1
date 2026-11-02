@@ -831,6 +831,10 @@ def check_quakec(logs):
     m = re.search(r'(\d+) edicts in use', log)
     count = int(m.group(1)) if m else 0
     result.append((count >= 150, 'progs.dat spawned the level (%d edicts)' % count))
+    result += common_checks(logs, 'qcglide')
+    gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
+    result.append((len(gliding) == 3 and max(gliding) > 0,
+                   'walking monsters glide between their steps (%s)' % gliding))
     return result
 
 
@@ -1359,7 +1363,11 @@ SCENARIOS = [
                             ('dm_client', ['--autotest', 'connect:127.0.0.1:26300', '{out}/dm_client', '--demo',
                                            'W:3,S,V:1;0;0,W:1,V:0;0;0,X,W:1.5,S,Q'], 4)],
              check_deathmatch, []),
-    Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0)],
+    # qcglide: shots wake the first room's monsters, which walk in steps
+    # of 0.1 s and glide between them (r_lerpmove)
+    Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0),
+                        ('qcglide', ['--autotest', 'qc:e1m1', '{out}/qcglide', '--demo',
+                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0)],
              check_quakec, ['qc_1']),
     # The same view as finish_1 with 128 x 128 lightmap atlas pages: its
     # reference is a copy of e1m1_finish_finish_1 (one 2048 x 2048 page)

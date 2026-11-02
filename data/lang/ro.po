@@ -1198,3 +1198,6 @@ msgstr "  r_lerpmodels <0|1> - Trecere lină a modelelor între poze (modul Quak
 
 msgid "Only the host of the game runs commands"
 msgstr "Doar gazda jocului rulează comenzi"
+
+msgid "  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)"
+msgstr "  r_lerpmove <0|1> - Monștrii care merg alunecă între pașii lor (modul QuakeC)"

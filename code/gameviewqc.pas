@@ -30,6 +30,11 @@ type
     PrevFrame: Integer;
     LerpStart: Single;
     LerpDone: Boolean;
+    { r_lerpmove: the drawn place and angles glide from Move/AngFrom to the
+      entity's latest ones (Move/AngTo) since MoveStart }
+    MoveFrom, MoveTo, AngFrom, AngTo: TVector3;
+    MoveStart: Single;
+    MoveValid: Boolean;
   end;
 
   TViewQc = class(TCastleView)
@@ -100,6 +105,8 @@ type
     procedure ShowSprite(var V: TQcVisual; const Model: String; const Origin, Angles: TVector3;
       const Frame: Integer);
     procedure ApplyAlpha(var V: TQcVisual; const Alpha: Single);
+    procedure LerpMove(var V: TQcVisual; const Origin, Angles: TVector3; const Step: Boolean;
+      out DrawOrigin, DrawAngles: TVector3);
     procedure ApplyStuffed;
     procedure LogDrawnEntities;
     procedure UpdatePose(var V: TQcVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
@@ -265,6 +272,7 @@ begin
   V.Model := '';
   V.Frame := -1;
   V.Alpha := 0;
+  V.MoveValid := False;
 end;
 
 procedure TViewQc.CullVisuals;
@@ -591,13 +599,14 @@ end;
 
 procedure TViewQc.LogDrawnEntities;
 var
-  I, Models, Sprites, Translucent: Integer;
+  I, Models, Sprites, Translucent, Gliding: Integer;
 begin
   { What the entities look like (QuakeSpasm features): drawn models,
     sprites and the translucent ones among them }
   Models := 0;
   Sprites := 0;
   Translucent := 0;
+  Gliding := 0;
   for I := 0 to High(FVisuals) do
     if (FVisuals[I].Transform <> nil) and FVisuals[I].Transform.Exists then
     begin
@@ -607,8 +616,13 @@ begin
         Inc(Models);
       if (FVisuals[I].Alpha > 0) and (FVisuals[I].Alpha < 1) then
         Inc(Translucent);
+      { r_lerpmove: still between two of its steps }
+      if FVisuals[I].MoveValid and (FGame.Time - FVisuals[I].MoveStart < ModelLerpTime) and
+        not TVector3.PerfectlyEquals(FVisuals[I].MoveFrom, FVisuals[I].MoveTo) then
+        Inc(Gliding);
     end;
-  WritelnLog('GameViewQc', 'Entities drawn: %d models, %d sprites, %d translucent', [Models, Sprites, Translucent]);
+  WritelnLog('GameViewQc', 'Entities drawn: %d models, %d sprites, %d translucent, %d gliding',
+    [Models, Sprites, Translucent, Gliding]);
 end;
 
 procedure TViewQc.ApplyStuffed;
@@ -1000,6 +1014,61 @@ begin
       QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(Angles.Z))).ToAxisAngle;
 end;
 
+procedure TViewQc.LerpMove(var V: TQcVisual; const Origin, Angles: TVector3; const Step: Boolean;
+  out DrawOrigin, DrawAngles: TVector3);
+
+  function Blend(const T: Single): TVector3;
+  var
+    I: Integer;
+    D: Single;
+  begin
+    for I := 0 to 2 do
+    begin
+      { The angles turn the short way round }
+      D := V.AngTo[I] - V.AngFrom[I];
+      D := D - 360 * Round(D / 360);
+      Result.Data[I] := V.AngFrom[I] + D * T;
+    end;
+  end;
+
+var
+  T: Single;
+begin
+  { R_LerpMove: a walking monster's moves of a think (0.1 s) are drawn
+    as a glide from where it was drawn to its new place }
+  T := 1;
+  if V.MoveValid then
+    T := EnsureRange((FGame.Time - V.MoveStart) / ModelLerpTime, 0, 1);
+  if not V.MoveValid or not MoveLerp or not Step then
+  begin
+    V.MoveFrom := Origin;
+    V.AngFrom := Angles;
+    V.MoveTo := Origin;
+    V.AngTo := Angles;
+    V.MoveStart := FGame.Time;
+    V.MoveValid := True;
+  end else
+  if not TVector3.PerfectlyEquals(Origin, V.MoveTo) or not TVector3.PerfectlyEquals(Angles, V.AngTo) then
+  begin
+    if (Origin - V.MoveTo).Length > 100 then
+    begin
+      { A teleport or a respawn: no glide }
+      V.MoveFrom := Origin;
+      V.AngFrom := Angles;
+    end else
+    begin
+      V.MoveFrom := V.MoveFrom + (V.MoveTo - V.MoveFrom) * T;
+      V.AngFrom := Blend(T);
+    end;
+    V.MoveTo := Origin;
+    V.AngTo := Angles;
+    V.MoveStart := FGame.Time;
+  end;
+  T := EnsureRange((FGame.Time - V.MoveStart) / ModelLerpTime, 0, 1);
+  DrawOrigin := V.MoveFrom + (V.MoveTo - V.MoveFrom) * T;
+  DrawAngles := Blend(T);
+end;
+
 procedure TViewQc.ApplyAlpha(var V: TQcVisual; const Alpha: Single);
 var
   OpaqueMode: TAlphaMode;
@@ -1297,7 +1366,7 @@ end;
 procedure TViewQc.Update(const SecondsPassed: Single; var HandleInput: Boolean);
 var
   Cmd: TQuakeUserCmd;
-  CamDir, Angles: TVector3;
+  CamDir, Angles, DrawOrigin, DrawAngles: TVector3;
   Yaw, Pitch: Single;
   E, I, J: Integer;
   Fire: Boolean;
@@ -1378,7 +1447,9 @@ begin
   for E := 2 to FGame.Progs.NumEdicts - 1 do
     if FGame.EntityVisible(E) then
     begin
-      ShowVisual(FVisuals[E], FGame.EntityModel(E), FGame.EntityOrigin(E), FGame.EntityAngles(E),
+      LerpMove(FVisuals[E], FGame.EntityOrigin(E), FGame.EntityAngles(E),
+        FGame.EntityMoveType(E) = MOVETYPE_STEP, DrawOrigin, DrawAngles);
+      ShowVisual(FVisuals[E], FGame.EntityModel(E), DrawOrigin, DrawAngles,
         FGame.EntityFrame(E), FGame.EntitySkin(E), FGame.EntityEffects(E), SecondsPassed);
       ApplyAlpha(FVisuals[E], FGame.EntityAlpha(E));
     end else

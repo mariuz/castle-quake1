@@ -1198,3 +1198,6 @@ msgstr "  r_lerpmodels <0|1> - Fundir los modelos de una pose a otra (modo Quake
 
 msgid "Only the host of the game runs commands"
 msgstr "Solo el anfitrión de la partida ejecuta comandos"
+
+msgid "  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)"
+msgstr "  r_lerpmove <0|1> - Los monstruos que caminan se deslizan entre sus pasos (modo QuakeC)"
