@@ -1201,3 +1201,6 @@ msgstr "Seul l'hôte de la partie exécute des commandes"
 
 msgid "  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)"
 msgstr "  r_lerpmove <0|1> - Les monstres qui marchent glissent entre leurs pas (mode QuakeC)"
+
+msgid "  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)"
+msgstr "  pr_checkextension <0|1> - Les mods peuvent utiliser les extensions QuakeC (prochaine carte QuakeC)"

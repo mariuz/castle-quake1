@@ -243,7 +243,11 @@ def check_arcane_dimensions(exe, out, cache, results):
     installed = os.path.join(config_dir(), 'quaddicted_%s.zip' % AD['id'])
     if not os.path.exists(installed) or os.path.getsize(installed) != os.path.getsize(zip_path):
         shutil.copyfile(zip_path, installed)
-    runs = [('start', 'W:0.5,CMD:maps_play %s start,W:10,Y,G:-140;100;230,A:270,W:1,S,Q' % AD['id']),
+    # The hub without the QuakeC extensions: AD takes the engine for
+    # FitzQuake and gives its smoke alpha (with the extensions it uses DP's
+    # EF_NOSHADOW instead); the first map with them
+    runs = [('start', 'W:0.5,CMD:pr_checkextension 0,CMD:maps_play %s start,W:10,Y,G:-140;100;230,A:270,W:1,S,Q'
+             % AD['id']),
             ('ad_e1m1', 'W:0.5,CMD:maps_play %s ad_e1m1,W:10,S,Q' % AD['id'])]
     for name, demo in runs:
         code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'ad_' + name), '--demo', demo],
@@ -257,8 +261,12 @@ def check_arcane_dimensions(exe, out, cache, results):
                         '%s: no QuakeC errors (%s)' % (tag, ', '.join(sorted(set(errors))) or 'none')))
         # QuakeSpasm-Spiked's extensions: AD asks for them and uses their builtins
         found = re.findall(r'checkextension\("(\w+)"\): yes', log)
-        results.append(('FRIK_FILE' in found and 'FTE_STRINGS' in found,
-                        '%s: the progs use the FRIK_FILE and FTE_STRINGS extensions (%s)' % (tag, ', '.join(found))))
+        if name == 'start':
+            results.append((not found and 'Fitz Compatible' in log,
+                            '%s: pr_checkextension 0 hides the extensions (AD says Fitz Compatible)' % tag))
+        else:
+            results.append(('FRIK_FILE' in found and 'FTE_STRINGS' in found and 'Advanced Engine' in log,
+                            '%s: the progs use the FRIK_FILE and FTE_STRINGS extensions (%s)' % (tag, ', '.join(found))))
         qc_lines = [l for l in log.splitlines() if l.startswith('QuakeC: ')]
         results.append((all(all(ord(c) < 128 for c in l) for l in qc_lines),
                         '%s: the gold text of the prints reads as plain text' % tag))

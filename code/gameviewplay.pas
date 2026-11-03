@@ -130,7 +130,7 @@ var
 
 implementation
 
-uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords;
+uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords, QuakeProgs;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -1731,6 +1731,13 @@ begin
       MoveLerp := Args <> '0';
     FConsole.Print(Format('r_lerpmove %d', [Ord(MoveLerp)]));
   end else
+  if Cmd = 'pr_checkextension' then
+  begin
+    { The QuakeC extensions, for the next map loaded in QuakeC mode }
+    if Args <> '' then
+      ProgsExtensions := Args <> '0';
+    FConsole.Print(Format('pr_checkextension %d', [Ord(ProgsExtensions)]));
+  end else
   if Cmd = 'records' then
     ListRecordsCommand(LowerCase(Args))
   else
@@ -1834,6 +1841,7 @@ begin
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
     FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
     FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));
+    FConsole.Print(Tr('  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));

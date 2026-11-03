@@ -434,15 +434,20 @@ procedure TViewQc.LogEdicts;
 var
   E, N: Integer;
   O: TVector3;
+  AlphaText: String;
 begin
   N := 0;
   for E := 0 to FGame.Progs.NumEdicts - 1 do
     if not FGame.Progs.EdictFree(E) then
     begin
       O := FGame.EntityOrigin(E);
-      WritelnLog('GameViewQc', 'edict %3d %-24s %-20s (%.0f %.0f %.0f) health %d', [E,
+      if FGame.EntityAlpha(E) <> 0 then
+        AlphaText := Format(', alpha %.2f', [FGame.EntityAlpha(E)])
+      else
+        AlphaText := '';
+      WritelnLog('GameViewQc', 'edict %3d %-24s %-20s (%.0f %.0f %.0f) health %d%s', [E,
         FGame.Progs.FieldString(E, FGame.Progs.FClassName), FGame.EntityModel(E), O.X, O.Y, O.Z,
-        Round(FGame.Progs.Field(E, FGame.Progs.FHealth)^.F)]);
+        Round(FGame.Progs.Field(E, FGame.Progs.FHealth)^.F), AlphaText]);
       Inc(N);
     end;
   WritelnLog('GameViewQc', '%d edicts in use of %d', [N, FGame.Progs.NumEdicts]);

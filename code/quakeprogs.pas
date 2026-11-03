@@ -186,6 +186,13 @@ type
 
   TProgsBuiltin = procedure of object;
 
+var
+  { pr_checkextension: the progs may ask for the DP / FTE extensions
+    (cvar "pr_checkextension" reads 1); off, a mod sees a plain engine }
+  ProgsExtensions: Boolean = True;
+
+type
+
   TProgsStatistics = record
     Spawned, Removed, Thinks, Calls: Int64;
   end;
@@ -2075,7 +2082,7 @@ begin
   S := ParmString(0);
   { Mods ask this before checkextension (QuakeSpasm-Spiked, FTE, DP) }
   if S = 'pr_checkextension' then
-    Global(OFS_RETURN)^.F := 1
+    Global(OFS_RETURN)^.F := Ord(ProgsExtensions)
   else if UserCvar(S, V) then
     Global(OFS_RETURN)^.F := ParseQcFloat(V)
   else
