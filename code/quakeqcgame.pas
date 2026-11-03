@@ -219,6 +219,9 @@ type
     procedure TraceLine(const Progs: TQuakeProgs; const Start, Stop: TVector3; const NoMonsters: Integer;
       const Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3; out HitEntity: Integer;
       out AllSolid, StartSolid, InOpen, InWater: Boolean); override;
+    procedure TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+      const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+      out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean); override;
     function WalkMove(const Progs: TQuakeProgs; const E: Integer; const Yaw, Dist: Single): Boolean; override;
     procedure MoveToGoal(const Progs: TQuakeProgs; const E: Integer; const Dist: Single); override;
     function DropToFloor(const Progs: TQuakeProgs; const E: Integer): Boolean; override;
@@ -1458,6 +1461,26 @@ begin
   StartSolid := T.StartSolid;
   C := FBsp.PointContents(EndPos);
   InWater := C < CONTENTS_SOLID; { water, slime, lava }
+  InOpen := C = CONTENTS_EMPTY;
+end;
+
+procedure TQuakeQcGame.TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+  const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+  out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean);
+var
+  T: TQuakeTrace;
+  C: Integer;
+begin
+  { tracebox: the box against the world (its hull) and the entities }
+  T := TraceBox(Start, Stop, Mins, Maxs, NoMonsters, Ignore);
+  Fraction := T.Fraction;
+  EndPos := T.EndPos;
+  Normal := T.PlaneNormal;
+  HitEntity := T.Entity;
+  AllSolid := T.AllSolid;
+  StartSolid := T.StartSolid;
+  C := FBsp.PointContents(EndPos);
+  InWater := C < CONTENTS_SOLID;
   InOpen := C = CONTENTS_EMPTY;
 end;
 

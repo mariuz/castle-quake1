@@ -223,6 +223,147 @@ begin
   end;
 end;
 
+procedure TestProgsExtensions;
+var
+  Progs: TQuakeProgs;
+  E, F: Integer;
+
+  procedure SetS(const N: Integer; const S: String);
+  begin
+    Progs.Global(OFS_PARM0 + 3 * N)^.I := Progs.NewString(S);
+  end;
+
+  procedure SetF(const N: Integer; const F: Single);
+  begin
+    Progs.Global(OFS_PARM0 + 3 * N)^.F := F;
+  end;
+
+  function RetS: String;
+  begin
+    Result := Progs.GetString(Progs.Global(OFS_RETURN)^.I);
+  end;
+
+  function RetF: Single;
+  begin
+    Result := Progs.Global(OFS_RETURN)^.F;
+  end;
+
+begin
+  { The DP / FTE builtins of QuakeSpasm-Spiked's extensions, by number }
+  StartTest('QuakeC extension builtins');
+  Progs := TQuakeProgs.Create;
+  try
+    if not Progs.Load then
+      Exit;
+    SetS(0, 'pr_checkextension');
+    Check(Progs.CallBuiltin(45, 1) and (RetF = 1), 'cvar("pr_checkextension") is 1');
+    SetS(0, 'FRIK_FILE');
+    Check(Progs.CallBuiltin(99, 1) and (RetF = 1), 'checkextension FRIK_FILE');
+    SetS(0, 'DP_QC_SPRINTF');
+    Check(Progs.CallBuiltin(99, 1) and (RetF = 1), 'checkextension DP_QC_SPRINTF');
+    SetS(0, 'DP_CSQC_NOTHING');
+    Check(Progs.CallBuiltin(99, 1) and (RetF = 0), 'an unknown extension is not supported');
+    Check(not Progs.CallBuiltin(301, 2), 'no CSQC builtins (addentities)');
+
+    SetS(0, '12.5abc');
+    Progs.CallBuiltin(81, 1);
+    CheckNear(12.5, RetF, 1e-4, 'stof');
+    SetS(0, 'Health ');
+    SetS(1, 'is ');
+    SetS(2, '100');
+    Progs.CallBuiltin(115, 3);
+    CheckEqualsStr('Health is 100', RetS, 'strcat');
+    SetS(0, 'arcane');
+    SetF(1, 1);
+    SetF(2, 3);
+    Progs.CallBuiltin(116, 3);
+    CheckEqualsStr('rca', RetS, 'substring');
+    SetS(0, 'arcane');
+    Progs.CallBuiltin(114, 1);
+    CheckEquals(6, Round(RetF), 'strlen');
+    SetS(0, 'dimensions');
+    SetS(1, 'ns');
+    SetF(2, 0);
+    Progs.CallBuiltin(221, 3);
+    CheckEquals(4, Round(RetF), 'strstrofs');
+    SetS(0, 'Quake');
+    SetF(1, 0);
+    Progs.CallBuiltin(222, 2);
+    CheckEquals(Ord('Q'), Round(RetF), 'str2chr');
+    SetF(0, 2);
+    SetF(1, 0);
+    SetF(2, 0);
+    SetS(3, 'shub');
+    Progs.CallBuiltin(224, 4);
+    CheckEqualsStr('SHUB', RetS, 'strconv to upper case');
+    SetS(0, '%s has %d health, %.2f%%');
+    SetS(1, 'Ranger');
+    SetF(2, 75);
+    SetF(3, 12.345);
+    Progs.CallBuiltin(627, 4);
+    CheckEqualsStr('Ranger has 75 health, 12.35%', RetS, 'sprintf');
+    SetS(0, 'kick "Big Wolf" now');
+    Progs.CallBuiltin(441, 1);
+    CheckEquals(3, Round(RetF), 'tokenize words');
+    SetF(0, 1);
+    Progs.CallBuiltin(442, 1);
+    CheckEqualsStr('Big Wolf', RetS, 'argv of a quoted word');
+    SetS(0, 'a,b;c');
+    SetS(1, ',');
+    SetS(2, ';');
+    Progs.CallBuiltin(479, 3);
+    CheckEquals(3, Round(RetF), 'tokenizebyseparator');
+    SetS(0, '\skill\2\name\x');
+    SetS(1, 'name');
+    Progs.CallBuiltin(227, 2);
+    CheckEqualsStr('x', RetS, 'infoget');
+
+    SetF(0, 3);
+    SetF(1, -1);
+    SetF(2, 7);
+    Progs.CallBuiltin(94, 3);
+    CheckNear(-1, RetF, 1e-6, 'min of three');
+    Progs.CallBuiltin(95, 3);
+    CheckNear(7, RetF, 1e-6, 'max of three');
+    SetF(0, 0);
+    SetF(1, 12);
+    SetF(2, 10);
+    Progs.CallBuiltin(96, 3);
+    CheckNear(10, RetF, 1e-6, 'bound');
+    SetF(0, 2);
+    SetF(1, 10);
+    Progs.CallBuiltin(97, 2);
+    CheckNear(1024, RetF, 1e-3, 'pow');
+    SetF(0, 1);
+    SetF(1, 4);
+    Progs.CallBuiltin(218, 2);
+    CheckEquals(16, Round(RetF), 'bitshift');
+
+    { strzone keeps a string beyond the temporary ring; strunzone frees it }
+    SetS(0, 'kept');
+    Progs.CallBuiltin(118, 1);
+    E := Progs.Global(OFS_RETURN)^.I;
+    for F := 1 to 40 do
+    begin
+      SetF(0, F);
+      Progs.CallBuiltin(26, 1);
+    end;
+    CheckEqualsStr('kept', Progs.GetString(E), 'strzone outlives temporary strings');
+
+    SetS(0, 'qc_test_var');
+    SetS(1, '5');
+    Check(Progs.CallBuiltin(93, 2) and (RetF = 1), 'registercvar');
+    SetS(0, 'qc_test_var');
+    Progs.CallBuiltin(45, 1);
+    CheckNear(5, RetF, 1e-6, 'cvar of a registered cvar');
+    SetS(0, 'qc_test_var');
+    Progs.CallBuiltin(448, 1);
+    CheckEqualsStr('5', RetS, 'cvar_string');
+  finally
+    Progs.Free;
+  end;
+end;
+
 procedure TestProgsStateRoundTrip;
 var
   Progs, Copy: TQuakeProgs;
@@ -1962,6 +2103,7 @@ begin
   TestPhysicsFrameRate;
   TestPvs;
   TestProgsVm;
+  TestProgsExtensions;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

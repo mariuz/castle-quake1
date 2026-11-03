@@ -14,7 +14,7 @@ redistribution, so the zips are fetched by URL and checked by SHA-256):
     ad      Arcane Dimensions 1.81, the mod made for QuakeSpasm (320 MB, put
             in the config directory as installed): its hub and first map
             with its QuakeC, thousands of edicts, fence textures, sprites,
-            translucent entities and the fog and water alpha it stuffs
+            translucent entities, the QuakeC extensions it asks for and the fog and water alpha it stuffs
 
 Run from the repository root after a release build:
 
@@ -255,6 +255,10 @@ def check_arcane_dimensions(exe, out, cache, results):
         errors = re.findall(r'QuakeC error in (\w+)', log)
         results.append((not errors and 'no free edicts' not in log,
                         '%s: no QuakeC errors (%s)' % (tag, ', '.join(sorted(set(errors))) or 'none')))
+        # QuakeSpasm-Spiked's extensions: AD asks for them and uses their builtins
+        found = re.findall(r'checkextension\("(\w+)"\): yes', log)
+        results.append(('FRIK_FILE' in found and 'FTE_STRINGS' in found,
+                        '%s: the progs use the FRIK_FILE and FTE_STRINGS extensions (%s)' % (tag, ', '.join(found))))
         qc_lines = [l for l in log.splitlines() if l.startswith('QuakeC: ')]
         results.append((all(all(ord(c) < 128 for c in l) for l in qc_lines),
                         '%s: the gold text of the prints reads as plain text' % tag))
