@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles;
 
 var
   Checks, Failures: Integer;
@@ -361,6 +361,77 @@ begin
     CheckEqualsStr('5', RetS, 'cvar_string');
   finally
     Progs.Free;
+  end;
+end;
+
+procedure TestEffectInfo;
+const
+  Text = '// a comment'#10 +
+    'effect TE_TEST'#10 +
+    'countabsolute 2'#10 +
+    'type static'#10 +
+    'color 0xff0000 0x00ff00 // red to green'#10 +
+    'size 1 3'#10 +
+    'alpha 128 256 64'#10 +
+    'tex 8 16'#10 +
+    'gravity 0.5'#10 +
+    'notunderwater'#10 +
+    #10 +
+    'effect TE_TEST'#10 +
+    'count 3'#10 +
+    'type alphastatic'#10 +
+    'trailspacing 8'#10 +
+    #10 +
+    'effect TE_DECAL'#10 +
+    'type decal'#10 +
+    'effect OTHER'#10 +
+    'count 1'#10;
+var
+  Info: TEffectInfo;
+  Fx: TQuakeEffectParticles;
+  Sec: PEffectSection;
+  Font: TParticleFont;
+begin
+  { DarkPlaces' effectinfo.txt and the particles it makes }
+  StartTest('effectinfo.txt effects');
+  Info := TEffectInfo.Create;
+  try
+    CheckEquals(3, Info.LoadFromText(Text), 'sections with a drawn particle');
+    CheckEquals(3, Info.EffectCount, 'effect names');
+    CheckEquals(1, Info.EffectNum('te_test'), 'effect numbers ignore the case');
+    CheckEquals(0, Info.EffectNum('TE_MISSING'), 'an unknown effect is 0');
+    CheckEquals(2, Info.SectionCount(1), 'two sections of TE_TEST');
+    CheckEquals(0, Info.SectionCount(2), 'a decal is not drawn');
+    Sec := Info.Section(1, 0);
+    Check(Sec^.PType = eptStatic, 'type static');
+    CheckNear(1, Sec^.Color1.X, 1e-4, 'color 0xff0000');
+    CheckNear(1, Sec^.Color2.Y, 1e-4, 'color 0x00ff00');
+    CheckNear(0.5, Sec^.AlphaMin, 1e-4, 'alpha 128 is 0.5');
+    CheckNear(0.25, Sec^.AlphaFade, 1e-4, 'alpha fade 64 is 0.25 per second');
+    CheckEquals(16, Sec^.TexMax, 'tex 8 16');
+    Check(Sec^.NotUnderwater, 'notunderwater');
+    CheckNear(8, Info.Section(1, 1)^.TrailSpacing, 1e-4, 'trailspacing');
+  finally
+    Info.Free;
+  end;
+  Font := TParticleFont.Create;
+  try
+    Font.LoadFromText('9 0.5 0.25 0.75 0.5'#10);
+    CheckNear(0.25, Font.Rect(9).Y, 1e-5, 'particlefont.txt cell');
+    CheckNear(0.125, Font.Rect(1).X, 1e-5, 'the default 8 x 8 grid');
+  finally
+    Font.Free;
+  end;
+  { Without a scene: count 4 makes 2 absolute + 3 x 4 particles }
+  Fx := TQuakeEffectParticles.Create;
+  try
+    Fx.Info.LoadFromText(Text);
+    CheckEquals(14, Fx.Spawn(1, Vector3(0, 0, 0), Vector3(0, 0, 0), 4), 'countabsolute plus count x 4');
+    CheckEquals(14, Fx.Count, 'particles alive');
+    CheckEquals(0, Fx.Spawn(2, Vector3(0, 0, 0), Vector3(0, 0, 0), 1), 'a decal makes none');
+    CheckEquals(10, Fx.Trail(1, Vector3(0, 0, 0), Vector3(64, 0, 0)), 'a 64 unit trail: one every 8 units, 2 absolute');
+  finally
+    Fx.Free;
   end;
 end;
 
@@ -2104,6 +2175,7 @@ begin
   TestPvs;
   TestProgsVm;
   TestProgsExtensions;
+  TestEffectInfo;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

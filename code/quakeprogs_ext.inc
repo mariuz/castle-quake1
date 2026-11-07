@@ -6,7 +6,8 @@
 const
   { The extensions checkextension says yes to: each one's builtins are
     here (or, like the fog and turning brush entities, done elsewhere) }
-  SupportedExtensions: array[0..27] of String = (
+  SupportedExtensions: array[0..31] of String = (
+    'DP_SV_POINTPARTICLES', 'FTE_SV_POINTPARTICLES', 'DP_TE_PARTICLERAIN', 'DP_TE_PARTICLESNOW',
     'DP_QC_ASINACOSATANATAN2TAN', 'DP_QC_COPYENTITY', 'DP_QC_CVAR_STRING', 'DP_QC_EDICT_NUM',
     'DP_QC_ETOS', 'DP_QC_FINDCHAIN', 'DP_QC_FINDCHAINFLAGS', 'DP_QC_FINDCHAINFLOAT', 'DP_QC_FINDFLAGS',
     'DP_QC_FINDFLOAT', 'DP_QC_MINMAXBOUND', 'DP_QC_RANDOMVEC', 'DP_QC_SINCOSSQRTPOW', 'DP_QC_SPRINTF',
@@ -15,7 +16,7 @@ const
     'FRIK_FILE', 'FTE_STRINGS', 'KRIMZON_SV_PARSECLIENTCOMMAND', 'FTE_QC_CHECKPVS', 'DP_QC_NUM_FOR_EDICT');
 
   { name -> number, for builtins declared #0 and for builtin_find }
-  ExtBuiltinNames: array[0..74] of record Name: String; Num: Integer; end = (
+  ExtBuiltinNames: array[0..79] of record Name: String; Num: Integer; end = (
     (Name: 'sin'; Num: 60), (Name: 'cos'; Num: 61), (Name: 'sqrt'; Num: 62), (Name: 'etos'; Num: 65),
     (Name: 'stof'; Num: 81), (Name: 'tracebox'; Num: 90), (Name: 'randomvec'; Num: 91),
     (Name: 'registercvar'; Num: 93), (Name: 'min'; Num: 94), (Name: 'max'; Num: 95),
@@ -29,7 +30,9 @@ const
     (Name: 'str2chr'; Num: 222), (Name: 'chr2str'; Num: 223), (Name: 'strconv'; Num: 224),
     (Name: 'strpad'; Num: 225), (Name: 'infoadd'; Num: 226), (Name: 'infoget'; Num: 227),
     (Name: 'strncmp'; Num: 228), (Name: 'strcasecmp'; Num: 229), (Name: 'strncasecmp'; Num: 230),
-    (Name: 'checkpvs'; Num: 240), (Name: 'addstat'; Num: 232), (Name: 'copyentity'; Num: 400), (Name: 'findchain'; Num: 402),
+    (Name: 'checkpvs'; Num: 240), (Name: 'addstat'; Num: 232),
+    (Name: 'particleeffectnum'; Num: 335), (Name: 'trailparticles'; Num: 336), (Name: 'pointparticles'; Num: 337),
+    (Name: 'te_particlerain'; Num: 409), (Name: 'te_particlesnow'; Num: 410), (Name: 'copyentity'; Num: 400), (Name: 'findchain'; Num: 402),
     (Name: 'findchainfloat'; Num: 403), (Name: 'findchainentity'; Num: 403),
     (Name: 'vectorvectors'; Num: 432), (Name: 'clientcommand'; Num: 440), (Name: 'tokenize'; Num: 441),
     (Name: 'argv'; Num: 442), (Name: 'cvar_string'; Num: 448), (Name: 'findflags'; Num: 449),
@@ -126,6 +129,11 @@ begin
   FBuiltins[230] := @PF_strncasecmp;
   FBuiltins[232] := @PF_addstat;
   FBuiltins[240] := @PF_checkpvs;
+  FBuiltins[335] := @PF_particleeffectnum;
+  FBuiltins[336] := @PF_trailparticles;
+  FBuiltins[337] := @PF_pointparticles;
+  FBuiltins[409] := @PF_te_particlerain;
+  FBuiltins[410] := @PF_te_particlesnow;
   FBuiltins[400] := @PF_copyentity;
   FBuiltins[402] := @PF_findchain;
   FBuiltins[403] := @PF_findchainfloat;
@@ -548,6 +556,53 @@ begin
   { addstat(index, type, field): a stat for client-side QuakeC (CSQC),
     which this engine does not run; counted only }
   Inc(FAddedStats);
+end;
+
+procedure TQuakeProgs.PF_particleeffectnum;
+begin
+  { particleeffectnum(name): the effect's number in effectinfo.txt }
+  ReturnFloat(FHost.ParticleEffectNum(Self, ParmString(0)));
+end;
+
+procedure TQuakeProgs.PF_pointparticles;
+var
+  Count: Single;
+begin
+  { pointparticles(effectnum, origin, velocity, count = 1) }
+  if FArgC > 3 then
+    Count := ParmFloat(3)
+  else
+    Count := 1;
+  FHost.PointParticles(Self, Trunc(ParmFloat(0)), ParmVector(1), ParmVector(2), Count);
+end;
+
+procedure TQuakeProgs.PF_trailparticles;
+var
+  A: Integer;
+  B: Single;
+begin
+  { DP's trailparticles(entity, effectnum, start, end) or FTE's
+    (effectnum, entity, start, end), like QuakeSpasm-Spiked: an entity is a
+    small edict number, an effect number a float }
+  A := Global(OFS_PARM0)^.I;
+  B := ParmFloat(1);
+  if (A >= 0) and (A < FNumEdicts) and (B >= 1) and (B = Trunc(B)) then
+    FHost.TrailParticles(Self, Trunc(B), A, ParmVector(2), ParmVector(3))
+  else
+    FHost.TrailParticles(Self, Trunc(ParmFloat(0)), Global(OFS_PARM0 + 3)^.I, ParmVector(2), ParmVector(3));
+end;
+
+procedure TQuakeProgs.PF_te_particlerain;
+begin
+  { te_particlerain(mins, maxs, velocity, count, color) }
+  FHost.ParticleWeather(Self, ParmVector(0), ParmVector(1), ParmVector(2), Trunc(ParmFloat(3)),
+    Trunc(ParmFloat(4)), False);
+end;
+
+procedure TQuakeProgs.PF_te_particlesnow;
+begin
+  FHost.ParticleWeather(Self, ParmVector(0), ParmVector(1), ParmVector(2), Trunc(ParmFloat(3)),
+    Trunc(ParmFloat(4)), True);
 end;
 
 procedure TQuakeProgs.PF_clientcommand;

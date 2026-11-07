@@ -182,6 +182,14 @@ type
       out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean); virtual;
     function CvarString(const Progs: TQuakeProgs; const Name: String): String; virtual;
     function CheckPvs(const Progs: TQuakeProgs; const ViewPos: TVector3; const E: Integer): Boolean; virtual;
+    { DP_SV_POINTPARTICLES: effectinfo.txt's effects (0: no such effect) }
+    function ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer; virtual;
+    procedure PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+      const Count: Single); virtual;
+    procedure TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer; const Start, Stop: TVector3); virtual;
+    { DP_TE_PARTICLERAIN / DP_TE_PARTICLESNOW }
+    procedure ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3; const Count,
+      Color: Integer; const Snow: Boolean); virtual;
   end;
 
   TProgsBuiltin = procedure of object;
@@ -364,6 +372,11 @@ type
     procedure PF_checkpvs;
     procedure PF_clientcommand;
     procedure PF_addstat;
+    procedure PF_particleeffectnum;
+    procedure PF_trailparticles;
+    procedure PF_pointparticles;
+    procedure PF_te_particlerain;
+    procedure PF_te_particlesnow;
     procedure PF_checkextension;
     procedure PF_builtin_find;
     procedure PF_registercvar;
@@ -674,6 +687,26 @@ end;
 function TQuakeProgsHost.CheckPvs(const Progs: TQuakeProgs; const ViewPos: TVector3; const E: Integer): Boolean;
 begin
   Result := True;
+end;
+
+function TQuakeProgsHost.ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer;
+begin
+  Result := 0;
+end;
+
+procedure TQuakeProgsHost.PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+  const Count: Single);
+begin
+end;
+
+procedure TQuakeProgsHost.TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer;
+  const Start, Stop: TVector3);
+begin
+end;
+
+procedure TQuakeProgsHost.ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3;
+  const Count, Color: Integer; const Snow: Boolean);
+begin
 end;
 
 { TQuakeProgs }

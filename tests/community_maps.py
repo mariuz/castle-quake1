@@ -14,7 +14,7 @@ redistribution, so the zips are fetched by URL and checked by SHA-256):
     ad      Arcane Dimensions 1.81, the mod made for QuakeSpasm (320 MB, put
             in the config directory as installed): its hub and first map
             with its QuakeC, thousands of edicts, fence textures, sprites,
-            translucent entities, the QuakeC extensions it asks for and the fog and water alpha it stuffs
+            translucent entities, the QuakeC extensions it asks for, an effect of its effectinfo.txt and the fog and water alpha it stuffs
 
 Run from the repository root after a release build:
 
@@ -248,7 +248,8 @@ def check_arcane_dimensions(exe, out, cache, results):
     # EF_NOSHADOW instead); the first map with them
     runs = [('start', 'W:0.5,CMD:pr_checkextension 0,CMD:maps_play %s start,W:10,Y,G:-140;100;230,A:270,W:1,S,Q'
              % AD['id']),
-            ('ad_e1m1', 'W:0.5,CMD:maps_play %s ad_e1m1,W:10,S,Q' % AD['id'])]
+            # an effect of AD's effectinfo.txt in front of the player
+            ('ad_e1m1', 'W:0.5,CMD:maps_play %s ad_e1m1,W:10,S,CMD:effect TE_EXPLOSION,W:0.3,S,Q' % AD['id'])]
     for name, demo in runs:
         code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'ad_' + name), '--demo', demo],
                         os.path.join(out, 'ad_%s.log' % name))
@@ -280,6 +281,15 @@ def check_arcane_dimensions(exe, out, cache, results):
         else:
             results.append(('Stuffed fog: density' in log and 'Stuffed r_wateralpha' in log,
                             '%s: the fog and water alpha AD stuffs are applied' % tag))
+            effects = re.search(r'effectinfo\.txt: (\d+) effects', log)
+            made = re.search(r'Effect "TE_EXPLOSION" \(\d+\): (\d+) particles', log)
+            drawn_fx = re.findall(r'Effect particles: (\d+) drawn', log)
+            results.append((effects is not None and int(effects.group(1)) > 100 and 'DP_SV_POINTPARTICLES' in found,
+                            '%s: effectinfo.txt is read and DP_SV_POINTPARTICLES offered (%s effects)'
+                            % (tag, effects.group(1) if effects else 'no')))
+            results.append((made is not None and int(made.group(1)) > 0 and drawn_fx and int(drawn_fx[-1]) > 0,
+                            '%s: TE_EXPLOSION makes particles (%s made, %s drawn)'
+                            % (tag, made.group(1) if made else 0, drawn_fx[-1] if drawn_fx else 0)))
 
 
 def check_mod_map(exe, out, results):

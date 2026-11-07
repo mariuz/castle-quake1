@@ -14,7 +14,7 @@ uses
   CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame, QuakeEffectParticles;
 
 type
   TQcVisual = record
@@ -109,6 +109,11 @@ type
       out DrawOrigin, DrawAngles: TVector3);
     procedure ApplyStuffed;
     procedure LogDrawnEntities;
+    { The script's CMD: in QuakeC mode: effect <name> [count] (an
+      effectinfo.txt effect 64 units in front of the camera) }
+    procedure RunQcCommand(const Line: String);
+    { effectinfo.txt's underwater / notunderwater }
+    function PointInLiquid(const QuakePos: TVector3): Boolean;
     procedure UpdatePose(var V: TQcVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
     procedure RunStuffedCommand(const Command: String);
     procedure UpdateWeapon;
@@ -229,6 +234,9 @@ begin
   end;
   FHud.StopIntermission;
   Particles.SetParent(FViewport.Items);
+  if EffectParticles = nil then
+    EffectParticles := TQuakeEffectParticles.Create;
+  EffectParticles.OnPointInLiquid := @PointInLiquid;
 
   FScript.Clear;
   FScriptIndex := 0;
@@ -252,6 +260,7 @@ procedure TViewQc.Stop;
 begin
   StopRecording;
   ClearLevel;
+  FreeAndNil(EffectParticles);
   if Sounds <> nil then
     Sounds.StopMusic;
   if Lighting <> nil then
@@ -315,6 +324,8 @@ begin
     FAmbient.Clear;
   if Particles <> nil then
     Particles.Clear;
+  if EffectParticles <> nil then
+    EffectParticles.Clear;
   if Lighting <> nil then
     Lighting.Clear;
   FreeAndNil(FGeometry);
@@ -331,6 +342,9 @@ begin
   FStuffBuffer := '';
   FStuffFogSet := False;
   FStuffLiquidAlpha := -1;
+  { effectinfo.txt first: the level's spawn functions ask for its effects }
+  if EffectParticles <> nil then
+    EffectParticles.Load(FViewport.Items);
   if not FGame.LoadLevel(AMapName, Skill, KeepParms) then
     Exit;
   MapName := AMapName;
@@ -602,6 +616,39 @@ begin
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
+procedure TViewQc.RunQcCommand(const Line: String);
+var
+  Parts: TStringArray;
+  Num, N: Integer;
+  Org: TVector3;
+begin
+  Parts := Trim(Line).Split([' '], TStringSplitOptions.ExcludeEmpty);
+  if Length(Parts) = 0 then
+    Exit;
+  if (LowerCase(Parts[0]) = 'effect') and (Length(Parts) > 1) and (EffectParticles <> nil) then
+  begin
+    Num := EffectParticles.Info.EffectNum(Parts[1]);
+    Org := CgeToQuake(FViewport.Camera.Translation + FViewport.Camera.Direction * 64);
+    if Length(Parts) > 2 then
+      N := EffectParticles.Spawn(Num, Org, TVector3.Zero, StrToFloatDef(Parts[2], 1))
+    else
+      N := EffectParticles.Spawn(Num, Org, TVector3.Zero, 1);
+    WritelnLog('GameViewQc', 'Effect "%s" (%d): %d particles at %.0f %.0f %.0f',
+      [Parts[1], Num, N, Org.X, Org.Y, Org.Z]);
+  end else
+    WritelnLog('GameViewQc', 'Command not run in QuakeC mode: %s', [Line]);
+end;
+
+function TViewQc.PointInLiquid(const QuakePos: TVector3): Boolean;
+var
+  C: Integer;
+begin
+  if (FGame = nil) or (FGame.Bsp = nil) then
+    Exit(False);
+  C := FGame.Bsp.PointContents(QuakePos);
+  Result := (C <= CONTENTS_WATER) and (C >= CONTENTS_LAVA);
+end;
+
 procedure TViewQc.LogDrawnEntities;
 var
   I, Models, Sprites, Translucent, Gliding: Integer;
@@ -628,6 +675,9 @@ begin
     end;
   WritelnLog('GameViewQc', 'Entities drawn: %d models, %d sprites, %d translucent, %d gliding',
     [Models, Sprites, Translucent, Gliding]);
+  if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
+    WritelnLog('GameViewQc', 'Effect particles: %d drawn, %d made by %d effect calls',
+      [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);
 end;
 
 procedure TViewQc.ApplyStuffed;
@@ -1347,6 +1397,8 @@ begin
       LogSceneTree(FViewport.Items, 'GameViewQc')
     else if Action = 'E' then
       LogEdicts
+    else if Action = 'CMD' then
+      RunQcCommand(Param)
     else if Action = 'O' then
       SaveGameSlot(Param)
     else if Action = 'L' then
@@ -1488,6 +1540,10 @@ begin
   CullVisuals;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
+  if EffectParticles <> nil then
+    EffectParticles.Update(SecondsPassed,
+      TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
+      FViewport.Camera.Up.Normalize);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
   UpdateHudStats(SecondsPassed);
 end;
