@@ -1604,11 +1604,14 @@ SCENARIOS = [
     # Deathmatch rules: a time limit of 12 s ends E1M1, a press leaves the
     # intermission and the rotation (e1m1,start) picks the next map; the
     # client follows
+    # The host presses fire a few times: the progs leave a deathmatch
+    # intermission only 5 s after it starts, later on a slow machine
     Scenario('dmrules', [('dhost', ['-timelimit', '0.2', '-maps', 'e1m1,start', '--autotest', 'host:e1m1',
-                                    '{out}/dhost', '--demo', 'W:16,S,X,W:1,X,W:5,S,Q', '-port', '26007', '-bots', '1'],
+                                    '{out}/dhost', '--demo', 'W:16,S,X,W:2,X,W:2,X,W:2,X,W:5,S,Q', '-port', '26007',
+                                    '-bots', '1'],
                           0),
                          ('dclient', ['--autotest', 'connect:127.0.0.1:26007', '{out}/dclient', '--demo',
-                                      'W:4,SB,W:16,S,Q'], 2)],
+                                      'W:4,SB,W:22,S,Q'], 2)],
              check_dmrules, [], dark=('dhost', 'dclient')),
     # Demo playback controls: seek forward, back (the demo plays again
     # from the start, landing on the same spot), pause, twice the speed
