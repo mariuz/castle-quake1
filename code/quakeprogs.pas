@@ -176,9 +176,30 @@ type
     procedure LocalCmd(const Progs: TQuakeProgs; const Cmd: String); virtual;
     procedure WriteMessage(const Progs: TQuakeProgs; const Dest, Kind: Integer; const Value: TVector3;
       const S: String); virtual;
+    { Extensions: tracebox (a box of Mins..Maxs), cvar_string, checkpvs }
+    procedure TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+      const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+      out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean); virtual;
+    function CvarString(const Progs: TQuakeProgs; const Name: String): String; virtual;
+    function CheckPvs(const Progs: TQuakeProgs; const ViewPos: TVector3; const E: Integer): Boolean; virtual;
+    { DP_SV_POINTPARTICLES: effectinfo.txt's effects (0: no such effect) }
+    function ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer; virtual;
+    procedure PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+      const Count: Single); virtual;
+    procedure TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer; const Start, Stop: TVector3); virtual;
+    { DP_TE_PARTICLERAIN / DP_TE_PARTICLESNOW }
+    procedure ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3; const Count,
+      Color: Integer; const Snow: Boolean); virtual;
   end;
 
   TProgsBuiltin = procedure of object;
+
+var
+  { pr_checkextension: the progs may ask for the DP / FTE extensions
+    (cvar "pr_checkextension" reads 1); off, a mod sees a plain engine }
+  ProgsExtensions: Boolean = True;
+
+type
 
   TProgsStatistics = record
     Spawned, Removed, Thinks, Calls: Int64;
@@ -199,7 +220,20 @@ type
     FDynStrings: TStringList;      { engine made strings, referenced as negative offsets }
     FTempStrings: array[0..15] of Integer;
     FTempNext: Integer;
-    FBuiltins: array[0..127] of TProgsBuiltin;
+    FBuiltins: array[0..1023] of TProgsBuiltin;
+    { extensions: registercvar's cvars (name=value), the extensions asked
+      for, tokenize's words, strzone's strings, FRIK_FILE's files }
+    FUserCvars: TStringList;
+    FCheckedExtensions: TStringList;
+    FTokens: TStringList;
+    FAddedStats: Integer;
+    FZoned: specialize TDictionary<Integer, Boolean>;
+    FZoneFree: array of Integer;
+    FFiles: array[0..15] of record
+      Mode: Integer;  { -1 closed, 0 read, 1 append, 2 write }
+      Url, Text: String;
+      Pos: Integer;
+    end;
     FHost: TQuakeProgsHost;
     FOwnsHost: Boolean;
     FCrc: Integer;
@@ -295,6 +329,89 @@ type
     procedure PF_ambientsound;
     procedure PF_setspawnparms;
     procedure PF_Fixme;
+    { extension builtins (quakeprogs_ext.inc) }
+    procedure RegisterExtBuiltins;
+    procedure BindNamedBuiltins;
+    function ParmFloat(const N: Integer): Single;
+    function ParmVector(const N: Integer): TVector3;
+    function ParmEntity(const N: Integer): Integer;
+    procedure ReturnFloat(const F: Single);
+    procedure ReturnString(const S: String);
+    function ArgsFrom(const First: Integer): String;
+    function UserCvar(const AName: String; out Value: String): Boolean;
+    procedure PF_sin;
+    procedure PF_cos;
+    procedure PF_sqrt;
+    procedure PF_asin;
+    procedure PF_acos;
+    procedure PF_atan;
+    procedure PF_atan2;
+    procedure PF_tan;
+    procedure PF_log;
+    procedure PF_pow;
+    procedure PF_min;
+    procedure PF_max;
+    procedure PF_bound;
+    procedure PF_anglemod;
+    procedure PF_bitshift;
+    procedure PF_ftoi;
+    procedure PF_itof;
+    procedure PF_randomvec;
+    procedure PF_crossproduct;
+    procedure PF_vectorvectors;
+    procedure PF_etos;
+    procedure PF_edict_num;
+    procedure PF_num_for_edict;
+    procedure PF_findfloat;
+    procedure PF_findflags;
+    procedure PF_findchain;
+    procedure PF_findchainfloat;
+    procedure PF_findchainflags;
+    procedure PF_copyentity;
+    procedure PF_tracebox;
+    procedure PF_checkpvs;
+    procedure PF_clientcommand;
+    procedure PF_addstat;
+    procedure PF_particleeffectnum;
+    procedure PF_trailparticles;
+    procedure PF_pointparticles;
+    procedure PF_te_particlerain;
+    procedure PF_te_particlesnow;
+    procedure PF_checkextension;
+    procedure PF_builtin_find;
+    procedure PF_registercvar;
+    procedure PF_cvar_string;
+    procedure PF_stof;
+    procedure PF_stov;
+    procedure PF_strlen;
+    procedure PF_strcat;
+    procedure PF_substring;
+    procedure PF_strzone;
+    procedure PF_strunzone;
+    procedure PF_strstrofs;
+    procedure PF_str2chr;
+    procedure PF_chr2str;
+    procedure PF_strconv;
+    procedure PF_strpad;
+    procedure PF_infoget;
+    procedure PF_infoadd;
+    procedure PF_strncmp;
+    procedure PF_strcasecmp;
+    procedure PF_strncasecmp;
+    procedure PF_strtolower;
+    procedure PF_strtoupper;
+    procedure PF_strtrim;
+    procedure PF_strreplace;
+    procedure PF_strireplace;
+    procedure PF_tokenize;
+    procedure PF_tokenizebyseparator;
+    procedure PF_argv;
+    procedure PF_argc;
+    procedure PF_sprintf;
+    procedure PF_fopen;
+    procedure PF_fclose;
+    procedure PF_fgets;
+    procedure PF_fputs;
   public
     { Counters of what the builtins were asked (tests, logs) }
     PrecachedModels, PrecachedSounds: TStringList;
@@ -333,6 +450,11 @@ type
     function EdictFree(const E: Integer): Boolean;
     property NumEdicts: Integer read FNumEdicts;
     function ParmString(const N: Integer): String;
+    { Run builtin Num with ArgC arguments already in the parm globals
+      (tests); False if there is no such builtin }
+    function CallBuiltin(const Num, ArgC: Integer): Boolean;
+    { The extensions checkextension was asked about }
+    property CheckedExtensions: TStringList read FCheckedExtensions;
 
     { Set a field from a map key / value (ED_ParseEpair); False if the
       field is unknown to the progs }
@@ -388,6 +510,11 @@ type
   end;
 
 implementation
+
+uses
+  CastleDownload, CastleUriUtils;
+
+{$I quakeprogs_ext.inc}
 
 { TQuakeProgsHost: the self contained defaults }
 
@@ -533,9 +660,60 @@ procedure TQuakeProgsHost.WriteMessage(const Progs: TQuakeProgs; const Dest, Kin
 begin
 end;
 
+procedure TQuakeProgsHost.TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+  const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+  out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean);
+begin
+  TraceLine(Progs, Start, Stop, NoMonsters, Ignore, Fraction, EndPos, Normal, HitEntity,
+    AllSolid, StartSolid, InOpen, InWater);
+end;
+
+function TQuakeProgsHost.CvarString(const Progs: TQuakeProgs; const Name: String): String;
+var
+  V: Single;
+  Fmt: TFormatSettings;
+begin
+  V := Cvar(Progs, Name);
+  if V = Trunc(V) then
+    Result := IntToStr(Trunc(V))
+  else
+  begin
+    Fmt := DefaultFormatSettings;
+    Fmt.DecimalSeparator := '.';
+    Result := FloatToStr(V, Fmt);
+  end;
+end;
+
+function TQuakeProgsHost.CheckPvs(const Progs: TQuakeProgs; const ViewPos: TVector3; const E: Integer): Boolean;
+begin
+  Result := True;
+end;
+
+function TQuakeProgsHost.ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer;
+begin
+  Result := 0;
+end;
+
+procedure TQuakeProgsHost.PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+  const Count: Single);
+begin
+end;
+
+procedure TQuakeProgsHost.TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer;
+  const Start, Stop: TVector3);
+begin
+end;
+
+procedure TQuakeProgsHost.ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3;
+  const Count, Color: Integer; const Snow: Boolean);
+begin
+end;
+
 { TQuakeProgs }
 
 constructor TQuakeProgs.Create(const AHost: TQuakeProgsHost);
+var
+  I: Integer;
 begin
   inherited Create;
   if AHost = nil then
@@ -545,6 +723,12 @@ begin
   end else
     FHost := AHost;
   FDynStrings := TStringList.Create;
+  FUserCvars := TStringList.Create;
+  FCheckedExtensions := TStringList.Create;
+  FTokens := TStringList.Create;
+  FZoned := specialize TDictionary<Integer, Boolean>.Create;
+  for I := 0 to High(FFiles) do
+    FFiles[I].Mode := -1;
   PrecachedModels := TStringList.Create;
   PrecachedSounds := TStringList.Create;
   FGlobalNames := specialize TDictionary<String, Integer>.Create;
@@ -558,6 +742,10 @@ begin
   if FOwnsHost then
     FHost.Free;
   FDynStrings.Free;
+  FUserCvars.Free;
+  FCheckedExtensions.Free;
+  FTokens.Free;
+  FZoned.Free;
   PrecachedModels.Free;
   PrecachedSounds.Free;
   FGlobalNames.Free;
@@ -652,6 +840,16 @@ begin
     FFunctionNames.AddOrSetValue(GetString(FFunctions[I].SName), I);
   SetupWellKnown;
   FDynStrings.Clear;
+  FillChar(FTempStrings, SizeOf(FTempStrings), 0);
+  FTempNext := 0;
+  FUserCvars.Clear;
+  FCheckedExtensions.Clear;
+  FTokens.Clear;
+  FZoned.Clear;
+  FZoneFree := nil;
+  for I := 0 to High(FFiles) do
+    FFiles[I].Mode := -1;
+  BindNamedBuiltins;
   PrecachedModels.Clear;
   PrecachedSounds.Clear;
   Statistics := Default(TProgsStatistics);
@@ -1575,6 +1773,7 @@ begin
   FBuiltins[76] := @PF_precache;
   FBuiltins[77] := @PF_precache;
   FBuiltins[78] := @PF_setspawnparms;
+  RegisterExtBuiltins;
 end;
 
 procedure TQuakeProgs.PF_makevectors;
@@ -1910,8 +2109,17 @@ begin
 end;
 
 procedure TQuakeProgs.PF_cvar;
+var
+  S, V: String;
 begin
-  Global(OFS_RETURN)^.F := FHost.Cvar(Self, ParmString(0));
+  S := ParmString(0);
+  { Mods ask this before checkextension (QuakeSpasm-Spiked, FTE, DP) }
+  if S = 'pr_checkextension' then
+    Global(OFS_RETURN)^.F := Ord(ProgsExtensions)
+  else if UserCvar(S, V) then
+    Global(OFS_RETURN)^.F := ParseQcFloat(V)
+  else
+    Global(OFS_RETURN)^.F := FHost.Cvar(Self, S);
 end;
 
 procedure TQuakeProgs.PF_localcmd;
@@ -2057,8 +2265,14 @@ begin
 end;
 
 procedure TQuakeProgs.PF_cvar_set;
+var
+  S, V: String;
 begin
-  FHost.CvarSet(Self, ParmString(0), ParmString(1));
+  S := ParmString(0);
+  if UserCvar(S, V) then
+    FUserCvars[FUserCvars.IndexOfName(S)] := S + '=' + ParmString(1)
+  else
+    FHost.CvarSet(Self, S, ParmString(1));
 end;
 
 procedure TQuakeProgs.PF_centerprint;

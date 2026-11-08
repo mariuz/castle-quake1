@@ -13,7 +13,8 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleLog, CastleUtils,
-  QuakePak, QuakeBsp, QuakePhysics, QuakeLight, QuakeParticles, QuakePalette, QuakeProgs, QuakeSaveGame;
+  QuakePak, QuakeBsp, QuakePhysics, QuakeLight, QuakeParticles, QuakePalette, QuakeProgs, QuakeSaveGame,
+  QuakeEffectParticles;
 
 const
   { entity flags }
@@ -219,6 +220,9 @@ type
     procedure TraceLine(const Progs: TQuakeProgs; const Start, Stop: TVector3; const NoMonsters: Integer;
       const Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3; out HitEntity: Integer;
       out AllSolid, StartSolid, InOpen, InWater: Boolean); override;
+    procedure TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+      const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+      out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean); override;
     function WalkMove(const Progs: TQuakeProgs; const E: Integer; const Yaw, Dist: Single): Boolean; override;
     procedure MoveToGoal(const Progs: TQuakeProgs; const E: Integer; const Dist: Single); override;
     function DropToFloor(const Progs: TQuakeProgs; const E: Integer): Boolean; override;
@@ -226,6 +230,12 @@ type
     function PointContents(const Progs: TQuakeProgs; const P: TVector3): Integer; override;
     procedure LightStyle(const Progs: TQuakeProgs; const Style: Integer; const Value: String); override;
     procedure Particle(const Progs: TQuakeProgs; const Org, Dir: TVector3; const Color, Count: Integer); override;
+    function ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer; override;
+    procedure PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+      const Count: Single); override;
+    procedure TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer; const Start, Stop: TVector3); override;
+    procedure ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3; const Count,
+      Color: Integer; const Snow: Boolean); override;
     procedure CenterPrint(const Progs: TQuakeProgs; const E: Integer; const S: String); override;
     procedure Print(const Progs: TQuakeProgs; const S: String); override;
     procedure AmbientSound(const Progs: TQuakeProgs; const Org: TVector3; const Sample: String;
@@ -1461,6 +1471,26 @@ begin
   InOpen := C = CONTENTS_EMPTY;
 end;
 
+procedure TQuakeQcGame.TraceHull(const Progs: TQuakeProgs; const Start, Mins, Maxs, Stop: TVector3;
+  const NoMonsters, Ignore: Integer; out Fraction: Single; out EndPos, Normal: TVector3;
+  out HitEntity: Integer; out AllSolid, StartSolid, InOpen, InWater: Boolean);
+var
+  T: TQuakeTrace;
+  C: Integer;
+begin
+  { tracebox: the box against the world (its hull) and the entities }
+  T := TraceBox(Start, Stop, Mins, Maxs, NoMonsters, Ignore);
+  Fraction := T.Fraction;
+  EndPos := T.EndPos;
+  Normal := T.PlaneNormal;
+  HitEntity := T.Entity;
+  AllSolid := T.AllSolid;
+  StartSolid := T.StartSolid;
+  C := FBsp.PointContents(EndPos);
+  InWater := C < CONTENTS_SOLID;
+  InOpen := C = CONTENTS_EMPTY;
+end;
+
 function TQuakeQcGame.WalkMove(const Progs: TQuakeProgs; const E: Integer; const Yaw, Dist: Single): Boolean;
 var
   Move, OldOrg, NewOrg, Stop, Mins, Maxs: TVector3;
@@ -1674,6 +1704,39 @@ begin
     C := Palette.Color(Color and 255);
     Particles.SpawnTrail(QuakeToCge(Org), Vector3(C.X / 255, C.Y / 255, C.Z / 255));
   end;
+end;
+
+function TQuakeQcGame.ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer;
+begin
+  { The view loads effectinfo.txt before the level spawns }
+  if EffectParticles <> nil then
+    Result := EffectParticles.Info.EffectNum(Name)
+  else
+    Result := 0;
+end;
+
+procedure TQuakeQcGame.PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
+  const Count: Single);
+begin
+  if EffectParticles <> nil then
+    EffectParticles.Spawn(Num, Org, Vel, Count);
+end;
+
+procedure TQuakeQcGame.TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer; const Start, Stop: TVector3);
+begin
+  if EffectParticles <> nil then
+    EffectParticles.Trail(Num, Start, Stop);
+end;
+
+procedure TQuakeQcGame.ParticleWeather(const Progs: TQuakeProgs; const Mins, Maxs, Vel: TVector3; const Count,
+  Color: Integer; const Snow: Boolean);
+var
+  C: TVector4Byte;
+begin
+  if EffectParticles = nil then
+    Exit;
+  C := Palette.Color(Color and 255);
+  EffectParticles.Weather(Mins, Maxs, Vel, Count, Vector3(C.X / 255, C.Y / 255, C.Z / 255), Snow);
 end;
 
 procedure TQuakeQcGame.CenterPrint(const Progs: TQuakeProgs; const E: Integer; const S: String);
