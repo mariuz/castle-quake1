@@ -358,6 +358,10 @@ msgid "  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next Quak
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "  saves          - List the saved games (the Load Game menu)"
 msgstr ""
 

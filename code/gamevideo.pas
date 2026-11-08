@@ -41,6 +41,10 @@ var
   { r_lerpmove: walking monsters (MOVETYPE_STEP, moved 10 times a second)
     glide from one spot to the next in QuakeC mode }
   MoveLerp: Boolean = True;
+  { r_effectinfo: in QuakeC mode a mod's effectinfo.txt effects (TE_GUNSHOT,
+    TR_ROCKET...) replace the engine's own particles of the temp entities
+    and model trails it defines }
+  ModEffects: Boolean = True;
   { Changes are not saved (headless tests) }
   VideoSettingsVolatile: Boolean = False;
 

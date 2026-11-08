@@ -1731,6 +1731,12 @@ begin
       MoveLerp := Args <> '0';
     FConsole.Print(Format('r_lerpmove %d', [Ord(MoveLerp)]));
   end else
+  if Cmd = 'r_effectinfo' then
+  begin
+    if Args <> '' then
+      ModEffects := Args <> '0';
+    FConsole.Print(Format('r_effectinfo %d', [Ord(ModEffects)]));
+  end else
   if Cmd = 'pr_checkextension' then
   begin
     { The QuakeC extensions, for the next map loaded in QuakeC mode }
@@ -1842,6 +1848,7 @@ begin
     FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
     FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));
     FConsole.Print(Tr('  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)'));
+    FConsole.Print(Tr('  r_effectinfo <0|1> - A mod''s effectinfo.txt draws the explosions, impacts and trails'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));

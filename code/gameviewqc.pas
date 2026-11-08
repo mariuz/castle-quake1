@@ -24,6 +24,9 @@ type
     Model: String;
     Frame, Skin: Integer;
     TrailTimer: Single;
+    { effectinfo.txt's TR_ trails run from here (Quake coordinates) }
+    TrailFrom: TVector3;
+    TrailValid: Boolean;
     { The entity alpha the scene was last given (0: opaque, its own) }
     Alpha: Single;
     { r_lerpmodels: the pose blends from PrevFrame since LerpStart }
@@ -110,8 +113,13 @@ type
     procedure ApplyStuffed;
     procedure LogDrawnEntities;
     { The script's CMD: in QuakeC mode: effect <name> [count] (an
-      effectinfo.txt effect 64 units in front of the camera) }
+      effectinfo.txt effect 64 units in front of the camera), r_effectinfo }
     procedure RunQcCommand(const Line: String);
+    { A mod's effectinfo.txt effect for a temp entity (TE_GUNSHOT...) or a
+      model's trail (TR_ROCKET...): False when it has none, for the
+      engine's own particles }
+    function EffectByName(const AName: String; const QuakePos: TVector3): Boolean;
+    function EffectTrail(const Flags: Integer; const FromPos, ToPos: TVector3): Boolean;
     { effectinfo.txt's underwater / notunderwater }
     function PointInLiquid(const QuakePos: TVector3): Boolean;
     procedure UpdatePose(var V: TQcVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
@@ -636,7 +644,74 @@ begin
     WritelnLog('GameViewQc', 'Effect "%s" (%d): %d particles at %.0f %.0f %.0f',
       [Parts[1], Num, N, Org.X, Org.Y, Org.Z]);
   end else
+  if (LowerCase(Parts[0]) = 'r_effectinfo') and (Length(Parts) > 1) then
+  begin
+    ModEffects := Parts[1] <> '0';
+    WritelnLog('GameViewQc', 'r_effectinfo %d', [Ord(ModEffects)]);
+  end else
     WritelnLog('GameViewQc', 'Command not run in QuakeC mode: %s', [Line]);
+end;
+
+function TempEntityEffectName(const Kind: Integer): String;
+begin
+  { DarkPlaces' names for the temp entities' effects }
+  case Kind of
+    TE_SPIKE: Result := 'TE_SPIKE';
+    TE_SUPERSPIKE: Result := 'TE_SUPERSPIKE';
+    TE_GUNSHOT: Result := 'TE_GUNSHOT';
+    TE_EXPLOSION: Result := 'TE_EXPLOSION';
+    TE_TAREXPLOSION: Result := 'TE_TAREXPLOSION';
+    TE_WIZSPIKE: Result := 'TE_WIZSPIKE';
+    TE_KNIGHTSPIKE: Result := 'TE_KNIGHTSPIKE';
+    TE_LAVASPLASH: Result := 'TE_LAVASPLASH';
+    TE_TELEPORT: Result := 'TE_TELEPORT';
+    TE_EXPLOSION2: Result := 'TE_EXPLOSION2';
+    else Result := '';
+  end;
+end;
+
+function TViewQc.EffectByName(const AName: String; const QuakePos: TVector3): Boolean;
+var
+  Num: Integer;
+begin
+  Result := False;
+  if (AName = '') or (EffectParticles = nil) or not ModEffects then
+    Exit;
+  Num := EffectParticles.Info.EffectNum(AName);
+  if (Num = 0) or (EffectParticles.Info.SectionCount(Num) = 0) then
+    Exit;
+  EffectParticles.Spawn(Num, QuakePos, TVector3.Zero, 1);
+  Result := True;
+end;
+
+function TViewQc.EffectTrail(const Flags: Integer; const FromPos, ToPos: TVector3): Boolean;
+var
+  AName: String;
+  Num: Integer;
+begin
+  Result := False;
+  if (EffectParticles = nil) or not ModEffects then
+    Exit;
+  if (Flags and MF_ROCKET) <> 0 then
+    AName := 'TR_ROCKET'
+  else if (Flags and MF_GRENADE) <> 0 then
+    AName := 'TR_GRENADE'
+  else if (Flags and MF_GIB) <> 0 then
+    AName := 'TR_BLOOD'
+  else if (Flags and MF_ZOMGIB) <> 0 then
+    AName := 'TR_SLIGHTBLOOD'
+  else if (Flags and MF_TRACER) <> 0 then
+    AName := 'TR_WIZSPIKE'
+  else if (Flags and MF_TRACER2) <> 0 then
+    AName := 'TR_KNIGHTSPIKE'
+  else
+    AName := 'TR_VORESPIKE';
+  Num := EffectParticles.Info.EffectNum(AName);
+  if (Num = 0) or (EffectParticles.Info.SectionCount(Num) = 0) then
+    Exit;
+  if not TVector3.PerfectlyEquals(FromPos, ToPos) then
+    EffectParticles.Trail(Num, FromPos, ToPos);
+  Result := True;
 end;
 
 function TViewQc.PointInLiquid(const QuakePos: TVector3): Boolean;
@@ -851,6 +926,7 @@ end;
 procedure TViewQc.HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector3; const Entity: Integer);
 var
   P: TVector3;
+  Own: Boolean;
 begin
   if FRecorder <> nil then
   begin
@@ -860,10 +936,14 @@ begin
       FRecorder.WriteTempEntity(Kind, Pos);
   end;
   P := QuakeToCge(Pos);
+  { A mod's effectinfo.txt effect of this name replaces the particles
+    (the sounds and lights stay) }
+  Own := EffectByName(TempEntityEffectName(Kind), Pos);
   case Kind of
     TE_SPIKE, TE_SUPERSPIKE, TE_GUNSHOT:
       begin
-        Particles.SpawnPuff(P, Vector3(0, 1, 0));
+        if not Own then
+          Particles.SpawnPuff(P, Vector3(0, 1, 0));
         if Kind <> TE_GUNSHOT then
         begin
           if Random(5) = 0 then
@@ -878,24 +958,29 @@ begin
       end;
     TE_WIZSPIKE:
       begin
-        Particles.SpawnTrail(P, Vector3(0.3, 0.9, 0.2));
+        if not Own then
+          Particles.SpawnTrail(P, Vector3(0.3, 0.9, 0.2));
         Sounds.Play('sound/wizard/hit.wav');
       end;
     TE_KNIGHTSPIKE:
       begin
-        Particles.SpawnTrail(P, Vector3(1.0, 0.55, 0.15));
+        if not Own then
+          Particles.SpawnTrail(P, Vector3(1.0, 0.55, 0.15));
         Sounds.Play('sound/hknight/hit.wav');
       end;
     TE_EXPLOSION, TE_EXPLOSION2, TE_TAREXPLOSION:
       begin
-        Particles.SpawnExplosion(P);
+        if not Own then
+          Particles.SpawnExplosion(P);
         Lighting.TriggerMuzzleFlash(P, 6.0);
         Sounds.Play('sound/weapons/r_exp3.wav');
       end;
     TE_LAVASPLASH:
-      Particles.SpawnLavaSplash(P);
+      if not Own then
+        Particles.SpawnLavaSplash(P);
     TE_TELEPORT:
-      Particles.SpawnTeleport(P);
+      if not Own then
+        Particles.SpawnTeleport(P);
     TE_LIGHTNING1, TE_LIGHTNING2, TE_LIGHTNING3, TE_BEAM:
       begin
         if Kind = TE_BEAM then
@@ -992,6 +1077,7 @@ begin
     V.Skin := SkinIdx;
     V.Frame := -1;
     V.TrailTimer := 0;
+    V.TrailValid := False;
   end;
   V.Transform.Exists := True;
   UpdatePose(V, Mdl, Frame, FGame.Time);
@@ -1009,6 +1095,17 @@ begin
 
   if (Mdl.Flags and (MF_ROCKET or MF_GRENADE or MF_GIB or MF_ZOMGIB or MF_TRACER or MF_TRACER2 or MF_TRACER3)) <> 0 then
   begin
+    { A mod's effectinfo.txt trail (DP's TR_ROCKET...) from where the
+      entity was the last frame }
+    if V.TrailValid and EffectTrail(Mdl.Flags, V.TrailFrom, Origin) then
+    begin
+      V.TrailFrom := Origin;
+      if (Mdl.Flags and MF_ROCKET) <> 0 then
+        Lighting.TriggerMuzzleFlash(Pos, 2.0);
+      Exit;
+    end;
+    V.TrailFrom := Origin;
+    V.TrailValid := True;
     V.TrailTimer := V.TrailTimer - Dt;
     if V.TrailTimer <= 0 then
     begin
