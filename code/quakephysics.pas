@@ -32,6 +32,9 @@ type
     Mins, Maxs: TVector3;
   end;
 
+  { Contents the game adds at a point (Quake coordinates), CONTENTS_EMPTY for none }
+  TPointContentsFunc = function(const P: TVector3): Integer of object;
+
   TQuakePlayerPhysics = class
   private
     FBsp: TQuakeBsp;
@@ -43,6 +46,7 @@ type
     FPendingTime: Single;
     FPendingJump: Boolean;
     function TestPosition: Boolean;
+    function Contents(const P: TVector3): Integer;
     procedure CheckWater;
     procedure CheckWaterJump(const Forward: TVector3);
     procedure PlayerJump;
@@ -59,6 +63,8 @@ type
     procedure Frame(const Cmd: TQuakeUserCmd; const Yaw, Pitch, Dt: Single);
     procedure AddTouched(const Entity: Integer);
   public
+    { FTE_ENT_SKIN_CONTENTS: water, slime or lava of brush entities }
+    OnContents: TPointContentsFunc;
     Origin: TVector3;
     Velocity: TVector3;
     Mins, Maxs: TVector3;
@@ -342,6 +348,15 @@ begin
   Result := Trace(Origin, Origin).StartSolid;
 end;
 
+function TQuakePlayerPhysics.Contents(const P: TVector3): Integer;
+begin
+  { The world's, then what the game adds where the world is empty (brush
+    entities with a contents skin, FTE_ENT_SKIN_CONTENTS) }
+  Result := FBsp.PointContents(P);
+  if (Result = CONTENTS_EMPTY) and Assigned(OnContents) then
+    Result := OnContents(P);
+end;
+
 procedure TQuakePlayerPhysics.CheckWater;
 var
   P: TVector3;
@@ -352,18 +367,18 @@ begin
   WaterType := CONTENTS_EMPTY;
   P := Origin;
   P.Z := Origin.Z + Mins.Z + 1;
-  Cont := FBsp.PointContents(P);
+  Cont := Contents(P);
   if (Cont <= CONTENTS_WATER) and (Cont > CONTENTS_SKY) then
   begin
     WaterType := Cont;
     WaterLevel := 1;
     P.Z := Origin.Z + (Mins.Z + Maxs.Z) * 0.5;
-    Cont := FBsp.PointContents(P);
+    Cont := Contents(P);
     if (Cont <= CONTENTS_WATER) and (Cont > CONTENTS_SKY) then
     begin
       WaterLevel := 2;
       P.Z := Origin.Z + ViewHeight;
-      Cont := FBsp.PointContents(P);
+      Cont := Contents(P);
       if (Cont <= CONTENTS_WATER) and (Cont > CONTENTS_SKY) then
         WaterLevel := 3;
     end;

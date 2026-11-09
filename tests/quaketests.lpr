@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame;
 
 var
   Checks, Failures: Integer;
@@ -432,6 +432,73 @@ begin
     CheckEquals(10, Fx.Trail(1, Vector3(0, 0, 0), Vector3(64, 0, 0)), 'a 64 unit trail: one every 8 units, 2 absolute');
   finally
     Fx.Free;
+  end;
+end;
+
+procedure TestSkinContents;
+var
+  Game: TQuakeQcGame;
+  E, Door, FSkin, X, Y, Z: Integer;
+  Inside, Gap, P, Org: TVector3;
+  HaveInside, HaveGap: Boolean;
+  Model: String;
+begin
+  { FTE_ENT_SKIN_CONTENTS: a brush entity with skin -3 is water inside its
+    model's brushes, and only there }
+  StartTest('Brush entity contents (FTE_ENT_SKIN_CONTENTS)');
+  Game := TQuakeQcGame.Create;
+  try
+    if not Game.LoadLevel('e1m1', 1, False) then
+    begin
+      Check(False, 'e1m1 loads in QuakeC mode');
+      Exit;
+    end;
+    FSkin := Game.Progs.FieldOfs('skin');
+    Door := 0;
+    for E := 1 to Game.Progs.NumEdicts - 1 do
+      if not Game.Progs.EdictFree(E) and (Game.Progs.FieldString(E, Game.Progs.FModel) = '*1') then
+      begin
+        Door := E;
+        Break;
+      end;
+    Check(Door > 0, 'the entity of brush model 1');
+    if Door = 0 then
+      Exit;
+    { A point in its brushes and one in a gap of its box, where the world is empty }
+    Org := Game.Progs.FieldVector(Door, Game.Progs.FOrigin);
+    HaveInside := False;
+    HaveGap := False;
+    for X := 1 to 7 do
+      for Y := 1 to 7 do
+        for Z := 1 to 7 do
+        begin
+          P := Game.Bsp.Models[1].Mins + (Game.Bsp.Models[1].Maxs - Game.Bsp.Models[1].Mins) * Vector3(X / 8, Y / 8, Z / 8);
+          if Game.Bsp.PointContents(P + Org) <> CONTENTS_EMPTY then
+            Continue;
+          if Game.Bsp.HullPointContents(0, Game.Bsp.Models[1].HeadNodes[0], P) <> CONTENTS_EMPTY then
+          begin
+            Inside := P + Org;
+            HaveInside := True;
+          end else
+          begin
+            Gap := P + Org;
+            HaveGap := True;
+          end;
+        end;
+    Check(HaveInside, 'a point in its brushes');
+    if not HaveInside then
+      Exit;
+    Model := Game.Progs.FieldString(Door, Game.Progs.FClassName);
+    CheckEquals(CONTENTS_EMPTY, Game.PointContents(Game.Progs, Inside), Format('a %s is no liquid', [Model]));
+    Game.Progs.Field(Door, FSkin)^.F := CONTENTS_WATER;
+    Game.FindContentsEntities;
+    CheckEquals(CONTENTS_WATER, Game.PointContents(Game.Progs, Inside), 'skin -3 makes it water in its brushes');
+    if HaveGap then
+      CheckEquals(CONTENTS_EMPTY, Game.PointContents(Game.Progs, Gap), 'and not in a gap of its box');
+    Game.Progs.Field(Door, FSkin)^.F := CONTENTS_LAVA;
+    CheckEquals(CONTENTS_LAVA, Game.PointContents(Game.Progs, Inside), 'skin -5 makes it lava');
+  finally
+    Game.Free;
   end;
 end;
 
@@ -2176,6 +2243,7 @@ begin
   TestProgsVm;
   TestProgsExtensions;
   TestEffectInfo;
+  TestSkinContents;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

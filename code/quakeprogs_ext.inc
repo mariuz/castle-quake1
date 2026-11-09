@@ -6,7 +6,8 @@
 const
   { The extensions checkextension says yes to: each one's builtins are
     here (or, like the fog and turning brush entities, done elsewhere) }
-  SupportedExtensions: array[0..31] of String = (
+  SupportedExtensions: array[0..32] of String = (
+    'FTE_ENT_SKIN_CONTENTS',
     'DP_SV_POINTPARTICLES', 'FTE_SV_POINTPARTICLES', 'DP_TE_PARTICLERAIN', 'DP_TE_PARTICLESNOW',
     'DP_QC_ASINACOSATANATAN2TAN', 'DP_QC_COPYENTITY', 'DP_QC_CVAR_STRING', 'DP_QC_EDICT_NUM',
     'DP_QC_ETOS', 'DP_QC_FINDCHAIN', 'DP_QC_FINDCHAINFLAGS', 'DP_QC_FINDCHAINFLOAT', 'DP_QC_FINDFLAGS',
