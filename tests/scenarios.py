@@ -363,7 +363,9 @@ def check_netrecord(logs):
     result.append((m is not None and float(m.group(1)) > 3, 'it plays back as a demo (%s s)' % (m.group(1) if m else '-')))
     shots = DEMO_SHOT_RE.findall(p)
     views = re.findall(r'View entity \d+ at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) \(protocol 15\)', p)
-    result.append((len(views) == 2 and dist(tuple(map(float, views[0])), tuple(map(float, views[1]))) > 100,
+    # Before the walk (the recording's first second) and after it; a
+    # deathmatch spawn can face a wall, so any clear move counts
+    result.append((len(views) == 2 and dist(tuple(map(float, views[0])), tuple(map(float, views[1]))) > 32,
                    'the recorded player walks in the playback (%s)' % ' -> '.join(' '.join(v) for v in views)))
     ammo = re.findall(r'Saved screenshot to ".*rplay_\d\.png" \(signon 4, health -?\d+, ammo (\d+)', p)
     result.append((len(ammo) == 2 and int(ammo[1]) < int(ammo[0]), 'and fires (ammo %s)' % ' -> '.join(ammo)))
@@ -1586,7 +1588,7 @@ SCENARIOS = [
                            ('rclient', ['--autotest', 'connect:127.0.0.1:26005', '{out}/rclient', '--demo',
                                         'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
                            ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
-                                      'W:2,S,W:2,S,Q'], 16)],
+                                      'W:0.5,S,W:4,S,Q'], 16)],
              check_netrecord, [], dark=('rhost',)),
     # Chat: a client says something, everyone gets it; the host answers
     Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
