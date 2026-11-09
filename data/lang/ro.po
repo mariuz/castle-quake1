@@ -1204,3 +1204,6 @@ msgstr "  r_lerpmove <0|1> - Monștrii care merg alunecă între pașii lor (mod
 
 msgid "  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)"
 msgstr "  pr_checkextension <0|1> - Modurile pot folosi extensiile QuakeC (următoarea hartă QuakeC)"
+
+msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
+msgstr "  r_effectinfo <0|1> - Fișierul effectinfo.txt al unui mod desenează exploziile, impacturile și dârele"

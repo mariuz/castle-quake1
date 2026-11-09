@@ -937,6 +937,34 @@ def prepare_exttex(out_dir):
     Image.new('RGB', (256, 256), (0, 0, 80)).save(os.path.join(tex, names[0].lower() + '_luma.tga'))
 
 
+def prepare_fxmod(out_dir):
+    # A mod with an effectinfo.txt of its own (and no particle font): the
+    # shotgun's TE_GUNSHOT and TE_TELEPORT drawn from it in QuakeC mode
+    d = os.path.join(out_dir, 'fxmod')
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'effectinfo.txt'), 'w') as f:
+        f.write('// test effects\n'
+                'effect TE_GUNSHOT\ncount 12\ntype static\ncolor 0xffe060 0xff8020\nsize 1 2\n'
+                'alpha 200 256 256\nvelocityjitter 64 64 64\ngravity 0.5\n\n'
+                'effect TE_TELEPORT\ncountabsolute 80\ntype alphastatic\ncolor 0x4080ff 0xffffff\n'
+                'size 2 4\nalpha 256 256 128\noriginjitter 16 16 28\nvelocityjitter 8 8 8\n')
+
+
+def check_fxmod(logs):
+    result = common_checks(logs, 'fx') + common_checks(logs, 'fxoff')
+    on, off = logs['fx'], logs['fxoff']
+    result.append(('effectinfo.txt: 2 effects (2 particle sections), default particle dot' in on,
+                   'the mod\'s effectinfo.txt is read'))
+    calls = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', on)]
+    result.append((len(calls) == 2 and calls[0] >= 1, 'the shotgun\'s TE_GUNSHOT comes from it (%s calls)' % calls))
+    m = re.search(r'Effect "TE_TELEPORT" \(2\): (\d+) particles', on)
+    result.append((m is not None and int(m.group(1)) == 80, 'TE_TELEPORT makes its 80 particles (%s)'
+                   % (m.group(1) if m else 'none')))
+    result.append(('r_effectinfo 0' in off and 'Effect particles:' not in off,
+                   'r_effectinfo 0 leaves the shots to the engine\'s particles'))
+    return result
+
+
 def check_exttex(logs):
     result = common_checks(logs, 'tex')
     m = re.search(r'External textures of "e1m1": (\d+) of (\d+)', logs['tex'])
@@ -1590,6 +1618,13 @@ SCENARIOS = [
              check_records, []),
     # External textures: a texture pack in a game directory replaces E1M1's
     # wall textures (QuakeSpasm-Spiked's textures/<map>/<name>.tga)
+    # A mod's effectinfo.txt draws the shotgun's impacts in QuakeC mode
+    # (and not with r_effectinfo 0)
+    Scenario('fxmod', [('fx', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fx', '--demo',
+                               'W:1,X,W:0.2,S,W:0.6,CMD:effect TE_TELEPORT,W:0.2,S,Q'], 0),
+                       ('fxoff', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fxoff', '--demo',
+                                  'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0)],
+             check_fxmod, [], prepare=prepare_fxmod),
     Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
              check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),
     # Host console: the listen server's host lists the players, kicks a bot,

@@ -106,6 +106,8 @@ type
     FSkill: Integer;
     FStatics: array of TQcStatic;
     FLevelChange: String;
+    { The brush entities whose skin is a contents value, found each frame }
+    FContentsEnts: array of Integer;
     FIntermission: Boolean;
     FMessageBytes: array of Integer;  { the svc message being written by the progs }
     FMessageStrings: TStringList;
@@ -228,6 +230,12 @@ type
     function DropToFloor(const Progs: TQuakeProgs; const E: Integer): Boolean; override;
     function CheckBottom(const Progs: TQuakeProgs; const E: Integer): Boolean; override;
     function PointContents(const Progs: TQuakeProgs; const P: TVector3): Integer; override;
+    { FTE_ENT_SKIN_CONTENTS: the contents a brush entity with a negative skin
+      gives inside its model (CONTENTS_EMPTY outside them all), and the
+      world's contents with them }
+    function EntityContents(const P: TVector3): Integer;
+    function WorldContents(const P: TVector3): Integer;
+    procedure FindContentsEntities;
     procedure LightStyle(const Progs: TQuakeProgs; const Style: Integer; const Value: String); override;
     procedure Particle(const Progs: TQuakeProgs; const Org, Dir: TVector3; const Color, Count: Integer); override;
     function ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer; override;
@@ -344,6 +352,7 @@ begin
   FProgs := TQuakeProgs.Create(Self);
   for I := 1 to MaxQcClients do
     FClients[I].Phys := TQuakePlayerPhysics.Create;
+    FClients[I].Phys.OnContents := @EntityContents;
   FMaxClients := 1;
   FMessageStrings := TStringList.Create;
 end;
@@ -929,7 +938,7 @@ begin
       Idx := -1;
       if (Model <> '') and (Model[1] = '*') then
         Idx := StrToIntDef(Copy(Model, 2, MaxInt), -1);
-      if (Idx <= 0) or (Idx >= FBsp.ModelCount) then
+      if (Idx <= 0) or (Idx >= Length(FBsp.Models)) then
         Continue;
       T := FBsp.TraceHull(Hull, Idx, EOrg + ClipOffset, Start, Stop);
       Combine(E);
@@ -980,7 +989,7 @@ begin
       Idx := -1;
       if (Model <> '') and (Model[1] = '*') then
         Idx := StrToIntDef(Copy(Model, 2, MaxInt), -1);
-      if (Idx <= 0) or (Idx >= FBsp.ModelCount) then
+      if (Idx <= 0) or (Idx >= Length(FBsp.Models)) then
         Continue;
       FPhys.SolidModels[N].ModelIndex := Idx;
       FPhys.SolidModels[N].Offset := FProgs.FieldVector(E, FFOrigin);
@@ -1351,6 +1360,7 @@ begin
     Exit;
   FProgs.Global(FProgs.GlobalOfs('frametime'))^.F := Dt;
   FProgs.Global(FProgs.GTime)^.F := FTime;
+  FindContentsEntities;
   if FFnStartFrame > 0 then
     FProgs.CallWith(FFnStartFrame, 0);
 
@@ -1466,7 +1476,7 @@ begin
   HitEntity := T.Entity;
   AllSolid := T.AllSolid;
   StartSolid := T.StartSolid;
-  C := FBsp.PointContents(EndPos);
+  C := WorldContents(EndPos);
   InWater := C < CONTENTS_SOLID; { water, slime, lava }
   InOpen := C = CONTENTS_EMPTY;
 end;
@@ -1486,7 +1496,7 @@ begin
   HitEntity := T.Entity;
   AllSolid := T.AllSolid;
   StartSolid := T.StartSolid;
-  C := FBsp.PointContents(EndPos);
+  C := WorldContents(EndPos);
   InWater := C < CONTENTS_SOLID;
   InOpen := C = CONTENTS_EMPTY;
 end;
@@ -1674,9 +1684,66 @@ begin
   Result := True;
 end;
 
-function TQuakeQcGame.PointContents(const Progs: TQuakeProgs; const P: TVector3): Integer;
+procedure TQuakeQcGame.FindContentsEntities;
+var
+  E, N: Integer;
+  Model: String;
+begin
+  N := 0;
+  SetLength(FContentsEnts, 0);
+  if (FFSkin < 0) or (FFModel < 0) then
+    Exit;
+  for E := FMaxClients + 1 to FProgs.NumEdicts - 1 do
+  begin
+    if FProgs.EdictFree(E) or (FProgs.Field(E, FFSkin)^.F >= 0) then
+      Continue;
+    Model := FProgs.FieldString(E, FFModel);
+    if (Model = '') or (Model[1] <> '*') then
+      Continue;
+    SetLength(FContentsEnts, N + 1);
+    FContentsEnts[N] := E;
+    Inc(N);
+  end;
+end;
+
+function TQuakeQcGame.EntityContents(const P: TVector3): Integer;
+var
+  E, Idx, Skin: Integer;
+  Org, AMin, AMax: TVector3;
+begin
+  Result := CONTENTS_EMPTY;
+  for E in FContentsEnts do
+  begin
+    if FProgs.EdictFree(E) then
+      Continue;
+    Skin := Round(FProgs.Field(E, FFSkin)^.F);
+    if (Skin >= 0) or (Skin < CONTENTS_SKY) then
+      Continue;
+    AMin := FProgs.FieldVector(E, FFAbsMin);
+    AMax := FProgs.FieldVector(E, FFAbsMax);
+    if (P.X < AMin.X) or (P.Y < AMin.Y) or (P.Z < AMin.Z) or (P.X > AMax.X) or (P.Y > AMax.Y) or
+      (P.Z > AMax.Z) then
+      Continue;
+    Idx := StrToIntDef(Copy(FProgs.FieldString(E, FFModel), 2, MaxInt), -1);
+    if (Idx <= 0) or (Idx >= Length(FBsp.Models)) then
+      Continue;
+    Org := FProgs.FieldVector(E, FFOrigin);
+    { Inside the model's brushes (hull 0, SV_PointContents with the skin) }
+    if FBsp.HullPointContents(0, FBsp.Models[Idx].HeadNodes[0], P - Org) <> CONTENTS_EMPTY then
+      Exit(Skin);
+  end;
+end;
+
+function TQuakeQcGame.WorldContents(const P: TVector3): Integer;
 begin
   Result := FBsp.PointContents(P);
+  if (Result = CONTENTS_EMPTY) and (Length(FContentsEnts) > 0) then
+    Result := EntityContents(P);
+end;
+
+function TQuakeQcGame.PointContents(const Progs: TQuakeProgs; const P: TVector3): Integer;
+begin
+  Result := WorldContents(P);
 end;
 
 procedure TQuakeQcGame.LightStyle(const Progs: TQuakeProgs; const Style: Integer; const Value: String);
