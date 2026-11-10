@@ -1,186 +1,61 @@
 # Castle Quake
 
-A port of **Quake 1** to the [Castle Game Engine](https://castle-engine.io/) (Object Pascal / Free Pascal). It plays the original **Quake 1 Demo / Shareware** data and the bundled open-source **LibreQuake** assets, on Windows, Linux and in the browser.
+A port of **Quake 1** to the [Castle Game Engine](https://castle-engine.io/), written in Object Pascal (Free Pascal). It plays the bundled open-source **LibreQuake** levels and the original **Quake 1 shareware** data, and runs community maps and mods such as Arcane Dimensions.
 
 ![Rocket explosion in E1M1](docs/screenshots/rocket-explosion.jpg)
 
-- 🌐 **[Play in the browser (WebAssembly)](https://mariuz.github.io/castle-quake1/)**
-- 📦 **[Windows, Linux, macOS and Android releases](https://github.com/mariuz/castle-quake1/releases)** (the Android APK is signed with a debug key: allow installing from unknown sources)
-- 📖 **[Architecture and engine mapping](docs/ARCHITECTURE.md)**
-- 🗺️ **[Quake 1 comparison and roadmap](docs/ROADMAP.md)**
+- 🌐 **[Play in the browser](https://mariuz.github.io/castle-quake1/)** (WebAssembly)
+- 📦 **[Download a release](https://github.com/mariuz/castle-quake1/releases)** for Windows, Linux, macOS or Android
 
-Everything is parsed from the PAK archives at run time: BSP levels become X3D scene graphs, Alias models become animated meshes, textures and sounds are served to the engine through custom URL protocols. The gameplay is a port of the original rules (player physics, all weapons, all monsters, level flow), and the real `progs.dat` can run the game instead ("QuakeC mode", for mods). Inspired by [mariuz/castle-doom](https://github.com/mariuz/castle-doom).
+## What it does
 
----
+- **The whole game**: all eight weapons, all monsters and both bosses, Quake's player physics, the hub, keys, secrets, intermissions and endings.
+- **Quake's look**: BSP levels with lightmaps and lightstyles, the scrolling sky, rippling liquids, animated models, particles; or dynamic PBR lighting with shadows instead.
+- **Multiplayer**: deathmatch, coop and teamplay over UDP or from the browser, split-screen for up to four players, bots, spectators, LAN search, chat and a scoreboard.
+- **Community content**: a map browser for 1750 [Quaddicted](https://www.quaddicted.com/) maps and mods, BSP2 maps, colored light, fog, skyboxes, texture packs, and the mod's own QuakeC (`progs.dat`) with the QuakeSpasm, FTE and DarkPlaces extensions.
+- **New ways to play**: random maps from a seed, horde mode, speedruns against your ghost, map records, photo mode.
+- **Comfort**: gamepads with their own button names, touch controls, six languages, captions for sounds, a high contrast HUD, rebindable keys, savegames with thumbnails.
+- **For developers**: demos record and play back, every object is named in the engine's inspector (F8), levels export to X3D / glTF, and a headless test harness plays the game by script.
 
-## Screenshots
+The full list is in [docs/FEATURES.md](docs/FEATURES.md).
 
 | | |
 | :---: | :---: |
-| ![Grunts in E1M1](docs/screenshots/monsters.jpg) | ![A group of monsters](docs/screenshots/monster-group.jpg) |
-| Monsters with Quake's AI: sight, chase, attacks, pain and gibs | Infighting and sound propagation wake the rest |
-| ![Lightning gun](docs/screenshots/lightning.jpg) | ![Water with the turbulent warp](docs/screenshots/water.jpg) |
-| All eight weapons, here the lightning gun beam | Water, slime and lava ripple like `R_Turbulent` |
-| ![LibreQuake hub](docs/screenshots/hub.jpg) | ![Original Quake start map](docs/screenshots/id1-hub.jpg) |
-| The LibreQuake episode hub (bundled) | The original `start.bsp` hub with `-game quake` |
-| ![Dynamic PBR lighting](docs/screenshots/pbr-lighting.jpg) | ![QuakeC mode](docs/screenshots/quakec-mode.jpg) |
-| "Dynamic PBR" world lighting with shadow maps, instead of the lightmaps | QuakeC mode: `progs.dat` runs the level |
-| ![Demo playback](docs/screenshots/demo-playback.jpg) | ![Multiplayer](docs/screenshots/multiplayer.jpg) |
-| The PAK demos play back (protocol 15) | Deathmatch over UDP with the scoreboard |
-| ![Arcane Dimensions hub](docs/screenshots/arcane-dimensions-hub.jpg) | ![Arcane Dimensions first map](docs/screenshots/arcane-dimensions-e1m1.jpg) |
-| Arcane Dimensions, made for QuakeSpasm, with its own QuakeC: fence textures (the vines) and thousands of entities | AD's first map with the fog and water alpha its QuakeC sets |
-| ![Player colors](docs/screenshots/player-colors.jpg) | ![Map record](docs/screenshots/map-record.jpg) |
-| Player names and shirt / pants colors in a network game | Map records: the intermission tells you about a new best |
-| ![Four player split-screen](docs/screenshots/split-screen-four.jpg) | ![Random map](docs/screenshots/random-map.jpg) |
-| Split-screen coop for up to four players | Random maps built from a seed |
-| ![Photo mode](docs/screenshots/photo-mode-dof.jpg) | ![Horde mode](docs/screenshots/horde-mode.jpg) |
-| Photo mode with depth of field | Horde mode: waves of monsters with a score |
+| ![Grunts in E1M1](docs/screenshots/monsters.jpg) | ![Arcane Dimensions hub](docs/screenshots/arcane-dimensions-hub.jpg) |
+| Monsters with Quake's AI | Arcane Dimensions with its own QuakeC |
+| ![Four player split-screen](docs/screenshots/split-screen-four.jpg) | ![Photo mode](docs/screenshots/photo-mode-dof.jpg) |
+| Split-screen coop for up to four players | Photo mode with depth of field |
 
----
+More screenshots are in [docs/FEATURES.md](docs/FEATURES.md#screenshots).
 
-## Features
+## Quick start
 
-**World**
-- BSP v29 levels, and the BSP2 / 2PSB formats of large community maps, from `.pak` files turned into X3D scene graphs, with triangle collision and the Quake clipping hulls for movement.
-- Colored light from `.lit` files, fog from the worldspawn `fog` key and skyboxes from its `sky` key (FitzQuake / QuakeSpasm maps), also in demos and network games (`svc_fog`, `svc_skybox`).
-- The scrolling two layer sky or a six face skybox (`sky` worldspawn key with `gfx/env/*.tga`), fullbright texture pixels, translucent liquids seen from both sides, lava splashes.
-- Two world lighting modes: Quake's own lightmaps, all lightstyle layers blended in a GLSL effect with the live lightstyle values and dynamic lights (muzzle flashes, explosions), or dynamic PBR lighting by the map's light entities with real-time shadow maps.
-- Dual-layer scrolling sky, turbulent liquid surfaces, animated textures, particles (gunshots, blood, explosions, trails, teleports), underwater warp and palette tints.
-- Only the potentially visible set is drawn: the world is split by BSP subtrees and the parts outside the camera leaf's PVS are hidden (seen through translucent water too), and so are the monsters, items, missiles, gibs and doors outside it; console `novis 1` draws everything.
-- Interactive brush entities: doors (including silver and gold key doors), platforms, buttons, trains, secret doors, triggers, teleporters, level changes.
+Download a release and run it, or build it with [Castle Game Engine](https://castle-engine.io/) 7.0-alpha.3 or later:
 
-**Gameplay**
-- A port of the NetQuake player physics: friction and acceleration, air control, stair stepping, swimming, water jumps, bunny hopping.
-- All eight weapons from `weapons.qc`: hitscan, nails, bouncing grenades, rockets with splash damage, the lightning beam.
-- All thirteen monsters and both bosses with QuakeC data: sight checks, `SV_movestep` chasing, attacks on animation frames, pain, death, gibbing, infighting, sound propagation.
-- Level flow: the hub with skill and episode portals, runes and episode gates, keys, secrets, level parms, intermission with counting tallies, the episode texts, the all-four-runes text and the Shub-Niggurath ending with the end-of-game text.
-- Random maps: `-randommap [seed]` (or Single Player > Random Map, `?randommap=new` in the browser) builds a level in memory, rooms and corridors compiled into a real BSP with collision hulls, colored lightmaps, monsters getting harder toward the exit, weapons, ammo and health; the exit leads to the next seed, so the levels never end. The same seed is the same map everywhere, so a network game only needs its name (`-host random42`).
-- Horde mode: `-horde` (or Single Player > Horde Mode) turns any map, a random one too, into waves of monsters that teleport in out of sight, stronger every wave, with a score and the best score per map.
-- Photo mode: P pauses the game (or a demo), hides the HUD and flies the camera; change the field of view and add depth of field, grayscale, sepia, a vignette or ambient occlusion, then save a photo up to four times the window size.
-- Speedrun timer and ghost racing: finish a level and your best run comes back as a translucent ghost to race, with splits at checkpoints and at the end (`-speedrun`, Options or the console's `speedrun` / `ghost`).
-- Map browser: Main Menu > Map Browser lists 1750 community maps and mods from [Quaddicted](https://www.quaddicted.com/) with their ratings, downloads one (checked by SHA-256) and plays it; installed maps can be removed again. A map made for a mod (Quoth, Arcane Dimensions, Copper...) downloads the mod with it and plays with the mod's QuakeC. The zips stay on disk and are read as files are needed (a 300 MB mod does not take 300 MB of memory), and playing another map unmounts the mods it does not need. Also from the console: `maps`, `maps_install <id>`, `maps_play <id>`, `maps_remove <id>`.
-- Languages: English, German, French, Spanish, Italian and Romanian for the menu, the HUD, the captions and the console help, following the system language or picked in Options > Language (`-lang de` for one run). A translation is a gettext `.po` file in `data/lang/`.
-- Accessibility: captions for the sounds that matter (monsters waking and attacking, doors, lifts, secrets, pickups) with a hint of where they came from, a high contrast HUD and reduced damage and pickup flashes, in Options or the console (`captions`, `hud_contrast`, `reduced_flashes`).
-- Save and load (F6 / F9, console `save` / `load`, Main Menu > Save Game / Load Game with eight slots and a thumbnail of each, `-load <slot>`), including projectiles and gibs in flight.
-- LAN games: Multiplayer > Find LAN Games lists the games hosted on the local network (map, players, deathmatch or coop) and joins one with a press.
-- Coop bots: `-host e1m1 -coop -bots 2` (or Multiplayer > Coop with 2 bots) adds bots that follow you through the level and fight its monsters.
-- Deathmatch rules: `-fraglimit N`, `-timelimit M` and `-maps e1m1,e1m2,...` end a level at a limit and play the maps in turn.
-- Scoreboard: Tab shows the players and bots by frags (and your ping) in a network game; a deathmatch intermission shows it too.
-- Chat: in a network game T opens a line to say something to everyone.
-- Recording network games: `-record <name>` with `-host` or `-connect` saves the game you play as a demo that plays back like any other.
-- Names and colors: `-name Ranger -color 4 12` (or the console's `name` / `color`, Options > Shirt Color / Pants Color) — the others see your name on the scoreboard and your player in your shirt and pants colors.
-- QuakeSpasm mods: Arcane Dimensions and other mods made for QuakeSpasm run with their own QuakeC (Map Browser > a map of the mod) — thousands of entities, fence textures, sprites, translucent entities, their fog, water alpha and music, smoothly animated models, monsters gliding between their steps (`r_lerpmove`) the FTE / DP QuakeC extensions they ask for (FRIK_FILE, FTE_STRINGS, `sprintf`, `tracebox`...) and DarkPlaces' `effectinfo.txt` particle effects (`pointparticles`, `trailparticles`, particle rain and snow, and the mod's own explosions, impacts and projectile trails) with the mod's particle texture. Brush entities can be water, slime or lava (FTE_ENT_SKIN_CONTENTS).
-- Texture packs: `textures/<map>/<name>.tga` or `textures/<name>.tga` (or `.png`) in a mod directory replace a map's textures, with `_luma` / `_glow` glow maps, like QuakeSpasm-Spiked.
-- Map records: every finished level keeps your best time, kills and secrets per skill — the intermission tells you when you beat them, Map Warp shows them.
-- Host console: as the host of a network game, type `/status`, `/kick <name>`, `/map <name>`, `/fraglimit 10`, `/timelimit 5`, `/teamplay 1` or `/addbot` in the chat line (T).
-- Teamplay: `-host e1m1 -teamplay 1 -bots 3` (or Multiplayer > Team Deathmatch with 3 bots) — teams by pants color, no friendly fire, bots even the teams and the scoreboard shows the team totals.
-- Spectators: `-connect host -spectate` (or Multiplayer > Spectate) watches a network game without playing: fire follows the next player, jump flies freely.
-- Demos: `.dem` playback with server frame interpolation (protocol 15, FitzQuake 666 and RMQ 999 for maps beyond 4096 units), and recording of your own games. While one plays, Space pauses, up / down change the speed (a quarter to four times) and left / right seek 10 s back or forward.
-
-**QuakeC mode**
-- `progs.dat` runs the level: a QuakeC VM (`pr_exec.c` semantics, all builtins) with a world host for traces, movetypes and the player physics. Mods loaded with `-pak` run unchanged. Savegames and demo recording work here too.
-
-**Multiplayer**
-- Deathmatch and coop over UDP: the host runs the QuakeC rules, NetQuake protocol 15 messages stream the game to every player, the client is the demo player with input. Host from the menu or with `-host`, join with `-connect`.
-- Split-screen coop: `-host e1m1 -splitscreen` (or Multiplayer > Split-Screen Coop) plays a coop game with two players on one machine, side by side (`-splitscreen stacked`: one above the other): the keyboard and mouse for the first player, a gamepad for the second. Up to four players (`-splitplayers 4`, or a further gamepad's Start in a game). In the browser too: `?host=e1m1&splitscreen=1` (or `=4`), and bots with `?host=e1m1&bots=3`.
-- Deathmatch bots: `-host e1m1 -bots 3` (or Multiplayer > Deathmatch vs 3 bots) adds bots that find their way around the map, collect weapons, health and powerups, and fight you and each other; `-skill` sets how well they aim.
-- Browser players: a host started with `-websocket 26001` (or a separate `-wsrelay host:port`) relays WebSocket connections to the game, and the web build joins with `?connect=host` in its URL (an https page needs `wss://`, so a TLS proxy in front of the relay).
-- Client-side prediction of your own movement (the server runs exactly the inputs you sent, the client replays the unacknowledged ones) and UDP hole punching through a rendezvous service: `-rendezvous` on a reachable machine, `-host e1m1 -register myname@rendezvous`, `-connect myname@rendezvous`.
-
-**Engine integration**
-- Custom URL protocols `quakepak:` and `quaketex:` feed the engine's loaders straight from the archives.
-- Spatial audio with OpenAL, music per map from the CD track number (`svc_cdtrack` in demos and multiplayer), muffled under water with an EFX low-pass filter (Web Audio in the browser), static ambient emitters and leaf ambients, OGG music.
-- Every component is named for the engine's inspector (F8): `func_door_7`, `monster_ogre_3`, `light_12`...
-- Developer console (`~`): `map <name>`, `god`, `give all`, `shadows <0|1>`, `save`, `load`, `debug <all|off|triggers|monsters|movers|leaf>` (wireframe overlay of triggers, monsters and sight lines, movers and the player's BSP leaf), `wateralpha <0..1>`, `fog <density> [r g b]`, `sky <name>`, `fov`, `gamma`, `cl_bob`, `r_drawviewmodel`, `captions`, `hud_contrast`, `reduced_flashes`, `horde`, `killall`, `speedrun`, `ghost`, `ghost_reset`, `saves`, `maps`, `maps_install`, `maps_play`, `maps_remove`, `photo`, `photo_fov`, `photo_effect`, `photo_scale`, `photo_shot`, `fps`, `novis <0|1>`, `help`.
-- A headless test harness (`--autotest`, `--demo`) drives the game by script and takes screenshots; the images above come from it.
-
----
-
-## Controls
-
-| Key | Action |
-| --- | --- |
-| **W, A, S, D** / Arrows | Move forward, strafe left / right, backward |
-| **Mouse** | Look around |
-| **Left Mouse / Ctrl** | Fire |
-| **Space** | Jump / swim up |
-| **Shift** | Walk (running is the default) |
-| **E** | Use: doors, buttons |
-| **1 .. 8** | Weapons: Axe, Shotgun, Super Shotgun, Nailgun, Super Nailgun, Grenade Launcher, Rocket Launcher, Lightning Gun |
-| **F1 / C** | Camera: first person, third person, free fly |
-| **F2** | Dynamic shadows on / off |
-| **F6 / F9** | Quicksave / quickload |
-| **F8** | Engine inspector (component tree, live properties) |
-| **F12** | Screenshot |
-| **P** | Photo mode (wheel: field of view, Tab: effect, + -: size, Enter: photo) |
-| **~** | Developer console |
-| **Touch** | Move stick on the left (where the finger lands), drag on the right to look, FIRE / JUMP / USE / weapon / MENU buttons; on by themselves on touch screens and in the browser after the first touch (`-touch`, `?touch=1`), which also goes fullscreen in landscape; the HUD and menus scale with the phone's pixel density |
-| **Gamepad** | Left stick moves, right stick turns, A jumps, X uses, RB / right trigger fires, D-pad changes weapons, Start opens the menu, View is photo mode; the prompts use your pad's names (Xbox, PlayStation or Nintendo, from its name or Options > Controls) and a Nintendo pad confirms with A; sensitivity, dead zone, inverted look, button names and the confirm button in Options > Controls |
-
-Every key can be rebound in Options > Controls (saved in the user config).
-| **Escape** | Menu |
-
----
-
-## Building and Running
-
-Prerequisites: [Castle Game Engine](https://castle-engine.io/) 7.0-alpha.3 or later (the snapshot bundles FPC 3.2.2).
-
-### Windows (PowerShell)
-```powershell
-$env:PATH = "C:\castle-engine\bin;C:\castle-engine\tools\contrib\fpc\bin;" + $env:PATH
-castle-engine compile --mode=release
-.\castle-quake1.exe
-```
-Audio needs `OpenAL32.dll` and `wrap_oal.dll` next to the executable (included in the releases).
-
-### Linux
 ```sh
-export CASTLE_ENGINE_PATH=/path/to/castle-engine
-$CASTLE_ENGINE_PATH/tools/build-tool/castle-engine compile --mode=release
-./castle-quake1
+castle-engine compile --mode=release
+./castle-quake1                        # the menu
+./castle-quake1 -warp e1m1             # straight into E1M1
+./castle-quake1 -game quake            # the original shareware content
+./castle-quake1 -host e1m1 -bots 3     # deathmatch against three bots
+./castle-quake1 -randommap             # a new random level
 ```
 
-### macOS
-The releases include app bundles for Intel and Apple Silicon Macs. They are not signed or notarized: on the first start use right-click > Open, or `xattr -dr com.apple.quarantine "Castle Quake.app"`. Building locally is the same `castle-engine compile` with the engine set up for macOS.
+**Controls**: WASD and the mouse, Space jumps, E uses, 1 to 8 pick weapons, F6 / F9 quicksave and quickload, P is photo mode, `~` opens the console, Escape the menu. Gamepads and touch screens work too.
 
-### Web
-The `test` job builds `tests/quaketests` (the BSP tracer, the QuakeC VM, savegames, the demo writer and reader against the shareware pak) and runs it before the packages are released; locally: `cd tests && castle-engine compile && ./quaketests ../data/paks`.
+Every option, the console commands, all the controls and the build steps for each platform are in [docs/USAGE.md](docs/USAGE.md).
 
-The `Web` workflow builds the WebAssembly version with FPC's wasm32 cross compiler and Pas2js, smoke-tests it in headless Chromium (`tests/websmoke.js`: E1M1 starts, renders, saves, and the save loads after a reload) and deploys it from main to GitHub Pages: [mariuz.github.io/castle-quake1](https://mariuz.github.io/castle-quake1/). In the browser, savegames, controls and video options are kept in the browser's local storage between visits; `?warp=e1m1` in the page URL starts a map, `?randommap=new` a random one.
+## Documentation
 
-### Command line
-```
-castle-quake1 -warp e1m1                      Jump to E1M1
-castle-quake1 -warp start                     The LibreQuake hub
-castle-quake1 -game quake -warp start         The original Quake hub with the episode portals
-castle-quake1 -randommap 42                   A random level from seed 42 (no seed: a new one)
-castle-quake1 -horde -warp e1m1               Horde mode: waves of monsters on E1M1
-castle-quake1 -pak custom.pak                 Load another PAK (mods, the registered id1 paks)
-castle-quake1 -playdemo demo1.dem             Play a demo from the PAKs
-castle-quake1 -qc e1m1                        QuakeC mode: progs.dat runs the game
-castle-quake1 -game hipnotic -qc start        A mission pack or mod (a directory of loose files, pak*.pak and *.pk3) with its QuakeC
-castle-quake1 -host start                     Host a deathmatch game on UDP port 26000 and play in it
-castle-quake1 -host e1m1 -coop -skill 2       Host a cooperative game
-castle-quake1 -connect 192.168.1.10           Join a game (host[:port])
-castle-quake1 -host start -websocket 26001    Host and accept players from the web build (.../play/?connect=yourhost)
-castle-quake1 -wsrelay 192.168.1.10:26000     Only a WebSocket relay for a game hosted elsewhere
-castle-quake1 --export-map e1m1 e1m1.x3d           Export a level as X3D (or .gltf) for the editor / view3dscene
-castle-quake1 --autotest e1m1 shot --demo "W:1,S,X,W:0.5,S,Q"   Headless test with screenshots
-```
-The Options menu switches the world lighting between Quake's lightmaps and dynamic PBR lighting.
-
-### Headless testing
-`--autotest <map|qc:map|host:map|connect:host|name.dem> <prefix> --demo "<actions>"` loads a level without any input, runs the comma separated actions and exits. Actions: `W:sec` wait, `S` screenshot, `X` fire, `F:sec` hold fire, `U` use, `C:slot` weapon, `A:deg` / `T:deg` / `P:deg` yaw, turn, pitch, `M:units` / `G:x;y;z` teleport, `V:f;s;u` move, `J` jump, `K` / `Y` cheats, `O:slot` / `L:slot` save and load, `R:name` / `R` record a demo, `B:1` / `B:0` world lighting, `I` log the scene tree, `Q` quit. See [CLAUDE.md](CLAUDE.md) for the details.
-
----
-
-## Continuous Integration
-
-- `.github/workflows/build.yml`: Windows x86_64, Linux x86_64, macOS x86_64 / aarch64 (app bundle zips) and Android (APK, cross-compilers from `tools/android-fpc.sh`) packages on GitHub's runners (FPC and the CGE snapshot set up by `castle-build-ci`). A tag `v*`, or a manual run with a `release_tag`, creates the GitHub Release with the packages.
-- `.github/workflows/web.yml`: the WebAssembly build and the GitHub Pages deployment.
-
----
+| | |
+| --- | --- |
+| [docs/FEATURES.md](docs/FEATURES.md) | Everything the game does, with screenshots |
+| [docs/USAGE.md](docs/USAGE.md) | Command line, console, controls, building |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code is organized and how Quake maps to the engine |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What is done and what is planned |
+| [docs/HISTORY.md](docs/HISTORY.md) | How each finished roadmap item was built and tested |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | Developer reference: the test harness, log lines, test suites |
+| [AGENTS.md](AGENTS.md) | Working notes for contributors and AI agents |
 
 ## License
 
