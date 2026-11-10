@@ -108,6 +108,23 @@ type
     FLevelChange: String;
     { The brush entities whose skin is a contents value, found each frame }
     FContentsEnts: array of Integer;
+    { Area grid (Quake's area nodes): the linked entities by the cells
+      their box covers in X and Y, so a trace tests only the ones near it }
+    FGridW, FGridH: Integer;
+    FGridMin: TVector3;
+    FGridCells: array of array of Integer;
+    FGridCounts: array of Integer;
+    FGridWide: array of Integer;       { boxes over too many cells: in every query }
+    FGridWideCount: Integer;
+    FGridLinks: array of record
+      Linked, Wide: Boolean;
+      X0, Y0, X1, Y1: Integer;
+      Mins, Maxs: TVector3;            { the box it was linked with }
+    end;
+    FGridStamps: array of Cardinal;
+    FGridStamp: Cardinal;
+    FGridFound: array of Integer;      { the last query's entities, ascending }
+    FGridFoundCount: Integer;
     FIntermission: Boolean;
     FMessageBytes: array of Integer;  { the svc message being written by the progs }
     FMessageStrings: TStringList;
@@ -127,6 +144,15 @@ type
     FFnSetNewParms, FFnSetChangeParms, FFnClientKill, FFnClientDisconnect: Integer;
     procedure CacheOffsets;
     procedure LinkEdict(const E: Integer);
+    procedure GridReset;
+    procedure GridUnlink(const E: Integer);
+    procedure GridLink(const E: Integer);
+    { Relink what the progs moved or resized without setorigin / setsize,
+      unlink the freed (once a frame) }
+    procedure GridVerify;
+    { The linked entities whose box may touch Mins..Maxs, into FGridFound;
+      without a grid (UseAreaGrid off) every edict }
+    procedure GridQuery(const Mins, Maxs: TVector3);
     { SV_Move: a box from Start to Stop against the world, pushers, solid
       entities and the player (Kind = MOVE_xxx) }
     function TraceBox(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
@@ -236,6 +262,12 @@ type
     function EntityContents(const P: TVector3): Integer;
     function WorldContents(const P: TVector3): Integer;
     procedure FindContentsEntities;
+  public
+    { Tests: traces without the area grid give the same results }
+    UseAreaGrid: Boolean;
+    { Entity traces made and the entities they tested, since the level started }
+    TraceCount, TraceTested: Int64;
+    function TraceBoxFor(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
     procedure LightStyle(const Progs: TQuakeProgs; const Style: Integer; const Value: String); override;
     procedure Particle(const Progs: TQuakeProgs; const Org, Dir: TVector3; const Color, Count: Integer); override;
     function ParticleEffectNum(const Progs: TQuakeProgs; const Name: String): Integer; override;
@@ -351,8 +383,11 @@ begin
   inherited Create;
   FProgs := TQuakeProgs.Create(Self);
   for I := 1 to MaxQcClients do
+  begin
     FClients[I].Phys := TQuakePlayerPhysics.Create;
     FClients[I].Phys.OnContents := @EntityContents;
+  end;
+  UseAreaGrid := True;
   FMaxClients := 1;
   FMessageStrings := TStringList.Create;
 end;
@@ -556,6 +591,7 @@ begin
     FreeAndNil(FBsp);
     Exit;
   end;
+  GridReset;
   FMapName := AMapName;
   FLevelChange := '';
   FIntermission := False;
@@ -844,6 +880,206 @@ begin
   end;
   FProgs.SetFieldVector(E, FFAbsMin, Mins);
   FProgs.SetFieldVector(E, FFAbsMax, Maxs);
+  GridLink(E);
+end;
+
+{ Area grid }
+
+const
+  GridCell = 256;
+  GridMaxSide = 64;
+  { A box over more cells than this is kept in the list every query takes }
+  GridWideCells = 36;
+
+procedure TQuakeQcGame.GridReset;
+var
+  I: Integer;
+  Size: TVector3;
+begin
+  FGridW := 0;
+  FGridH := 0;
+  FGridWideCount := 0;
+  SetLength(FGridLinks, 0);
+  SetLength(FGridLinks, MaxEdicts);
+  SetLength(FGridStamps, MaxEdicts);
+  SetLength(FGridFound, MaxEdicts);
+  TraceCount := 0;
+  TraceTested := 0;
+  if (FBsp = nil) or (Length(FBsp.Models) = 0) then
+    Exit;
+  FGridMin := FBsp.Models[0].Mins;
+  Size := FBsp.Models[0].Maxs - FBsp.Models[0].Mins;
+  FGridW := EnsureRange(Ceil(Size.X / GridCell), 1, GridMaxSide);
+  FGridH := EnsureRange(Ceil(Size.Y / GridCell), 1, GridMaxSide);
+  SetLength(FGridCells, 0);
+  SetLength(FGridCells, FGridW * FGridH);
+  SetLength(FGridCounts, FGridW * FGridH);
+  for I := 0 to High(FGridCounts) do
+    FGridCounts[I] := 0;
+end;
+
+procedure TQuakeQcGame.GridUnlink(const E: Integer);
+var
+  X, Y, C, I: Integer;
+begin
+  if (E < 0) or (E >= Length(FGridLinks)) or not FGridLinks[E].Linked then
+    Exit;
+  FGridLinks[E].Linked := False;
+  if FGridLinks[E].Wide then
+  begin
+    for I := 0 to FGridWideCount - 1 do
+      if FGridWide[I] = E then
+      begin
+        FGridWide[I] := FGridWide[FGridWideCount - 1];
+        Dec(FGridWideCount);
+        Break;
+      end;
+    Exit;
+  end;
+  for Y := FGridLinks[E].Y0 to FGridLinks[E].Y1 do
+    for X := FGridLinks[E].X0 to FGridLinks[E].X1 do
+    begin
+      C := Y * FGridW + X;
+      for I := 0 to FGridCounts[C] - 1 do
+        if FGridCells[C][I] = E then
+        begin
+          FGridCells[C][I] := FGridCells[C][FGridCounts[C] - 1];
+          Dec(FGridCounts[C]);
+          Break;
+        end;
+    end;
+end;
+
+procedure TQuakeQcGame.GridLink(const E: Integer);
+var
+  X, Y, C: Integer;
+  Org, Mins, Maxs: TVector3;
+begin
+  if (FGridW = 0) or (E <= 0) or (E >= Length(FGridLinks)) then
+    Exit;
+  GridUnlink(E);
+  if FProgs.EdictFree(E) then
+    Exit;
+  Org := FProgs.FieldVector(E, FFOrigin);
+  Mins := Org + FProgs.FieldVector(E, FFMins);
+  Maxs := Org + FProgs.FieldVector(E, FFMaxs);
+  FGridLinks[E].Mins := Mins;
+  FGridLinks[E].Maxs := Maxs;
+  FGridLinks[E].Linked := True;
+  { One cell of margin: what a query's box must reach }
+  FGridLinks[E].X0 := EnsureRange(Floor((Mins.X - FGridMin.X) / GridCell), 0, FGridW - 1);
+  FGridLinks[E].X1 := EnsureRange(Floor((Maxs.X - FGridMin.X) / GridCell), 0, FGridW - 1);
+  FGridLinks[E].Y0 := EnsureRange(Floor((Mins.Y - FGridMin.Y) / GridCell), 0, FGridH - 1);
+  FGridLinks[E].Y1 := EnsureRange(Floor((Maxs.Y - FGridMin.Y) / GridCell), 0, FGridH - 1);
+  FGridLinks[E].Wide := (FGridLinks[E].X1 - FGridLinks[E].X0 + 1) * (FGridLinks[E].Y1 - FGridLinks[E].Y0 + 1) >
+    GridWideCells;
+  if FGridLinks[E].Wide then
+  begin
+    if FGridWideCount >= Length(FGridWide) then
+      SetLength(FGridWide, Max(16, Length(FGridWide) * 2));
+    FGridWide[FGridWideCount] := E;
+    Inc(FGridWideCount);
+    Exit;
+  end;
+  for Y := FGridLinks[E].Y0 to FGridLinks[E].Y1 do
+    for X := FGridLinks[E].X0 to FGridLinks[E].X1 do
+    begin
+      C := Y * FGridW + X;
+      if FGridCounts[C] >= Length(FGridCells[C]) then
+        SetLength(FGridCells[C], Max(8, Length(FGridCells[C]) * 2));
+      FGridCells[C][FGridCounts[C]] := E;
+      Inc(FGridCounts[C]);
+    end;
+end;
+
+procedure TQuakeQcGame.GridVerify;
+var
+  E: Integer;
+  Org: TVector3;
+begin
+  if FGridW = 0 then
+    Exit;
+  for E := 1 to FProgs.NumEdicts - 1 do
+  begin
+    if FProgs.EdictFree(E) then
+    begin
+      if FGridLinks[E].Linked then
+        GridUnlink(E);
+      Continue;
+    end;
+    Org := FProgs.FieldVector(E, FFOrigin);
+    if not FGridLinks[E].Linked or
+       not TVector3.PerfectlyEquals(FGridLinks[E].Mins, Org + FProgs.FieldVector(E, FFMins)) or
+       not TVector3.PerfectlyEquals(FGridLinks[E].Maxs, Org + FProgs.FieldVector(E, FFMaxs)) then
+      GridLink(E);
+  end;
+  { Edicts above the count in use (after a level's entities were removed) }
+  for E := FProgs.NumEdicts to High(FGridLinks) do
+    if FGridLinks[E].Linked then
+      GridUnlink(E);
+end;
+
+procedure TQuakeQcGame.GridQuery(const Mins, Maxs: TVector3);
+
+  procedure Take(const E: Integer);
+  begin
+    if FGridStamps[E] = FGridStamp then
+      Exit;
+    FGridStamps[E] := FGridStamp;
+    FGridFound[FGridFoundCount] := E;
+    Inc(FGridFoundCount);
+  end;
+
+var
+  X, Y, X0, Y0, X1, Y1, C, I, J, Gap, V: Integer;
+begin
+  FGridFoundCount := 0;
+  if (FGridW = 0) or not UseAreaGrid then
+  begin
+    for I := 1 to FProgs.NumEdicts - 1 do
+    begin
+      FGridFound[FGridFoundCount] := I;
+      Inc(FGridFoundCount);
+    end;
+    Exit;
+  end;
+  Inc(FGridStamp);
+  for I := 0 to FGridWideCount - 1 do
+    Take(FGridWide[I]);
+  X0 := EnsureRange(Floor((Mins.X - FGridMin.X) / GridCell), 0, FGridW - 1);
+  X1 := EnsureRange(Floor((Maxs.X - FGridMin.X) / GridCell), 0, FGridW - 1);
+  Y0 := EnsureRange(Floor((Mins.Y - FGridMin.Y) / GridCell), 0, FGridH - 1);
+  Y1 := EnsureRange(Floor((Maxs.Y - FGridMin.Y) / GridCell), 0, FGridH - 1);
+  for Y := Y0 to Y1 do
+    for X := X0 to X1 do
+    begin
+      C := Y * FGridW + X;
+      for I := 0 to FGridCounts[C] - 1 do
+        Take(FGridCells[C][I]);
+    end;
+  { Ascending, the order every edict was tested in before (ties between
+    entities at the same distance go to the lower number): a shell sort }
+  Gap := FGridFoundCount div 2;
+  while Gap > 0 do
+  begin
+    for I := Gap to FGridFoundCount - 1 do
+    begin
+      V := FGridFound[I];
+      J := I;
+      while (J >= Gap) and (FGridFound[J - Gap] > V) do
+      begin
+        FGridFound[J] := FGridFound[J - Gap];
+        Dec(J, Gap);
+      end;
+      FGridFound[J] := V;
+    end;
+    Gap := Gap div 2;
+  end;
+end;
+
+function TQuakeQcGame.TraceBoxFor(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
+begin
+  Result := TraceBox(Start, Stop, Mins, Maxs, Kind, Ignore);
 end;
 
 function TQuakeQcGame.EntityBox(const E: Integer; out AMins, AMaxs: TVector3): Boolean;
@@ -882,8 +1118,8 @@ end;
 
 function TQuakeQcGame.TraceBox(const Start, Stop, Mins, Maxs: TVector3; const Kind, Ignore: Integer): TQuakeTrace;
 var
-  Hull, E, Idx: Integer;
-  ClipOffset, BMins, BMaxs, EOrg: TVector3;
+  Hull, E, Idx, N: Integer;
+  ClipOffset, BMins, BMaxs, EOrg, QMins, QMaxs: TVector3;
   T: TQuakeTrace;
   Model: String;
   Solid: Integer;
@@ -917,8 +1153,16 @@ begin
   if Result.AllSolid then
     Exit;
 
-  for E := 1 to FProgs.NumEdicts - 1 do
+  { The entities near the move: its box, wider by the largest clip hull
+    (brush entities are traced with the hull of the mover's size) }
+  QMins := Vector3(Min(Start.X, Stop.X), Min(Start.Y, Stop.Y), Min(Start.Z, Stop.Z)) + Mins - Vector3(72, 72, 72);
+  QMaxs := Vector3(Max(Start.X, Stop.X), Max(Start.Y, Stop.Y), Max(Start.Z, Stop.Z)) + Maxs + Vector3(72, 72, 72);
+  GridQuery(QMins, QMaxs);
+  Inc(TraceCount);
+  Inc(TraceTested, FGridFoundCount);
+  for N := 0 to FGridFoundCount - 1 do
   begin
+    E := FGridFound[N];
     if (E = Ignore) or FProgs.EdictFree(E) then
       Continue;
     Solid := Round(FProgs.Field(E, FFSolid)^.F);
@@ -1250,6 +1494,7 @@ end;
 procedure TQuakeQcGame.PlayerTouchTriggers(const Client: Integer);
 var
   E: Integer;
+  Found: array of Integer;
   PMins, PMaxs, Mins, Maxs: TVector3;
   FPhys: TQuakePlayerPhysics;
 begin
@@ -1257,9 +1502,13 @@ begin
   FPhys := FClients[Client].Phys;
   PMins := FPhys.Origin + FPhys.Mins;
   PMaxs := FPhys.Origin + FPhys.Maxs;
-  for E := FMaxClients + 1 to FProgs.NumEdicts - 1 do
+  { Items are linked 15 units wider than their box }
+  GridQuery(PMins - Vector3(16, 16, 16), PMaxs + Vector3(16, 16, 16));
+  { A touch function may trace (another query): the list is copied }
+  Found := Copy(FGridFound, 0, FGridFoundCount);
+  for E in Found do
   begin
-    if FProgs.EdictFree(E) or (Round(FProgs.Field(E, FFSolid)^.F) <> SOLID_TRIGGER) then
+    if (E <= FMaxClients) or FProgs.EdictFree(E) or (Round(FProgs.Field(E, FFSolid)^.F) <> SOLID_TRIGGER) then
       Continue;
     Mins := FProgs.FieldVector(E, FFAbsMin);
     Maxs := FProgs.FieldVector(E, FFAbsMax);
@@ -1361,6 +1610,7 @@ begin
   FProgs.Global(FProgs.GlobalOfs('frametime'))^.F := Dt;
   FProgs.Global(FProgs.GTime)^.F := FTime;
   FindContentsEntities;
+  GridVerify;
   if FFnStartFrame > 0 then
     FProgs.CallWith(FFnStartFrame, 0);
 

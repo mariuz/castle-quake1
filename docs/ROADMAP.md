@@ -313,8 +313,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 
 **Performance**
 
-- [ ] **Area Nodes for Entity Traces**:
-  - `TQuakeQcGame.TraceBox` tests a move against every edict, and `findradius` walks them all too; Arcane Dimensions' Sepulcher has over 4000. Link entities into Quake's area node tree (`SV_LinkEdict`, `SV_AreaEdicts`) so a trace, a touch and a `findradius` look only at the entities near it, and log the entities tested per trace in the `Z` line.
+- [x] **Area Grid for Entity Traces**:
+  - Entity traces and the player's touches in QuakeC mode test only the entities near them (Quake's area nodes, here a grid) instead of every edict: about 40 instead of 4091 per trace on Arcane Dimensions' Sepulcher.
 - [ ] **Batched Engine Particles**:
   - `QuakeParticles` makes a `TCastleScene` with its own material for every spark, puff and blood drop. Draw them through the batched renderer of `QuakeEffectParticles` (two meshes for all of them) and keep the old one out of the frame; an explosion in the play view then costs two draw calls.
 - [ ] **QuakeC VM Profile**:

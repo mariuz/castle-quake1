@@ -837,6 +837,10 @@ def check_quakec(logs):
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
     result.append((len(gliding) == 3 and max(gliding) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
+    m = re.findall(r'Entity traces: (\d+), ([\d.]+) entities tested each of (\d+) edicts', logs['qcglide'])
+    result.append((bool(m) and int(m[-1][0]) > 100 and float(m[-1][1]) < int(m[-1][2]) / 4,
+                   'the area grid keeps the entity traces short (%s)'
+                   % ('%s traces, %s of %s edicts each' % m[-1] if m else 'no line')))
     return result
 
 

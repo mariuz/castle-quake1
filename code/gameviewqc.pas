@@ -617,6 +617,9 @@ begin
     end;
   WritelnLog('GameViewQc', 'Entities drawn: %d models, %d sprites, %d translucent, %d gliding',
     [Models, Sprites, Translucent, Gliding]);
+  if FGame.TraceCount > 0 then
+    WritelnLog('GameViewQc', 'Entity traces: %d, %.1f entities tested each of %d edicts',
+      [FGame.TraceCount, FGame.TraceTested / FGame.TraceCount, FGame.Progs.NumEdicts]);
   if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
     WritelnLog('GameViewQc', 'Effect particles: %d drawn, %d made by %d effect calls',
       [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);
