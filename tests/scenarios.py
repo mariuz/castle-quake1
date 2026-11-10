@@ -964,6 +964,10 @@ def check_fxmod(logs):
                    % (m.group(1) if m else 'none')))
     result.append(('r_effectinfo 0' in off and 'Effect particles:' not in off,
                    'r_effectinfo 0 leaves the shots to the engine\'s particles'))
+    result += common_checks(logs, 'fxnet')
+    net = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', logs['fxnet'])]
+    result.append((len(net) == 1 and net[0] >= 1,
+                   'a network game draws the shotgun\'s impacts from it too (%s calls)' % net))
     return result
 
 
@@ -1625,8 +1629,11 @@ SCENARIOS = [
     Scenario('fxmod', [('fx', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fx', '--demo',
                                'W:1,X,W:0.2,S,W:0.6,CMD:effect TE_TELEPORT,W:0.2,S,Q'], 0),
                        ('fxoff', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fxoff', '--demo',
-                                  'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0)],
-             check_fxmod, [], prepare=prepare_fxmod),
+                                  'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0),
+                       # the same in a network game: the host's own view
+                       ('fxnet', ['-game', '{out}/fxmod', '--autotest', 'host:e1m1', '{out}/fxnet', '--demo',
+                                  'W:4,X,W:0.3,S,Q', '-port', '26014', '-netloopback'], 0)],
+             check_fxmod, [], prepare=prepare_fxmod, dark=('fxnet',)),
     Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
              check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),
     # Host console: the listen server's host lists the players, kicks a bot,

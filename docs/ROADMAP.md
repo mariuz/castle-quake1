@@ -309,7 +309,7 @@ The mods made for QuakeSpasm and QuakeSpasm-Spiked, Arcane Dimensions first, run
   - `textures/<map>/<name>.tga` and `textures/<name>.tga` replace a map's textures (with `_glow` and `_luma`), like QuakeSpasm-Spiked.
 
 ### Phase 18: Faster, Better Looking, Simpler
-Proposals from a pass over the code after Phase 17: what costs frame time on the largest mod maps, what the picture still lacks next to QuakeSpasm-Spiked and DarkPlaces, and where the code repeats itself. None is started.
+Proposals from a pass over the code after Phase 17: what costs frame time on the largest mod maps, what the picture still lacks next to QuakeSpasm-Spiked and DarkPlaces, and where the code repeats itself.
 
 **Performance**
 
@@ -330,8 +330,10 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Bullet marks, scorch marks and blood on the walls: `effectinfo.txt`'s `decal` sections (now skipped) and the engine's own impacts, as quads laid on the surface hit, fading out, with a limit on their number.
 - [ ] **MD3 and IQM Models**:
   - The model formats newer mods ship besides `.mdl`: MD3 (vertex animation, tags) and IQM (skeletal), loaded into the same visuals as Alias models.
-- [ ] **Effect Particles Everywhere**:
-  - `effectinfo.txt` effects are drawn only in QuakeC mode. Draw them in demos and network games too (the temp entities and trails are already in the protocol), and send `pointparticles` to clients (`svc_pointparticles`) so a host's mod effects reach them.
+- [x] **Mod Effects in Demos and Network Games**:
+  - A mod's `effectinfo.txt` effects for the temp entities and model trails are drawn in demos and network games too, not only in QuakeC mode.
+- [ ] **Point Particles for Clients**:
+  - Send the progs' `pointparticles` and `trailparticles` to network clients and into demos (`svc_pointparticles`); now only the host's own view shows them.
 - [ ] **Particle Lights, Bounce and Stretch**:
   - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
 - [ ] **Smooth Movement in Demos and Network Games**:
@@ -345,8 +347,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 
 **Code simplification**
 
-- [ ] **One Entity Renderer for the QuakeC and Demo Views**:
-  - `gameviewqc.pas` and `gameviewdemo.pas` each have their own `ShowVisual`, `ShowSprite`, `UpdatePose`, `ApplyAlpha`, `FreeVisual`, `HideVisual`, `ShowBeam`, `HandleTempEntity` and `CullVisuals`, so every rendering feature is written twice (and `LerpMove` and the effect particles only once). Move them into one unit both views use; the features above for demos and network games then come from it.
+- [x] **One Entity Renderer for the QuakeC and Demo Views**:
+  - The QuakeC view and the demo / network view draw their entities, temp entities and beams through one unit instead of two copies of the same nine methods.
 - [ ] **Console Command Table**:
   - `gameviewplay.pas` runs commands through a chain of forty `if Cmd = ...` blocks and prints its help from a separate list; the QuakeC and network views have smaller copies. A table of commands (name, help text, handler, the views it works in) gives one dispatcher, a help text that cannot go stale and `CMD:` in every view.
 - [ ] **Command Line Table**:
