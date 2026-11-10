@@ -497,6 +497,68 @@ begin
       CheckEquals(CONTENTS_EMPTY, Game.PointContents(Game.Progs, Gap), 'and not in a gap of its box');
     Game.Progs.Field(Door, FSkin)^.F := CONTENTS_LAVA;
     CheckEquals(CONTENTS_LAVA, Game.PointContents(Game.Progs, Inside), 'skin -5 makes it lava');
+    { The player with the feet in it is in the liquid }
+    CheckEquals(0, Game.PlayerWaterLevel(1), 'the player starts dry');
+    Game.Phys.Teleport(Inside + Vector3(0, 0, 23));
+    Game.Progs.SetFieldVector(1, Game.Progs.FOrigin, Game.Phys.Origin);
+    Game.Frame(Default(TQuakeUserCmd), 0, 0, 0.05, False, 0);
+    Check(Game.PlayerWaterLevel(1) > 0, Format('the player in it has a water level (%d)', [Game.PlayerWaterLevel(1)]));
+  finally
+    Game.Free;
+  end;
+end;
+
+procedure TestAreaGrid;
+var
+  Game: TQuakeQcGame;
+  I, Same, Hits: Integer;
+  A, B, Mins, Maxs, Size: TVector3;
+  T1, T2: TQuakeTrace;
+  Tested: Int64;
+begin
+  { The area grid gives the traces the entities near them: the same
+    results as testing every edict, with far fewer tests }
+  StartTest('Area grid for entity traces');
+  Game := TQuakeQcGame.Create;
+  try
+    if not Game.LoadLevel('e1m1', 1, False) then
+    begin
+      Check(False, 'e1m1 loads in QuakeC mode');
+      Exit;
+    end;
+    for I := 1 to 20 do
+      Game.Frame(Default(TQuakeUserCmd), 0, 0, 0.1, False, 0);
+    Mins := Game.Bsp.Models[0].Mins;
+    Size := Game.Bsp.Models[0].Maxs - Mins;
+    RandSeed := 7;
+    Same := 0;
+    Hits := 0;
+    Game.TraceCount := 0;
+    Game.TraceTested := 0;
+    Tested := 0;
+    for I := 1 to 2000 do
+    begin
+      A := Mins + Vector3(Random * Size.X, Random * Size.Y, Random * Size.Z);
+      B := A + Vector3(Random * 600 - 300, Random * 600 - 300, Random * 200 - 100);
+      if I mod 2 = 0 then
+        Maxs := Vector3(16, 16, 32)
+      else
+        Maxs := TVector3.Zero;
+      Game.UseAreaGrid := True;
+      T1 := Game.TraceBoxFor(A, B, -Maxs, Maxs, 0, 0);
+      Tested := Game.TraceTested;
+      Game.UseAreaGrid := False;
+      T2 := Game.TraceBoxFor(A, B, -Maxs, Maxs, 0, 0);
+      Game.TraceTested := Tested;
+      if (T1.Entity = T2.Entity) and (T1.Fraction = T2.Fraction) and (T1.StartSolid = T2.StartSolid) then
+        Inc(Same);
+      if T1.Entity > 0 then
+        Inc(Hits);
+    end;
+    CheckEquals(2000, Same, 'traces with and without the grid agree');
+    Check(Hits > 5, Format('some of them hit entities (%d)', [Hits]));
+    Check(Tested < 2000 * Int64(Game.Progs.NumEdicts) div 8,
+      Format('the grid tests few entities (%d per trace of %d edicts)', [Tested div 2000, Game.Progs.NumEdicts]));
   finally
     Game.Free;
   end;
@@ -2244,6 +2306,7 @@ begin
   TestProgsExtensions;
   TestEffectInfo;
   TestSkinContents;
+  TestAreaGrid;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

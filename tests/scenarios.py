@@ -837,6 +837,10 @@ def check_quakec(logs):
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
     result.append((len(gliding) == 3 and max(gliding) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
+    m = re.findall(r'Entity traces: (\d+), ([\d.]+) entities tested each of (\d+) edicts', logs['qcglide'])
+    result.append((bool(m) and int(m[-1][0]) > 100 and float(m[-1][1]) < int(m[-1][2]) / 4,
+                   'the area grid keeps the entity traces short (%s)'
+                   % ('%s traces, %s of %s edicts each' % m[-1] if m else 'no line')))
     return result
 
 
@@ -964,6 +968,10 @@ def check_fxmod(logs):
                    % (m.group(1) if m else 'none')))
     result.append(('r_effectinfo 0' in off and 'Effect particles:' not in off,
                    'r_effectinfo 0 leaves the shots to the engine\'s particles'))
+    result += common_checks(logs, 'fxnet')
+    net = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', logs['fxnet'])]
+    result.append((len(net) == 1 and net[0] >= 1,
+                   'a network game draws the shotgun\'s impacts from it too (%s calls)' % net))
     return result
 
 
@@ -1530,7 +1538,7 @@ SCENARIOS = [
                                    'W:6,S,Q'], 5),
                       ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
                                  'W:22,S,Q'], 0)],
-             check_bots, [], dark=('bloop',)),
+             check_bots, [], dark=('bloop', 'bclient')),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
@@ -1589,7 +1597,8 @@ SCENARIOS = [
                                         'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
                            ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
                                       'W:0.5,S,W:4,S,Q'], 16)],
-             check_netrecord, [], dark=('rhost',)),
+             # a deathmatch spawn can lead into E1M1's unlit rooms
+             check_netrecord, [], dark=('rhost', 'rclient', 'rplay')),
     # Chat: a client says something, everyone gets it; the host answers
     Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
                                  '26006'], 0),
@@ -1625,8 +1634,11 @@ SCENARIOS = [
     Scenario('fxmod', [('fx', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fx', '--demo',
                                'W:1,X,W:0.2,S,W:0.6,CMD:effect TE_TELEPORT,W:0.2,S,Q'], 0),
                        ('fxoff', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fxoff', '--demo',
-                                  'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0)],
-             check_fxmod, [], prepare=prepare_fxmod),
+                                  'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0),
+                       # the same in a network game: the host's own view
+                       ('fxnet', ['-game', '{out}/fxmod', '--autotest', 'host:e1m1', '{out}/fxnet', '--demo',
+                                  'W:4,X,W:0.3,S,Q', '-port', '26014', '-netloopback'], 0)],
+             check_fxmod, [], prepare=prepare_fxmod, dark=('fxnet',)),
     Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
              check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),
     # Host console: the listen server's host lists the players, kicks a bot,

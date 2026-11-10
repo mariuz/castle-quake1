@@ -20,25 +20,11 @@ uses
   CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay,
+  GameEntityRenderer, QuakeEffectParticles;
 
 type
-  TDemoVisual = record
-    Transform: TCastleTransform;
-    Scene: TCastleScene;
-    Mdl: TQuakeMdl;
-    ModelIndex, Frame, Skin: Integer;
-    { The colors its skin is painted in (svc_updatecolors of its colormap's client) }
-    Colors: Integer;
-    TrailTimer: Single;
-    { The alpha byte the scene was last given (0: opaque, its own) }
-    Alpha: Integer;
-    Sprite: Boolean;
-    { r_lerpmodels: the pose blends from PrevFrame since LerpStart }
-    PrevFrame: Integer;
-    LerpStart: Single;
-    LerpDone: Boolean;
-  end;
+  TDemoVisual = TEntityVisual;
 
   { One input sent to the server, kept until the server reports it applied }
   TPredictedInput = record
@@ -99,18 +85,13 @@ type
     FTouch: TQuakeTouchControls;
     FVisuals: array of TDemoVisual;
     FStaticVisuals: array of TDemoVisual;
-    FSubmodels: array of TQuakeSubmodel;  { by BSP model index }
-    FSubmodelUsed: array of Boolean;
-    FSubmodelOrigin: array of TVector3;   { Quake origin of the shown submodels }
+    { Draws the entities (shared with the QuakeC view) }
+    FRenderer: TEntityRenderer;
     FWeaponTransform: TCastleTransform;
     FPhoto: TPhotoMode;
     FWeapon: TDemoVisual;
     FSoundPool: array[0..31] of TCastleTransform;
     FSoundPoolNext: Integer;
-    FBeams: array[0..2] of record
-      Segments: array of TCastleTransform;
-      Time: Single;
-    end;
     FLevelStart: Single;
     FFinishedTimer: Single;
     FLoaded: Boolean;
@@ -209,15 +190,9 @@ type
     procedure HandleLightStyle(const Index: Integer; const Pattern: String);
     procedure HandleCdTrack(const Track, LoopTrack: Integer);
     procedure HandleIntermission;
-    procedure ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
-    procedure ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
-    procedure UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
     procedure ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
-    procedure HideVisual(var V: TDemoVisual);
     { Draw only the entities and brush models in the camera's PVS }
     procedure CullVisuals;
-    procedure FreeVisual(var V: TDemoVisual);
-    procedure ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
     procedure UpdateWeapon(const Reader: TQuakeDemoReader; var Weapon: TDemoVisual; const Holder: TCastleTransform);
     procedure UpdateHudStats(const Reader: TQuakeDemoReader; const Hud: TQuakeHud; const Eye: TVector3;
       const Main: Boolean; const SecondsPassed: Single);
@@ -309,9 +284,6 @@ implementation
 uses
   CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate;
 
-const
-  BeamModels: array[0..2] of String = ('progs/bolt.mdl', 'progs/bolt2.mdl', 'progs/bolt3.mdl');
-
 procedure TSplitViewport.RenderFromViewEverything(const RenderingCamera: TRenderingCamera);
 var
   I: Integer;
@@ -395,6 +367,7 @@ var
   I: Integer;
 begin
   ClearLevel;
+  FreeAndNil(FRenderer);
   FDemo.Free;
   for I := 2 to MaxSplitPlayers do
     FreeAndNil(FPlayers[I]);
@@ -507,6 +480,13 @@ begin
   FNavigation.Exists := NetMode;
   FNavigation.MouseLook := NetMode and (AutoTestPrefix = '');
   Particles.SetParent(FViewport.Items);
+  if FRenderer = nil then
+    FRenderer := TEntityRenderer.Create(FViewport.Items, 'entity');
+  { A mod's effectinfo.txt, before a listen server spawns its level (the
+    progs ask for effect numbers then) }
+  if EffectParticles = nil then
+    EffectParticles := TQuakeEffectParticles.Create;
+  EffectParticles.Load(FViewport.Items);
 
   FScript.Clear;
   FScriptIndex := 0;
@@ -662,6 +642,7 @@ begin
   FreeAndNil(FRendezvous);
   FreeAndNil(FWsRelay);
   ClearLevel;
+  FreeAndNil(EffectParticles);
   if Sounds <> nil then
     Sounds.StopMusic;
   if Lighting <> nil then
@@ -1087,12 +1068,12 @@ var
 begin
   { The brush entities where the server last showed them }
   N := 0;
-  SetLength(FPredict.SolidModels, Length(FSubmodels));
-  for I := 1 to High(FSubmodels) do
-    if (FSubmodels[I] <> nil) and FSubmodels[I].Transform.Exists then
+  SetLength(FPredict.SolidModels, Length(FRenderer.Submodels));
+  for I := 1 to High(FRenderer.Submodels) do
+    if (FRenderer.Submodels[I] <> nil) and FRenderer.Submodels[I].Transform.Exists then
     begin
       FPredict.SolidModels[N].ModelIndex := I;
-      FPredict.SolidModels[N].Offset := FSubmodelOrigin[I];
+      FPredict.SolidModels[N].Offset := FRenderer.SubmodelOrigin[I];
       Inc(N);
     end;
   SetLength(FPredict.SolidModels, N);
@@ -1221,22 +1202,6 @@ begin
   end;
 end;
 
-procedure TViewDemo.FreeVisual(var V: TDemoVisual);
-begin
-  if V.Transform <> nil then
-  begin
-    if V.Transform.Parent <> nil then
-      V.Transform.Parent.Remove(V.Transform);
-    FreeAndNil(V.Transform); { owns the scene }
-  end;
-  V.Scene := nil;
-  V.Mdl := nil;
-  V.ModelIndex := 0;
-  V.Frame := -1;
-  V.Alpha := 0;
-  V.Sprite := False;
-end;
-
 procedure TViewDemo.CullVisuals;
 var
   I: Integer;
@@ -1250,39 +1215,30 @@ begin
   FGeometry.CullSubmodels;
 end;
 
-procedure TViewDemo.HideVisual(var V: TDemoVisual);
-begin
-  if V.Transform <> nil then
-    V.Transform.Exists := False;
-end;
-
 procedure TViewDemo.ClearLevel;
 var
   I: Integer;
 begin
+  { Before the first Start there is nothing to clear }
+  if FRenderer = nil then
+    Exit;
   for I := 0 to High(FVisuals) do
-    FreeVisual(FVisuals[I]);
+    FRenderer.FreeVisual(FVisuals[I]);
   for I := 0 to High(FStaticVisuals) do
-    FreeVisual(FStaticVisuals[I]);
+    FRenderer.FreeVisual(FStaticVisuals[I]);
   SetLength(FStaticVisuals, 0);
-  FreeVisual(FWeapon);
+  FRenderer.FreeVisual(FWeapon);
   for I := 2 to MaxSplitPlayers do
     if FPlayers[I] <> nil then
     begin
-      FreeVisual(FPlayers[I].Weapon);
+      FRenderer.FreeVisual(FPlayers[I].Weapon);
       if FPlayers[I].Viewport <> nil then
         SetLength(FPlayers[I].Viewport.Hidden, 0);
     end;
   if FViewport <> nil then
     SetLength(FViewport.Hidden, 0);
-  for I := 0 to High(FBeams) do
-  begin
-    FBeams[I].Time := 0;
-    SetLength(FBeams[I].Segments, 0);
-  end;
-  SetLength(FSubmodels, 0);
-  SetLength(FSubmodelUsed, 0);
-  SetLength(FSubmodelOrigin, 0);
+  FRenderer.ClearBeams;
+  FRenderer.ClearSubmodels;
   FreeAndNil(FPredict);
   SetLength(FHistory, 0);
   FPredictValid := False;
@@ -1291,6 +1247,8 @@ begin
     FAmbient.Clear;
   if Particles <> nil then
     Particles.Clear;
+  if EffectParticles <> nil then
+    EffectParticles.Clear;
   if Lighting <> nil then
     Lighting.Clear;
   FreeAndNil(FGeometry);
@@ -1300,7 +1258,6 @@ end;
 
 procedure TViewDemo.LoadLevel;
 var
-  Sub: TQuakeSubmodel;
   World: TQuakeEntity;
 begin
   ClearLevel;
@@ -1321,9 +1278,7 @@ begin
   FAmbient.Setup(FBsp, FViewport.Items);
 
   { Brush entities are placed by the demo; hidden until it does }
-  SetLength(FSubmodels, FBsp.ModelCount);
-  SetLength(FSubmodelUsed, FBsp.ModelCount);
-  SetLength(FSubmodelOrigin, FBsp.ModelCount);
+  FRenderer.SetupSubmodels(FGeometry, FBsp.ModelCount);
   if NetMode then
   begin
     FPredict := TQuakePlayerPhysics.Create;
@@ -1333,12 +1288,6 @@ begin
     FPredict.ViewHeight := 22;
     FPredictValid := False;
     SetLength(FHistory, 0);
-  end;
-  for Sub in FGeometry.Submodels do
-  begin
-    if (Sub.ModelIndex > 0) and (Sub.ModelIndex < Length(FSubmodels)) then
-      FSubmodels[Sub.ModelIndex] := Sub;
-    Sub.Transform.Exists := False;
   end;
   FLevelStart := -1;
   FLoaded := True;
@@ -1399,115 +1348,13 @@ begin
   end;
 end;
 
-procedure TViewDemo.ShowBeam(const Pool: Integer; const StartQ, StopQ: TVector3; const Duration: Single);
-const
-  SegmentLength = 30.0;
-var
-  Mdl: TQuakeMdl;
-  Delta, Dir: TVector3;
-  Dist, Yaw, Pitch: Single;
-  Count, I: Integer;
-  Q: TQuaternion;
-  Seg: TCastleTransform;
-  Scene: TCastleScene;
-begin
-  Delta := StopQ - StartQ;
-  Dist := Delta.Length;
-  if Dist < 1 then
-    Exit;
-  Dir := Delta / Dist;
-  Count := Min(Ceil(Dist / SegmentLength), 40);
-  while Length(FBeams[Pool].Segments) < Count do
-  begin
-    Mdl := MdlManager.GetModel(BeamModels[Pool]);
-    if Mdl = nil then
-      Break;
-    Seg := TCastleTransform.Create(Self);
-    Seg.Name := ComponentName('beam_segment');
-    Scene := Mdl.CreateScene(0);
-    Scene.Collides := False;
-    Seg.Add(Scene);
-    FViewport.Items.Add(Seg);
-    SetLength(FBeams[Pool].Segments, Length(FBeams[Pool].Segments) + 1);
-    FBeams[Pool].Segments[High(FBeams[Pool].Segments)] := Seg;
-  end;
-  Yaw := ArcTan2(Dir.Y, Dir.X);
-  Pitch := ArcTan2(Dir.Z, Sqrt(Sqr(Dir.X) + Sqr(Dir.Y)));
-  for I := 0 to High(FBeams[Pool].Segments) do
-  begin
-    Seg := FBeams[Pool].Segments[I];
-    Seg.Exists := I < Count;
-    if not Seg.Exists then
-      Continue;
-    Q := QuatFromAxisAngle(Vector3(0, 1, 0), Yaw) * QuatFromAxisAngle(Vector3(0, 0, 1), Pitch) *
-      QuatFromAxisAngle(Vector3(1, 0, 0), Random * 2 * Pi);
-    Seg.Rotation := Q.ToAxisAngle;
-    Seg.Translation := QuakeToCge(StartQ + Dir * (I * SegmentLength));
-  end;
-  FBeams[Pool].Time := Duration;
-end;
-
 procedure TViewDemo.HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector3;
   const Entity, ColorStart, ColorLength: Integer);
-var
-  P: TVector3;
 begin
   { A seek reads ahead without sounds and effects }
   if FSeeking then
     Exit;
-  { CL_ParseTEnt }
-  P := QuakeToCge(Pos);
-  case Kind of
-    TE_SPIKE, TE_SUPERSPIKE, TE_GUNSHOT:
-      begin
-        Particles.SpawnPuff(P, Vector3(0, 1, 0));
-        if Kind <> TE_GUNSHOT then
-        begin
-          if Random(5) = 0 then
-            Sounds.Play('sound/weapons/tink1.wav')
-          else
-          case Random(3) of
-            0: Sounds.Play('sound/weapons/ric1.wav');
-            1: Sounds.Play('sound/weapons/ric2.wav');
-            else Sounds.Play('sound/weapons/ric3.wav');
-          end;
-        end;
-      end;
-    TE_WIZSPIKE:
-      begin
-        Particles.SpawnTrail(P, Vector3(0.3, 0.9, 0.2));
-        Sounds.Play('sound/wizard/hit.wav');
-      end;
-    TE_KNIGHTSPIKE:
-      begin
-        Particles.SpawnTrail(P, Vector3(1.0, 0.55, 0.15));
-        Sounds.Play('sound/hknight/hit.wav');
-      end;
-    TE_EXPLOSION, TE_EXPLOSION2:
-      begin
-        Particles.SpawnExplosion(P);
-        Lighting.TriggerMuzzleFlash(P, 6.0);
-        Sounds.Play('sound/weapons/r_exp3.wav');
-      end;
-    TE_TAREXPLOSION:
-      begin
-        Particles.SpawnExplosion(P);
-        Lighting.TriggerMuzzleFlash(P, 6.0);
-        Sounds.Play('sound/weapons/r_exp3.wav');
-      end;
-    TE_LAVASPLASH:
-      Particles.SpawnLavaSplash(P);
-    TE_TELEPORT:
-      Particles.SpawnTeleport(P);
-    TE_LIGHTNING1, TE_LIGHTNING2, TE_LIGHTNING3, TE_BEAM:
-      begin
-        if Kind = TE_BEAM then
-          ShowBeam(0, Pos, Pos2, 0.2)
-        else
-          ShowBeam(Kind - TE_LIGHTNING1, Pos, Pos2, 0.2);
-        Lighting.TriggerMuzzleFlash(P, 3.0);
-      end;
-  end;
+  FRenderer.TempEntity(Kind, Pos, Pos2);
 end;
 
 procedure TViewDemo.HandleParticle(const Org, Dir: TVector3; const Count, Color: Integer);
@@ -1766,225 +1613,23 @@ begin
   Sounds.PlayMusic('track03.ogg');
 end;
 
-procedure TViewDemo.UpdatePose(var V: TDemoVisual; const Mdl: TQuakeMdl; const Frame: Integer; const Time: Single);
-var
-  F: Integer;
-  T: Single;
-begin
-  F := EnsureRange(Frame, 0, Max(0, Mdl.FrameCount - 1));
-  if V.Frame <> F then
-  begin
-    { A new pose: blend from the last one (a new scene starts at it) }
-    if V.Frame < 0 then
-      V.PrevFrame := F
-    else
-      V.PrevFrame := V.Frame;
-    V.Frame := F;
-    V.LerpStart := Time;
-    V.LerpDone := False;
-  end;
-  if V.LerpDone then
-    Exit;
-  T := (Time - V.LerpStart) / ModelLerpTime;
-  if not ModelLerp or (V.PrevFrame = F) or (T >= 1) or (T < 0) then
-  begin
-    Mdl.ApplyFrame(V.Scene, F);
-    V.LerpDone := True;
-  end else
-    Mdl.ApplyLerp(V.Scene, V.PrevFrame, F, T);
-end;
-
-procedure TViewDemo.ApplyAlpha(var V: TDemoVisual; const Alpha: Integer);
-var
-  OpaqueMode: TAlphaMode;
-begin
-  { A new scene is opaque (Alpha 0); only a change touches the nodes }
-  if (V.Scene = nil) or (V.Alpha = Alpha) then
-    Exit;
-  V.Alpha := Alpha;
-  if V.Sprite then
-    OpaqueMode := amMask
-  else
-    OpaqueMode := amAuto;
-  SetSceneOpacity(V.Scene, DecodeEntityAlpha(Alpha), OpaqueMode);
-end;
-
-procedure TViewDemo.ShowSprite(var V: TDemoVisual; const MdlName: String; const State: TDemoEntityState);
-var
-  Spr: TQuakeSprite;
-  Billboard: TCastleBillboard;
-begin
-  Spr := SpriteManager.GetSprite(MdlName);
-  if Spr = nil then
-  begin
-    HideVisual(V);
-    Exit;
-  end;
-  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) then
-  begin
-    FreeVisual(V);
-    V.Transform := TCastleTransform.Create(nil);
-    V.Transform.Name := ComponentName('entity');
-    V.Scene := Spr.CreateScene;
-    V.Scene.Name := V.Transform.Name + '_scene';
-    V.Transform.Add(V.Scene);
-    V.Transform.InsertComponent(V.Scene);
-    Billboard := Spr.CreateBillboard(V.Transform);
-    if Billboard <> nil then
-      V.Transform.AddBehavior(Billboard);
-    FViewport.Items.Add(V.Transform);
-    V.ModelIndex := State.ModelIndex;
-    V.Sprite := True;
-  end;
-  V.Transform.Exists := True;
-  Spr.ApplyFrame(V.Scene, State.Frame, FDemo.Time);
-  V.Transform.Translation := QuakeToCge(State.Origin);
-  if Spr.SpriteType = SPR_ORIENTED then
-    V.Transform.Rotation := (QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(State.Angles.Y)) *
-      QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(State.Angles.X)) *
-      QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(State.Angles.Z))).ToAxisAngle;
-end;
-
 procedure TViewDemo.ShowVisual(var V: TDemoVisual; const State: TDemoEntityState; const Dt: Single);
 var
-  MdlName: String;
-  Q: TQuaternion;
-  Yaw: Single;
-  Pos: TVector3;
-  Mdl: TQuakeMdl;
-  Skin, Colors: Integer;
+  Colors: Integer;
+  Alpha: Single;
 begin
-  MdlName := FDemo.ModelName(State.ModelIndex);
-  if MdlName = '' then
-  begin
-    HideVisual(V);
-    Exit;
-  end;
-
-  { Brush models (doors, plats) are the map's own submodels }
-  if MdlName[1] = '*' then
-  begin
-    HideVisual(V);
-    Skin := StrToIntDef(Copy(MdlName, 2, MaxInt), -1);
-    if (Skin > 0) and (Skin < Length(FSubmodels)) and (FSubmodels[Skin] <> nil) then
-    begin
-      FSubmodels[Skin].Transform.Exists := True;
-      FSubmodels[Skin].Transform.Translation := QuakeToCge(State.Origin);
-      { Rotating brush entities turn around their origin (R_RotateForEntity) }
-      FSubmodels[Skin].Transform.Rotation := QuakeAnglesRotation(State.Angles);
-      FSubmodelOrigin[Skin] := State.Origin;
-      FSubmodelUsed[Skin] := True;
-    end;
-    Exit;
-  end;
-
-  { The health and ammo boxes are brush model files (maps/b_*.bsp) }
-  if LowerCase(ExtractFileExt(MdlName)) = '.bsp' then
-  begin
-    if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) then
-    begin
-      FreeVisual(V);
-      V.Transform := TCastleTransform.Create(nil);
-      V.Transform.Name := ComponentName('entity');
-      V.Scene := CreateBspModelScene(MdlName, V.Transform);
-      if V.Scene = nil then
-      begin
-        FreeVisual(V);
-        Exit;
-      end;
-      V.Scene.Name := V.Transform.Name + '_scene';
-      V.Scene.Collides := False;
-      V.Transform.Add(V.Scene);
-      FViewport.Items.Add(V.Transform);
-      V.ModelIndex := State.ModelIndex;
-    end;
-    V.Transform.Exists := True;
-    V.Transform.Translation := QuakeToCge(State.Origin);
-    Exit;
-  end;
-
-  if LowerCase(ExtractFileExt(MdlName)) = '.spr' then
-  begin
-    ShowSprite(V, MdlName, State);
-    Exit;
-  end;
-  if LowerCase(ExtractFileExt(MdlName)) <> '.mdl' then
-  begin
-    HideVisual(V);
-    Exit;
-  end;
-
-  Mdl := MdlManager.GetModel(MdlName);
-  if Mdl = nil then
-  begin
-    HideVisual(V);
-    Exit;
-  end;
-  Skin := EnsureRange(State.Skin, 0, Max(0, Mdl.SkinCount - 1));
   { A player's entity (colormap = its client number) in that client's colors }
   Colors := 0;
   if (State.ColorMap >= 1) and (State.ColorMap <= Length(FDemo.Colors)) then
     Colors := FDemo.Colors[State.ColorMap - 1];
-  if (V.Transform = nil) or (V.ModelIndex <> State.ModelIndex) or (V.Skin <> Skin) or (V.Colors <> Colors) then
-  begin
-    FreeVisual(V);
-    V.Transform := TCastleTransform.Create(nil);
-    V.Transform.Name := ComponentName('entity');
-    V.Scene := Mdl.CreateScene(Skin, Colors);
-    V.Colors := Colors;
-    V.Scene.Name := V.Transform.Name + '_scene';
-    V.Scene.Collides := False;
-    V.Transform.Add(V.Scene);
-    FViewport.Items.Add(V.Transform);
-    V.Mdl := Mdl;
-    V.ModelIndex := State.ModelIndex;
-    V.Skin := Skin;
-    V.Frame := -1;
-    V.TrailTimer := 0;
-  end;
-  V.Transform.Exists := True;
-  UpdatePose(V, Mdl, State.Frame, FDemo.Time);
-
-  Pos := QuakeToCge(State.Origin);
-  V.Transform.Translation := Pos;
-  Yaw := State.Angles.Y;
-  if (Mdl.Flags and MF_ROTATE) <> 0 then
-    Yaw := FloatModulo(FDemo.Time * 100, 360); { items spin }
-  { R_RotateForEntity: yaw, then pitch, then roll }
-  Q := QuatFromAxisAngle(Vector3(0, 1, 0), DegToRad(Yaw)) *
-    QuatFromAxisAngle(Vector3(0, 0, 1), DegToRad(State.Angles.X)) *
-    QuatFromAxisAngle(Vector3(1, 0, 0), DegToRad(State.Angles.Z));
-  V.Transform.Rotation := Q.ToAxisAngle;
-
-  if (State.Effects and EF_MUZZLEFLASH) <> 0 then
-    Lighting.TriggerMuzzleFlash(Pos + Vector3(0, 16, 0), 2.5)
-  else if (State.Effects and (EF_BRIGHTLIGHT or EF_DIMLIGHT)) <> 0 then
-    Lighting.TriggerMuzzleFlash(Pos + Vector3(0, 16, 0), 2.0);
-
-  { Trails from the model flags (R_RocketTrail) }
-  if (Mdl.Flags and (MF_ROCKET or MF_GRENADE or MF_GIB or MF_ZOMGIB or MF_TRACER or MF_TRACER2 or MF_TRACER3)) <> 0 then
-  begin
-    V.TrailTimer := V.TrailTimer - Dt;
-    if V.TrailTimer <= 0 then
-    begin
-      V.TrailTimer := 0.04;
-      if (Mdl.Flags and MF_ROCKET) <> 0 then
-      begin
-        Particles.SpawnRocketTrail(Pos);
-        Lighting.TriggerMuzzleFlash(Pos, 2.0);
-      end else
-      if (Mdl.Flags and MF_GRENADE) <> 0 then
-        Particles.SpawnGrenadeTrail(Pos)
-      else if (Mdl.Flags and (MF_GIB or MF_ZOMGIB)) <> 0 then
-        Particles.SpawnBloodTrail(Pos)
-      else if (Mdl.Flags and MF_TRACER) <> 0 then
-        Particles.SpawnTrail(Pos, Vector3(0.3, 0.9, 0.2))
-      else if (Mdl.Flags and MF_TRACER2) <> 0 then
-        Particles.SpawnTrail(Pos, Vector3(1.0, 0.55, 0.15))
-      else
-        Particles.SpawnTrail(Pos, Vector3(0.7, 0.3, 0.9));
-    end;
-  end;
+  FRenderer.Show(V, FDemo.ModelName(State.ModelIndex), State.Origin, State.Angles, State.Frame, State.Skin,
+    State.Effects, Colors, FDemo.Time, Dt);
+  { The protocol's alpha byte: 0 is opaque, 1 invisible, 255 opaque }
+  if State.Alpha = 0 then
+    Alpha := 0
+  else
+    Alpha := Max(DecodeEntityAlpha(State.Alpha), 0.001);
+  FRenderer.ApplyAlpha(V, Alpha);
 end;
 
 procedure TViewDemo.UpdateWeapon(const Reader: TQuakeDemoReader; var Weapon: TDemoVisual;
@@ -1998,18 +1643,18 @@ begin
   MdlName := Reader.ModelName(Idx);
   if (MdlName = '') or (Reader.Intermission <> 0) or (Reader.ClientData.Health <= 0) then
   begin
-    HideVisual(Weapon);
+    FRenderer.Hide(Weapon);
     Exit;
   end;
   Mdl := MdlManager.GetModel(MdlName);
   if Mdl = nil then
   begin
-    HideVisual(Weapon);
+    FRenderer.Hide(Weapon);
     Exit;
   end;
-  if (Weapon.Transform = nil) or (Weapon.ModelIndex <> Idx) then
+  if (Weapon.Transform = nil) or (Weapon.Model <> MdlName) then
   begin
-    FreeVisual(Weapon);
+    FRenderer.FreeVisual(Weapon);
     Weapon.Transform := TCastleTransform.Create(nil);
     Weapon.Transform.Name := 'weapon_model';
     Weapon.Scene := Mdl.CreateScene(0);
@@ -2018,7 +1663,7 @@ begin
     Weapon.Transform.Add(Weapon.Scene);
     Holder.Add(Weapon.Transform);
     Weapon.Mdl := Mdl;
-    Weapon.ModelIndex := Idx;
+    Weapon.Model := MdlName;
     Weapon.Frame := -1;
   end;
   Weapon.Transform.Exists := ShowWeapon;
@@ -2150,6 +1795,9 @@ begin
           [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
            FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
            FDemo.Protocol]);
+      if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
+        WritelnLog('GameViewDemo', 'Effect particles: %d drawn, %d made by %d effect calls',
+          [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);
       if Spectate then
       begin
         Eye := CgeToQuake(FViewport.Camera.Translation);
@@ -2520,18 +2168,17 @@ begin
   end;
 
   { Entities of this server frame }
-  for I := 0 to High(FSubmodelUsed) do
-    FSubmodelUsed[I] := False;
+  for I := 0 to High(FRenderer.SubmodelUsed) do
+    FRenderer.SubmodelUsed[I] := False;
   for I := 1 to High(FVisuals) do
     if FDemo.EntityVisible(I) and ((I <> FDemo.ViewEntity) or FSplit or (Spectate and FSpecFree)) then
     begin
       ShowVisual(FVisuals[I], FDemo.Entities[I].State, Dt);
-      ApplyAlpha(FVisuals[I], FDemo.Entities[I].State.Alpha);
     end else
-      HideVisual(FVisuals[I]);
-  for I := 1 to High(FSubmodels) do
-    if (FSubmodels[I] <> nil) and not FSubmodelUsed[I] then
-      FSubmodels[I].Transform.Exists := False;
+      FRenderer.Hide(FVisuals[I]);
+  for I := 1 to High(FRenderer.Submodels) do
+    if (FRenderer.Submodels[I] <> nil) and not FRenderer.SubmodelUsed[I] then
+      FRenderer.Submodels[I].Transform.Exists := False;
 
   { Static entities (torches, decorations) }
   if Length(FStaticVisuals) < Length(FDemo.Statics) then
@@ -2588,19 +2235,17 @@ begin
     if FPlayers[I].Demo <> nil then
       UpdateSplitPlayer(FPlayers[I], SecondsPassed);
 
-  for I := 0 to High(FBeams) do
-    if FBeams[I].Time > 0 then
-    begin
-      FBeams[I].Time := FBeams[I].Time - Dt;
-      if FBeams[I].Time <= 0 then
-        for J := 0 to High(FBeams[I].Segments) do
-          FBeams[I].Segments[J].Exists := False;
-    end;
+  FRenderer.UpdateBeams(Dt);
 
   FGeometry.Update(Dt, FViewport.Camera.Translation);
   UpdateWorldVisibility;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(Dt);
+  { The effect particles face the first view's camera }
+  if EffectParticles <> nil then
+    EffectParticles.Update(Dt,
+      TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
+      FViewport.Camera.Up.Normalize);
   Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
   if FSplit then
