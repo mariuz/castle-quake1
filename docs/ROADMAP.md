@@ -386,3 +386,53 @@ The mods made for QuakeSpasm and QuakeSpasm-Spiked, Arcane Dimensions first, run
 - [x] **External Textures**:
   - `textures/<map>/<name>.tga` and `textures/<name>.tga` replace a map's textures (with `_glow` and `_luma`), like QuakeSpasm-Spiked.
   - Done: `TQuakeBsp.LoadExternalTexture` looks for `textures/<map>/<name>` and then `textures/<name>` (`.tga` or `.png`, a liquid's `*` written `#`) in the paks, the game directories and `.pk3`s, and replaces the miptex image the geometry uses (any size: the texture coordinates are scaled by the miptex's own size, and animated textures take their frames' replacements). A `_luma` or `_glow` image of the same name becomes the fullbright mask of the lightmap shader and adds its color; a fence texture keeps the image's alpha as its holes, a liquid is opaque under its liquid alpha; the sky keeps its two layers. The log says `External textures of "<map>": N of M`. The `exttex` scenario plays E1M1 with a generated pack of red and white checks for its wall textures: 77 of its 81 textures are replaced and the walls show red.
+
+### Phase 18: Faster, Better Looking, Simpler
+Proposals from a pass over the code after Phase 17: what costs frame time on the largest mod maps, what the picture still lacks next to QuakeSpasm-Spiked and DarkPlaces, and where the code repeats itself. None is started.
+
+**Performance**
+
+- [ ] **Area Nodes for Entity Traces**:
+  - `TQuakeQcGame.TraceBox` tests a move against every edict, and `findradius` walks them all too; Arcane Dimensions' Sepulcher has over 4000. Link entities into Quake's area node tree (`SV_LinkEdict`, `SV_AreaEdicts`) so a trace, a touch and a `findradius` look only at the entities near it, and log the entities tested per trace in the `Z` line.
+- [ ] **Batched Engine Particles**:
+  - `QuakeParticles` makes a `TCastleScene` with its own material for every spark, puff and blood drop. Draw them through the batched renderer of `QuakeEffectParticles` (two meshes for all of them) and keep the old one out of the frame; an explosion in the play view then costs two draw calls.
+- [ ] **QuakeC VM Profile**:
+  - A `profile` console command like Quake's (statements per QuakeC function over the last seconds) and a count of statements per frame in `Z`, to find what a heavy mod spends its time on; then the hot paths it shows (field lookups by name each frame in `TQuakeQcGame`, strings made per builtin call).
+- [ ] **Frame Time Budgets for Mods**:
+  - The `budgets` scenario watches culling counts on four maps and the community test three Quaddicted maps. Add frame times and entity counts at fixed spots of `ad_sepulcher` and `ad_tears` in QuakeC mode to the community test, so a slowdown on the largest maps fails a (non-gating) job.
+- [ ] **Level Load Time**:
+  - Log the time of each stage of a level load (BSP, lightmap atlas, textures, models, QuakeC spawn) and cut the largest: Sepulcher's 198 000 faces are the case to measure.
+
+**Graphics**
+
+- [ ] **Decals**:
+  - Bullet marks, scorch marks and blood on the walls: `effectinfo.txt`'s `decal` sections (now skipped) and the engine's own impacts, as quads laid on the surface hit, fading out, with a limit on their number.
+- [ ] **MD3 and IQM Models**:
+  - The model formats newer mods ship besides `.mdl`: MD3 (vertex animation, tags) and IQM (skeletal), loaded into the same visuals as Alias models.
+- [ ] **Effect Particles Everywhere**:
+  - `effectinfo.txt` effects are drawn only in QuakeC mode. Draw them in demos and network games too (the temp entities and trails are already in the protocol), and send `pointparticles` to clients (`svc_pointparticles`) so a host's mod effects reach them.
+- [ ] **Particle Lights, Bounce and Stretch**:
+  - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
+- [ ] **Smooth Movement in Demos and Network Games**:
+  - `r_lerpmove` glides walking monsters only in QuakeC mode; demos and network clients still show the 10 Hz steps (the protocol's `U_STEP` bit says which entities step).
+- [ ] **Anti-Aliasing and Texture Filtering Options**:
+  - Options > Video for multisampling (off, 2x, 4x), anisotropic filtering (now fixed at 4) and the choice between Quake's blocky texels and filtered ones (`gl_texturemode`), saved with the other video settings.
+- [ ] **Underwater View**:
+  - The screen warps and tints under water in the original; here only the sound is filtered. A full-screen warp effect while the eyes are in a liquid, off with `reduced_flashes`.
+- [ ] **Dynamic Light on Models**:
+  - Rockets, explosions and muzzle flashes light the world's lightmaps; check and, where missing, light the monsters and items near them the same way, and let entities take the colored light of `.lit` files under them.
+
+**Code simplification**
+
+- [ ] **One Entity Renderer for the QuakeC and Demo Views**:
+  - `gameviewqc.pas` and `gameviewdemo.pas` each have their own `ShowVisual`, `ShowSprite`, `UpdatePose`, `ApplyAlpha`, `FreeVisual`, `HideVisual`, `ShowBeam`, `HandleTempEntity` and `CullVisuals`, so every rendering feature is written twice (and `LerpMove` and the effect particles only once). Move them into one unit both views use; the features above for demos and network games then come from it.
+- [ ] **Console Command Table**:
+  - `gameviewplay.pas` runs commands through a chain of forty `if Cmd = ...` blocks and prints its help from a separate list; the QuakeC and network views have smaller copies. A table of commands (name, help text, handler, the views it works in) gives one dispatcher, a help text that cannot go stale and `CMD:` in every view.
+- [ ] **Command Line Table**:
+  - `gameinitialize.pas` parses over forty `-option` checks by hand, and the web build's `?option=` parameters repeat them. One table of options (name, argument, target variable) for both.
+- [ ] **Split the Largest Units**:
+  - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
+- [ ] **Stable Network Scenarios**:
+  - Two releases (0.3.62 and 0.3.64) were held up by scenarios that depend on timing or a random deathmatch spawn (`dmrules`, `netrecord`). Give the network scenarios a fixed spawn spot for tests (`-spawnspot N`), wait for a log line instead of a number of seconds where they can, and let the runner repeat a failed network scenario once and say so.
+- [ ] **Shared Test Helpers**:
+  - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.
