@@ -7,29 +7,31 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, Math,
-  CastleVectors, CastleTransform, CastleScene, CastleColors, CastleUtils, X3DNodes;
+  CastleVectors, CastleTransform, CastleScene, CastleColors, CastleUtils, CastleImages,
+  CastleRenderOptions, X3DNodes;
 
 type
   { Particle type kinds }
   TParticleKind = (pkSparks, pkSmoke, pkBlood, pkFireball, pkTeleport);
 
-  { Single active particle in the world }
+  { Single active particle in the world (CGE coordinates); the manager
+    draws them all in one mesh }
   TQuakeParticle = class
   public
-    Transform: TCastleTransform;
-    Scene: TCastleScene;
-    Material: TMaterialNode;
+    Position: TVector3;
     Velocity: TVector3;
+    Color: TVector3;
     Kind: TParticleKind;
     Life: Single;
     MaxLife: Single;
     StartScale: Single;
     EndScale: Single;
     Gravity: Single;
+    { What it is drawn with now }
+    Scale, Alpha: Single;
     constructor Create(const Parent: TCastleTransform; const Pos, Vel: TVector3;
       const AKind: TParticleKind; const ALife, AStartScale, AEndScale: Single;
       const ColorTint: TVector3);
-    destructor Destroy; override;
     function Update(const SecondsPassed: Single): Boolean; { returns False when expired }
   end;
 
@@ -40,6 +42,15 @@ type
   private
     FParticles: TQuakeParticleList;
     FParent: TCastleTransform;
+    { One scene for every particle: camera-facing quads rebuilt each frame }
+    FScene: TCastleScene;
+    FCoord: TCoordinateNode;
+    FTexCoord: TTextureCoordinateNode;
+    FColor: TColorRGBANode;
+    FGeom: TIndexedTriangleSetNode;
+    FDrawnEmpty: Boolean;
+    procedure BuildScene;
+    procedure Rebuild;
   public
     { Demo recording: effects worth a temp entity (Kind: 'explosion',
       'teleport', 'puff', 'blood'); Pos and Normal are CGE coordinates }
@@ -48,6 +59,8 @@ type
     destructor Destroy; override;
 
     procedure SetParent(const AParent: TCastleTransform);
+    { Particles alive (all in one draw call) }
+    function Count: Integer;
     procedure Update(const SecondsPassed: Single);
     procedure Clear;
 
@@ -86,105 +99,37 @@ implementation
 constructor TQuakeParticle.Create(const Parent: TCastleTransform; const Pos, Vel: TVector3;
   const AKind: TParticleKind; const ALife, AStartScale, AEndScale: Single;
   const ColorTint: TVector3);
-var
-  Root: TX3DRootNode;
-  Shape: TShapeNode;
-  Geom: TIndexedTriangleSetNode;
-  Coord: TCoordinateNode;
-  App: TAppearanceNode;
-  CoordsList: TVector3List;
-  IndicesList: TInt32List;
-  HalfS: Single;
 begin
   inherited Create;
   Kind := AKind;
+  Position := Pos;
   Velocity := Vel;
+  Color := ColorTint;
   Life := ALife;
   MaxLife := ALife;
   StartScale := AStartScale;
   EndScale := AEndScale;
-
+  Scale := AStartScale;
+  Alpha := 0.9;
   if (AKind = pkSparks) or (AKind = pkBlood) then
     Gravity := 400.0
   else
     Gravity := -50.0; { Smoke and fire rise }
-
-  Transform := TCastleTransform.Create(nil);
-  Transform.Translation := Pos;
-  Transform.Scale := Vector3(AStartScale, AStartScale, AStartScale);
-
-  Scene := TCastleScene.Create(nil);
-  Scene.PreciseCollisions := False;
-  Scene.Collides := False;
-
-  Root := TX3DRootNode.Create;
-  Shape := TShapeNode.Create;
-
-  { Simple camera-facing billboard quad }
-  HalfS := 1.0;
-  CoordsList := TVector3List.Create;
-  CoordsList.Add(Vector3(-HalfS, -HalfS, 0));
-  CoordsList.Add(Vector3( HalfS, -HalfS, 0));
-  CoordsList.Add(Vector3( HalfS,  HalfS, 0));
-  CoordsList.Add(Vector3(-HalfS,  HalfS, 0));
-
-  Coord := TCoordinateNode.Create;
-  Coord.SetPoint(CoordsList);
-  CoordsList.Free;
-
-  IndicesList := TInt32List.Create;
-  IndicesList.Add(0); IndicesList.Add(1); IndicesList.Add(2);
-  IndicesList.Add(0); IndicesList.Add(2); IndicesList.Add(3);
-
-  Geom := TIndexedTriangleSetNode.Create;
-  Geom.Coord := Coord;
-  Geom.SetIndex(IndicesList);
-  IndicesList.Free;
-  Geom.Solid := False;
-
-  App := TAppearanceNode.Create;
-  Material := TMaterialNode.Create;
-  Material.DiffuseColor := ColorTint;
-  Material.EmissiveColor := ColorTint * 0.7;
-  Material.Transparency := 0.1;
-  App.Material := Material;
-  App.AlphaMode := amBlend;
-
-  Shape.Geometry := Geom;
-  Shape.Appearance := App;
-  Root.AddChildren(Shape);
-
-  Scene.Load(Root, True);
-  Transform.Add(Scene);
-  Parent.Add(Transform);
-end;
-
-destructor TQuakeParticle.Destroy;
-begin
-  Transform.Free;
-  inherited Destroy;
 end;
 
 function TQuakeParticle.Update(const SecondsPassed: Single): Boolean;
 var
-  Fraction, CurScale: Single;
+  Fraction: Single;
 begin
   Life := Life - SecondsPassed;
   if Life <= 0 then
     Exit(False);
-
-  { Update physics }
   Velocity.Y := Velocity.Y - Gravity * SecondsPassed;
-  Transform.Translation := Transform.Translation + Velocity * SecondsPassed;
-
-  { Update scale and fade }
+  Position := Position + Velocity * SecondsPassed;
+  { Grow or shrink, and fade out }
   Fraction := 1.0 - (Life / MaxLife);
-  CurScale := StartScale + (EndScale - StartScale) * Fraction;
-  Transform.Scale := Vector3(CurScale, CurScale, CurScale);
-
-  if Material <> nil then
-    Material.Transparency := 0.1 + Fraction * 0.9;
-
+  Scale := StartScale + (EndScale - StartScale) * Fraction;
+  Alpha := 0.9 * (1 - Fraction);
   Result := True;
 end;
 
@@ -199,6 +144,7 @@ end;
 
 destructor TQuakeParticleManager.Destroy;
 begin
+  FreeAndNil(FScene);
   FParticles.Free;
   inherited Destroy;
 end;
@@ -206,12 +152,136 @@ end;
 procedure TQuakeParticleManager.SetParent(const AParent: TCastleTransform);
 begin
   Clear;
+  FreeAndNil(FScene);
   FParent := AParent;
+  if FParent <> nil then
+    BuildScene;
+end;
+
+function TQuakeParticleManager.Count: Integer;
+begin
+  Result := FParticles.Count;
+end;
+
+procedure TQuakeParticleManager.BuildScene;
+var
+  Root: TX3DRootNode;
+  Shape: TShapeNode;
+  App: TAppearanceNode;
+  Mat: TUnlitMaterialNode;
+  Tex: TPixelTextureNode;
+  Img: TRGBAlphaImage;
+  X, Y: Integer;
+  D: Single;
+begin
+  { A soft white dot, tinted by each quad's color }
+  Img := TRGBAlphaImage.Create(32, 32);
+  for Y := 0 to 31 do
+    for X := 0 to 31 do
+    begin
+      D := Sqrt(Sqr(X - 15.5) + Sqr(Y - 15.5)) / 16;
+      Img.PixelPtr(X, Y)^ := Vector4Byte(255, 255, 255, Round(255 * EnsureRange(1.5 * (1 - D), 0, 1)));
+    end;
+  Tex := TPixelTextureNode.Create;
+  Tex.FdImage.Value := Img;
+  Tex.RepeatS := False;
+  Tex.RepeatT := False;
+  FCoord := TCoordinateNode.Create;
+  FTexCoord := TTextureCoordinateNode.Create;
+  FColor := TColorRGBANode.Create;
+  FGeom := TIndexedTriangleSetNode.Create;
+  FGeom.Coord := FCoord;
+  FGeom.TexCoord := FTexCoord;
+  FGeom.Color := FColor;
+  FGeom.Solid := False;
+  Mat := TUnlitMaterialNode.Create;
+  Mat.EmissiveColor := Vector3(1, 1, 1);
+  App := TAppearanceNode.Create;
+  App.Material := Mat;
+  App.Texture := Tex;
+  App.AlphaMode := amBlend;
+  Shape := TShapeNode.Create;
+  Shape.Geometry := FGeom;
+  Shape.Appearance := App;
+  Root := TX3DRootNode.Create;
+  Root.AddChildren(Shape);
+  FScene := TCastleScene.Create(nil);
+  FScene.Name := 'particles';
+  FScene.Load(Root, True);
+  FScene.Collides := False;
+  FScene.Pickable := False;
+  FScene.CastShadows := False;
+  FParent.Add(FScene);
+  FDrawnEmpty := True;
 end;
 
 procedure TQuakeParticleManager.Clear;
 begin
   FParticles.Clear;
+  if FScene <> nil then
+    Rebuild;
+end;
+
+procedure TQuakeParticleManager.Rebuild;
+var
+  Pts: TVector3List;
+  Tcs: TVector2List;
+  Cols: TVector4List;
+  Idx: TInt32List;
+  I, J: Integer;
+  P: TQuakeParticle;
+  Right, Up, R, U: TVector3;
+  C: TVector4;
+  Cam: TCastleCamera;
+begin
+  if (FScene = nil) or ((FParticles.Count = 0) and FDrawnEmpty) then
+    Exit;
+  FDrawnEmpty := FParticles.Count = 0;
+  { The quads face the main camera }
+  Right := Vector3(1, 0, 0);
+  Up := Vector3(0, 1, 0);
+  Cam := nil;
+  if FParent is TCastleRootTransform then
+    Cam := TCastleRootTransform(FParent).MainCamera;
+  if Cam <> nil then
+  begin
+    Up := Cam.Up.Normalize;
+    Right := TVector3.CrossProduct(Cam.Direction, Cam.Up).Normalize;
+  end;
+  Pts := TVector3List.Create;
+  Tcs := TVector2List.Create;
+  Cols := TVector4List.Create;
+  Idx := TInt32List.Create;
+  try
+    for I := 0 to FParticles.Count - 1 do
+    begin
+      P := FParticles[I];
+      R := Right * P.Scale;
+      U := Up * P.Scale;
+      Pts.Add(P.Position - R - U);
+      Pts.Add(P.Position + R - U);
+      Pts.Add(P.Position + R + U);
+      Pts.Add(P.Position - R + U);
+      Tcs.Add(Vector2(0, 0));
+      Tcs.Add(Vector2(1, 0));
+      Tcs.Add(Vector2(1, 1));
+      Tcs.Add(Vector2(0, 1));
+      C := Vector4(P.Color, P.Alpha);
+      for J := 1 to 4 do
+        Cols.Add(C);
+      J := I * 4;
+      Idx.AddRange([J, J + 1, J + 2, J, J + 2, J + 3]);
+    end;
+    FCoord.SetPoint(Pts);
+    FTexCoord.SetPoint(Tcs);
+    FColor.SetColor(Cols);
+    FGeom.SetIndex(Idx);
+  finally
+    Pts.Free;
+    Tcs.Free;
+    Cols.Free;
+    Idx.Free;
+  end;
 end;
 
 procedure TQuakeParticleManager.Update(const SecondsPassed: Single);
@@ -223,6 +293,7 @@ begin
     if not FParticles[I].Update(SecondsPassed) then
       FParticles.Delete(I);
   end;
+  Rebuild;
 end;
 
 procedure TQuakeParticleManager.SpawnImpact(const Pos, Normal: TVector3);

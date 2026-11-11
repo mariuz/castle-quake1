@@ -315,8 +315,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 
 - [x] **Area Grid for Entity Traces**:
   - Entity traces and the player's touches in QuakeC mode test only the entities near them (Quake's area nodes, here a grid) instead of every edict: about 40 instead of 4091 per trace on Arcane Dimensions' Sepulcher.
-- [ ] **Batched Engine Particles**:
-  - `QuakeParticles` makes a `TCastleScene` with its own material for every spark, puff and blood drop. Draw them through the batched renderer of `QuakeEffectParticles` (two meshes for all of them) and keep the old one out of the frame; an explosion in the play view then costs two draw calls.
+- [x] **Batched Engine Particles**:
+  - The engine's own sparks, puffs, blood and explosions are one mesh of camera-facing quads instead of a scene with its own material per particle.
 - [ ] **QuakeC VM Profile**:
   - A `profile` console command like Quake's (statements per QuakeC function over the last seconds) and a count of statements per frame in `Z`, to find what a heavy mod spends its time on; then the hot paths it shows (field lookups by name each frame in `TQuakeQcGame`, strings made per builtin call).
 - [ ] **Frame Time Budgets for Mods**:
@@ -336,8 +336,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Send the progs' `pointparticles` and `trailparticles` to network clients and into demos (`svc_pointparticles`); now only the host's own view shows them.
 - [ ] **Particle Lights, Bounce and Stretch**:
   - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
-- [ ] **Smooth Movement in Demos and Network Games**:
-  - `r_lerpmove` glides walking monsters only in QuakeC mode; demos and network clients still show the 10 Hz steps (the protocol's `U_STEP` bit says which entities step).
+- [x] **Smooth Movement in Demos and Network Games**:
+  - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
 - [ ] **Anti-Aliasing and Texture Filtering Options**:
   - Options > Video for multisampling (off, 2x, 4x), anisotropic filtering (now fixed at 4) and the choice between Quake's blocky texels and filtered ones (`gl_texturemode`), saved with the other video settings.
 - [ ] **Underwater View**:

@@ -279,6 +279,7 @@ begin
   if (E >= 1) and (E <= FGame.MaxClients) then
     Result.ColorMap := FGame.EntityColorMap(E) and 255;
   Result.Effects := FGame.EntityEffects(E) and 255;
+  Result.Step := FGame.EntityMoveType(E) = MOVETYPE_STEP;
   if NetGameProtocol <> 15 then
     Result.Alpha := EncodeEntityAlpha(FGame.EntityAlpha(E));
   Result.Origin := FGame.EntityOrigin(E);

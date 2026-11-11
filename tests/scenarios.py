@@ -837,6 +837,10 @@ def check_quakec(logs):
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
     result.append((len(gliding) == 3 and max(gliding) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
+    result += common_checks(logs, 'qcrec') + common_checks(logs, 'qcplay')
+    played = [int(x) for x in re.findall(r'Entities gliding between steps: (\d+)', logs['qcplay'])]
+    result.append((len(played) == 4 and max(played) > 0,
+                   'and in the recorded demo of the fight (%s)' % played))
     m = re.findall(r'Entity traces: (\d+), ([\d.]+) entities tested each of (\d+) edicts', logs['qcglide'])
     result.append((bool(m) and int(m[-1][0]) > 100 and float(m[-1][1]) < int(m[-1][2]) / 4,
                    'the area grid keeps the entity traces short (%s)'
@@ -1405,7 +1409,13 @@ SCENARIOS = [
     # of 0.1 s and glide between them (r_lerpmove)
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0),
                         ('qcglide', ['--autotest', 'qc:e1m1', '{out}/qcglide', '--demo',
-                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0)],
+                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0),
+                        # the same fight recorded and played back: the demo
+                        # carries the step flag and the monsters glide there too
+                        ('qcrec', ['--autotest', 'qc:e1m1', '{out}/qcrec', '--demo',
+                                   'W:0.5,R:glidedemo,W:0.5,Y,X,W:1,X,W:4,R,S,Q'], 0),
+                        ('qcplay', ['--autotest', 'castle-config:/glidedemo.dem', '{out}/qcplay', '--demo',
+                                    'W:3,S,W:0.33,S,W:0.33,S,W:0.33,S,Q'], 12)],
              check_quakec, ['qc_1']),
     # The same view as finish_1 with 128 x 128 lightmap atlas pages: its
     # reference is a copy of e1m1_finish_finish_1 (one 2048 x 2048 page)

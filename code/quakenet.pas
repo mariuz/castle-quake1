@@ -153,6 +153,8 @@ type
     Origin, Angles: TVector3;
     { FitzQuake's alpha byte (ENTALPHA_ENCODE, 0 opaque), not in protocol 15 }
     Alpha: Integer;
+    { MOVETYPE_STEP: sent as U_NOLERP, the client glides it between steps }
+    Step: Boolean;
   end;
 
   { Builds svc messages; the boundaries let the signon be cut into
@@ -1072,7 +1074,7 @@ end;
 
 procedure TQuakeNetMessage.Entity(const Num: Integer; const State, Baseline: TNetEntityState);
 const
-  U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_FRAME = 64; U_SIGNAL = 128;
+  U_MOREBITS = 1; U_ORIGIN1 = 2; U_ORIGIN2 = 4; U_ORIGIN3 = 8; U_ANGLE2 = 16; U_NOLERP = 32; U_FRAME = 64; U_SIGNAL = 128;
   U_ANGLE1 = 256; U_ANGLE3 = 512; U_MODEL = 1024; U_COLORMAP = 2048; U_SKIN = 4096; U_EFFECTS = 8192;
   U_LONGENTITY = 16384;
   U_EXTEND1 = 1 shl 15; U_ALPHA = 1 shl 16; U_FRAME2 = 1 shl 17; U_MODEL2 = 1 shl 18;
@@ -1099,6 +1101,8 @@ var
 begin
   BeginMessage;
   Bits := U_SIGNAL;
+  if State.Step then
+    Bits := Bits or U_NOLERP;
   if State.ModelIndex <> Baseline.ModelIndex then
     Bits := Bits or U_MODEL;
   if State.Frame <> Baseline.Frame then

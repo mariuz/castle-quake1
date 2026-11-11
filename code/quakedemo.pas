@@ -209,6 +209,9 @@ type
     { FitzQuake's entity alpha (ENTALPHA_ENCODE): 0 the default (opaque),
       1 invisible .. 255 opaque }
     Alpha: Integer;
+    { U_NOLERP, FitzQuake's U_STEP: the entity moves in steps (a walking
+      monster), drawn gliding between them (r_lerpmove) }
+    Step: Boolean;
   end;
 
   TDemoEntity = record
@@ -995,7 +998,8 @@ begin
   if E^.Msg[0].ModelIndex <> Old.ModelIndex then
     ForceLink := True;
 
-  if (Bits and U_NOLERP) <> 0 then
+  E^.Msg[0].Step := (Bits and U_NOLERP) <> 0;
+  if E^.Msg[0].Step then
     ForceLink := True;
   if ForceLink then
   begin
@@ -1901,6 +1905,8 @@ begin
   end;
   B := FCur.Baselines[Num];
   Bits := U_SIGNAL;
+  if State.Step then
+    Bits := Bits or U_NOLERP;
   if State.ModelIndex <> B.ModelIndex then
     Bits := Bits or U_MODEL;
   if State.Frame <> B.Frame then
