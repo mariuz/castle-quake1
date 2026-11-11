@@ -33,7 +33,7 @@ More options, by topic (details in [REFERENCE.md](REFERENCE.md)):
 | Multiplayer | `-host <map>`, `-connect host[:port]`, `-port N`, `-coop`, `-bots N`, `-teamplay 1`, `-fraglimit N`, `-timelimit M`, `-maps a,b,c`, `-splitscreen`, `-splitplayers 3`, `-spectate`, `-name <name>`, `-color <shirt> <pants>`, `-record <name>` |
 | Browser players and NAT | `-websocket <port>`, `-wsrelay host[:port]`, `-rendezvous`, `-register name@host`, `-netloopback` |
 | Display and input | `-lang <code>`, `-touch` / `-notouch`, `-density N`, `--geometry WxH` |
-| Tools | `-playdemo <name>`, `--export-map <map> <file>`, `--autotest ...`, `--qctest <map>` |
+| Tools | `-playdemo <name>`, `--export-map <map> <file>`, `--autotest ...`, `--qctest <map>`, `-spawnspot N` (fixed spawn spots for tests) |
 
 ## Console
 

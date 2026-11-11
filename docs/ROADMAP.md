@@ -355,7 +355,9 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - `gameinitialize.pas` parses over forty `-option` checks by hand, and the web build's `?option=` parameters repeat them. One table of options (name, argument, target variable) for both.
 - [ ] **Split the Largest Units**:
   - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
-- [ ] **Stable Network Scenarios**:
-  - Two releases (0.3.62 and 0.3.64) were held up by scenarios that depend on timing or a random deathmatch spawn (`dmrules`, `netrecord`). Give the network scenarios a fixed spawn spot for tests (`-spawnspot N`), wait for a log line instead of a number of seconds where they can, and let the runner repeat a failed network scenario once and say so.
+- [x] **Stable Network Scenarios**:
+  - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
+- [ ] **Scenarios That Wait for Log Lines**:
+  - A script action that waits for a line in the log (the client joined, the level changed) instead of a number of seconds, for the scenarios with two processes.
 - [ ] **Shared Test Helpers**:
   - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.

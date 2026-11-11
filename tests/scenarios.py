@@ -1543,12 +1543,12 @@ SCENARIOS = [
     # idle host is their target and may be dead at the end, so it takes no
     # screenshot
     Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
-                                 '-port', '26320'], 0),
+                                 '-port', '26320', '-spawnspot', '2'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
                                    'W:6,S,Q'], 5),
                       ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
                                  'W:22,S,Q'], 0)],
-             check_bots, [], dark=('bloop', 'bclient')),
+             check_bots, [], dark=('bloop',)),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
@@ -1602,13 +1602,13 @@ SCENARIOS = [
     # Recording a network game: the client starts recording mid-game
     # (R:netdemo), walks and fires, stops; the demo then plays back
     Scenario('netrecord', [('rhost', ['--autotest', 'host:e1m1', '{out}/rhost', '--demo', 'W:14,S,Q', '-port', '26005',
-                                      '-bots', '1'], 0),
+                                      '-bots', '1', '-spawnspot', '2'], 0),
                            ('rclient', ['--autotest', 'connect:127.0.0.1:26005', '{out}/rclient', '--demo',
                                         'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
                            ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
                                       'W:0.5,S,W:4,S,Q'], 16)],
-             # a deathmatch spawn can lead into E1M1's unlit rooms
-             check_netrecord, [], dark=('rhost', 'rclient', 'rplay')),
+             # -spawnspot: the host and the client start at fixed, lit spots
+             check_netrecord, [], dark=('rhost',)),
     # Chat: a client says something, everyone gets it; the host answers
     Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
                                  '26006'], 0),
@@ -1801,6 +1801,18 @@ def image_checks(out_dir, scenario, update):
     return result
 
 
+def is_network(scenario):
+    return any(a.startswith(('host:', 'connect:')) for _, run_args, _ in scenario.runs for a in run_args)
+
+
+def play(args, out_dir, scenario):
+    logs = run_scenario(args.exe, out_dir, scenario)
+    results = scenario.checks(logs) + image_checks(out_dir, scenario, args.update)
+    if scenario.frame_checks is not None:
+        results += scenario.frame_checks(out_dir)
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--exe', default=os.path.join(ROOT, 'castle-quake1' + ('.exe' if os.name == 'nt' else '')))
@@ -1823,10 +1835,16 @@ def main():
         os.makedirs(out_dir)
         print('=== %s' % scenario.name, flush=True)
         started = time.time()
-        logs = run_scenario(args.exe, out_dir, scenario)
-        results = scenario.checks(logs) + image_checks(out_dir, scenario, args.update)
-        if scenario.frame_checks is not None:
-            results += scenario.frame_checks(out_dir)
+        results = play(args, out_dir, scenario)
+        # A game over the network depends on timing: one more try before it
+        # counts as failed, and the output says so
+        if is_network(scenario) and not all(ok for ok, _ in results):
+            for ok, description in results:
+                if not ok:
+                    print('  retry after: %s' % description)
+            shutil.rmtree(out_dir, ignore_errors=True)
+            os.makedirs(out_dir)
+            results = play(args, out_dir, scenario)
         for ok, description in results:
             print('  %s %s' % ('ok  ' if ok else 'FAIL', description))
             if not ok:
