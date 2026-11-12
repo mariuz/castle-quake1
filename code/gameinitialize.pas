@@ -419,6 +419,11 @@ begin
       ServerTeamPlay := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 2);
       Inc(I);
     end else
+    if ((Parameters[I] = '-spawnspot') or (Parameters[I] = '--spawnspot')) and (I + 1 <= Parameters.High) then
+    begin
+      ServerSpawnSpot := StrToIntDef(Parameters[I + 1], -1);
+      Inc(I);
+    end else
     if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
     begin
       ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);

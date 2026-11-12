@@ -216,6 +216,9 @@ type
     procedure RunClientInput(const E: Integer; const Cmd: TQuakeUserCmd; const Yaw, Pitch: Single;
       const Fire: Boolean; const Impulse: Integer; const Dt: Single);
     function ConnectClient(const E: Integer; const AName: String; const AColors: Integer = 0): Boolean;
+    { Tests (-spawnspot): move a client to the map's Index-th deathmatch
+      spawn spot (counted round), whatever the progs picked }
+    procedure PlaceAtSpawnSpot(const E, Index: Integer);
     { A client's colors (shirt * 16 + pants) }
     function ClientColors(const E: Integer): Integer;
     { Change a client's colors (and its team, the pants + 1) }
@@ -808,6 +811,44 @@ begin
   FProgs.Global(FProgs.GTime)^.F := FTime;
   ConnectClientNow(E);
   WritelnLog('QuakeQcGame', 'Client %d "%s" entered the game', [E, AName]);
+end;
+
+procedure TQuakeQcGame.PlaceAtSpawnSpot(const E, Index: Integer);
+var
+  Spots: array of Integer;
+  O, N, Spot: Integer;
+  SpotClass: String;
+  Org: TVector3;
+begin
+  if not IsClient(E) then
+    Exit;
+  N := 0;
+  SetLength(Spots, 0);
+  for O := FMaxClients + 1 to FProgs.NumEdicts - 1 do
+  begin
+    if FProgs.EdictFree(O) then
+      Continue;
+    SpotClass := FProgs.FieldString(O, FProgs.FClassName);
+    if SpotClass = 'info_player_deathmatch' then
+    begin
+      SetLength(Spots, N + 1);
+      Spots[N] := O;
+      Inc(N);
+    end;
+  end;
+  if N = 0 then
+    Exit;
+  Spot := Spots[((Index mod N) + N) mod N];
+  Org := FProgs.FieldVector(Spot, FFOrigin) + Vector3(0, 0, 1);
+  FProgs.SetFieldVector(E, FFOrigin, Org);
+  FProgs.SetFieldVector(E, FFVelocity, TVector3.Zero);
+  FProgs.SetFieldVector(E, FFAngles, FProgs.FieldVector(Spot, FFAngles));
+  if FFFixAngle >= 0 then
+    FProgs.Field(E, FFFixAngle)^.F := 1;
+  FClients[E].Phys.Teleport(Org);
+  LinkEdict(E);
+  WritelnLog('QuakeQcGame', 'Client %d placed at spawn spot %d of %d (%.0f %.0f %.0f)',
+    [E, ((Index mod N) + N) mod N, N, Org.X, Org.Y, Org.Z]);
 end;
 
 procedure TQuakeQcGame.DisconnectClient(const E: Integer);

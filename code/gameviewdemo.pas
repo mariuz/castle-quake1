@@ -1617,12 +1617,16 @@ procedure TViewDemo.ShowVisual(var V: TDemoVisual; const State: TDemoEntityState
 var
   Colors: Integer;
   Alpha: Single;
+  DrawOrigin, DrawAngles: TVector3;
 begin
   { A player's entity (colormap = its client number) in that client's colors }
   Colors := 0;
   if (State.ColorMap >= 1) and (State.ColorMap <= Length(FDemo.Colors)) then
     Colors := FDemo.Colors[State.ColorMap - 1];
-  FRenderer.Show(V, FDemo.ModelName(State.ModelIndex), State.Origin, State.Angles, State.Frame, State.Skin,
+  { A stepping monster glides between its steps (r_lerpmove); the rest are
+    already interpolated between the server's frames }
+  FRenderer.LerpMove(V, State.Origin, State.Angles, State.Step, FDemo.Time, DrawOrigin, DrawAngles);
+  FRenderer.Show(V, FDemo.ModelName(State.ModelIndex), DrawOrigin, DrawAngles, State.Frame, State.Skin,
     State.Effects, Colors, FDemo.Time, Dt);
   { The protocol's alpha byte: 0 is opaque, 1 invisible, 255 opaque }
   if State.Alpha = 0 then
@@ -1771,7 +1775,7 @@ procedure TViewDemo.CaptureScreenshot;
 var
   OutPath: String;
   Img: TCastleImage;
-  I: Integer;
+  I, Gliding: Integer;
   D: TQuakeDemoReader;
   Eye: TVector3;
 begin
@@ -1795,6 +1799,14 @@ begin
           [FDemo.ViewEntity, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.X,
            FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Y, FDemo.Entities[FDemo.ViewEntity].Msg[0].Origin.Z,
            FDemo.Protocol]);
+      { r_lerpmove: the entities between two of their steps }
+      Gliding := 0;
+      for I := 0 to High(FVisuals) do
+        if (FVisuals[I].Transform <> nil) and FVisuals[I].Transform.Exists and FVisuals[I].MoveValid and
+           (FDemo.Time - FVisuals[I].MoveStart < ModelLerpTime) and
+           not TVector3.PerfectlyEquals(FVisuals[I].MoveFrom, FVisuals[I].MoveTo) then
+          Inc(Gliding);
+      WritelnLog('GameViewDemo', 'Entities gliding between steps: %d', [Gliding]);
       if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
         WritelnLog('GameViewDemo', 'Effect particles: %d drawn, %d made by %d effect calls',
           [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);

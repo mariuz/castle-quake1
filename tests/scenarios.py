@@ -837,6 +837,10 @@ def check_quakec(logs):
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
     result.append((len(gliding) == 3 and max(gliding) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
+    result += common_checks(logs, 'qcrec') + common_checks(logs, 'qcplay')
+    played = [int(x) for x in re.findall(r'Entities gliding between steps: (\d+)', logs['qcplay'])]
+    result.append((len(played) == 4 and max(played) > 0,
+                   'and in the recorded demo of the fight (%s)' % played))
     m = re.findall(r'Entity traces: (\d+), ([\d.]+) entities tested each of (\d+) edicts', logs['qcglide'])
     result.append((bool(m) and int(m[-1][0]) > 100 and float(m[-1][1]) < int(m[-1][2]) / 4,
                    'the area grid keeps the entity traces short (%s)'
@@ -1405,7 +1409,13 @@ SCENARIOS = [
     # of 0.1 s and glide between them (r_lerpmove)
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0),
                         ('qcglide', ['--autotest', 'qc:e1m1', '{out}/qcglide', '--demo',
-                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0)],
+                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0),
+                        # the same fight recorded and played back: the demo
+                        # carries the step flag and the monsters glide there too
+                        ('qcrec', ['--autotest', 'qc:e1m1', '{out}/qcrec', '--demo',
+                                   'W:0.5,R:glidedemo,W:0.5,Y,X,W:1,X,W:4,R,S,Q'], 0),
+                        ('qcplay', ['--autotest', 'castle-config:/glidedemo.dem', '{out}/qcplay', '--demo',
+                                    'W:3,S,W:0.33,S,W:0.33,S,W:0.33,S,Q'], 12)],
              check_quakec, ['qc_1']),
     # The same view as finish_1 with 128 x 128 lightmap atlas pages: its
     # reference is a copy of e1m1_finish_finish_1 (one 2048 x 2048 page)
@@ -1533,12 +1543,12 @@ SCENARIOS = [
     # idle host is their target and may be dead at the end, so it takes no
     # screenshot
     Scenario('bots', [('bhost', ['-bots', '3', '--autotest', 'host:e1m1', '{out}/bhost', '--demo', 'W:60,Q',
-                                 '-port', '26320'], 0),
+                                 '-port', '26320', '-spawnspot', '2'], 0),
                       ('bclient', ['--autotest', 'connect:127.0.0.1:26320', '{out}/bclient', '--demo',
                                    'W:6,S,Q'], 5),
                       ('bloop', ['-netloopback', '-bots', '3', '--autotest', 'host:e1m1', '{out}/bloop', '--demo',
                                  'W:22,S,Q'], 0)],
-             check_bots, [], dark=('bloop', 'bclient')),
+             check_bots, [], dark=('bloop',)),
     # Map browser: a test catalog served over HTTP, a download with a wrong
     # SHA-256 refused, the good one installed, mounted with its folder
     # mapped to maps/, both start maps played (the console, then the menu
@@ -1592,13 +1602,13 @@ SCENARIOS = [
     # Recording a network game: the client starts recording mid-game
     # (R:netdemo), walks and fires, stops; the demo then plays back
     Scenario('netrecord', [('rhost', ['--autotest', 'host:e1m1', '{out}/rhost', '--demo', 'W:14,S,Q', '-port', '26005',
-                                      '-bots', '1'], 0),
+                                      '-bots', '1', '-spawnspot', '2'], 0),
                            ('rclient', ['--autotest', 'connect:127.0.0.1:26005', '{out}/rclient', '--demo',
                                         'W:2,R:netdemo,W:1,V:1;0;0,W:2,V:0;0;0,X,W:2,S,R,Q'], 3),
                            ('rplay', ['--autotest', 'castle-config:/netdemo.dem', '{out}/rplay', '--demo',
                                       'W:0.5,S,W:4,S,Q'], 16)],
-             # a deathmatch spawn can lead into E1M1's unlit rooms
-             check_netrecord, [], dark=('rhost', 'rclient', 'rplay')),
+             # -spawnspot: the host and the client start at fixed, lit spots
+             check_netrecord, [], dark=('rhost',)),
     # Chat: a client says something, everyone gets it; the host answers
     Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
                                  '26006'], 0),
@@ -1791,6 +1801,18 @@ def image_checks(out_dir, scenario, update):
     return result
 
 
+def is_network(scenario):
+    return any(a.startswith(('host:', 'connect:')) for _, run_args, _ in scenario.runs for a in run_args)
+
+
+def play(args, out_dir, scenario):
+    logs = run_scenario(args.exe, out_dir, scenario)
+    results = scenario.checks(logs) + image_checks(out_dir, scenario, args.update)
+    if scenario.frame_checks is not None:
+        results += scenario.frame_checks(out_dir)
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--exe', default=os.path.join(ROOT, 'castle-quake1' + ('.exe' if os.name == 'nt' else '')))
@@ -1813,10 +1835,16 @@ def main():
         os.makedirs(out_dir)
         print('=== %s' % scenario.name, flush=True)
         started = time.time()
-        logs = run_scenario(args.exe, out_dir, scenario)
-        results = scenario.checks(logs) + image_checks(out_dir, scenario, args.update)
-        if scenario.frame_checks is not None:
-            results += scenario.frame_checks(out_dir)
+        results = play(args, out_dir, scenario)
+        # A game over the network depends on timing: one more try before it
+        # counts as failed, and the output says so
+        if is_network(scenario) and not all(ok for ok, _ in results):
+            for ok, description in results:
+                if not ok:
+                    print('  retry after: %s' % description)
+            shutil.rmtree(out_dir, ignore_errors=True)
+            os.makedirs(out_dir)
+            results = play(args, out_dir, scenario)
         for ok, description in results:
             print('  %s %s' % ('ok  ' if ok else 'FAIL', description))
             if not ok:

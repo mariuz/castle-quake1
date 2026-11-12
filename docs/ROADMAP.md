@@ -315,8 +315,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 
 - [x] **Area Grid for Entity Traces**:
   - Entity traces and the player's touches in QuakeC mode test only the entities near them (Quake's area nodes, here a grid) instead of every edict: about 40 instead of 4091 per trace on Arcane Dimensions' Sepulcher.
-- [ ] **Batched Engine Particles**:
-  - `QuakeParticles` makes a `TCastleScene` with its own material for every spark, puff and blood drop. Draw them through the batched renderer of `QuakeEffectParticles` (two meshes for all of them) and keep the old one out of the frame; an explosion in the play view then costs two draw calls.
+- [x] **Batched Engine Particles**:
+  - The engine's own sparks, puffs, blood and explosions are one mesh of camera-facing quads instead of a scene with its own material per particle.
 - [ ] **QuakeC VM Profile**:
   - A `profile` console command like Quake's (statements per QuakeC function over the last seconds) and a count of statements per frame in `Z`, to find what a heavy mod spends its time on; then the hot paths it shows (field lookups by name each frame in `TQuakeQcGame`, strings made per builtin call).
 - [ ] **Frame Time Budgets for Mods**:
@@ -336,8 +336,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Send the progs' `pointparticles` and `trailparticles` to network clients and into demos (`svc_pointparticles`); now only the host's own view shows them.
 - [ ] **Particle Lights, Bounce and Stretch**:
   - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
-- [ ] **Smooth Movement in Demos and Network Games**:
-  - `r_lerpmove` glides walking monsters only in QuakeC mode; demos and network clients still show the 10 Hz steps (the protocol's `U_STEP` bit says which entities step).
+- [x] **Smooth Movement in Demos and Network Games**:
+  - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
 - [ ] **Anti-Aliasing and Texture Filtering Options**:
   - Options > Video for multisampling (off, 2x, 4x), anisotropic filtering (now fixed at 4) and the choice between Quake's blocky texels and filtered ones (`gl_texturemode`), saved with the other video settings.
 - [ ] **Underwater View**:
@@ -355,7 +355,9 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - `gameinitialize.pas` parses over forty `-option` checks by hand, and the web build's `?option=` parameters repeat them. One table of options (name, argument, target variable) for both.
 - [ ] **Split the Largest Units**:
   - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
-- [ ] **Stable Network Scenarios**:
-  - Two releases (0.3.62 and 0.3.64) were held up by scenarios that depend on timing or a random deathmatch spawn (`dmrules`, `netrecord`). Give the network scenarios a fixed spawn spot for tests (`-spawnspot N`), wait for a log line instead of a number of seconds where they can, and let the runner repeat a failed network scenario once and say so.
+- [x] **Stable Network Scenarios**:
+  - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
+- [ ] **Scenarios That Wait for Log Lines**:
+  - A script action that waits for a line in the log (the client joined, the level changed) instead of a number of seconds, for the scenarios with two processes.
 - [ ] **Shared Test Helpers**:
   - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.

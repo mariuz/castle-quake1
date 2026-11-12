@@ -482,6 +482,7 @@ begin
       St.Frame := FGame.EntityFrame(E);
       St.Skin := FGame.EntitySkin(E);
       St.Effects := FGame.EntityEffects(E);
+      St.Step := FGame.EntityMoveType(E) = MOVETYPE_STEP;
       St.Alpha := EncodeEntityAlpha(FGame.EntityAlpha(E));
       St.Origin := FGame.EntityOrigin(E);
       St.Angles := FGame.EntityAngles(E);

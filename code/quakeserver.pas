@@ -28,6 +28,7 @@ type
     FReliable: array[1..MaxNetClients] of TQuakeNetMessage;
     FOut: TQuakeNetMessage;
     FLastFrags: array[1..MaxQcClients] of Integer;
+    FPlayersJoined: Integer;  { -spawnspot: the players that connected so far }
     { A spectator's buttons of its last input (fire: the next player) }
     FSpectatorButtons: array[1..MaxNetClients] of Byte;
     { Deathmatch: the maps to play in turn (empty: the progs choose) }
@@ -123,6 +124,9 @@ var
   { -teamplay N: the progs' teamplay rules in a hosted deathmatch }
   ServerTeamPlay: Integer = 0;
   ServerMapRotation: String = '';
+  { -spawnspot N (tests): the players that connect (not the bots) start at
+    the map's deathmatch spawn spots N, N + 1... in the order they join }
+  ServerSpawnSpot: Integer = -1;
 
 implementation
 
@@ -279,6 +283,7 @@ begin
   if (E >= 1) and (E <= FGame.MaxClients) then
     Result.ColorMap := FGame.EntityColorMap(E) and 255;
   Result.Effects := FGame.EntityEffects(E) and 255;
+  Result.Step := FGame.EntityMoveType(E) = MOVETYPE_STEP;
   if NetGameProtocol <> 15 then
     Result.Alpha := EncodeEntityAlpha(FGame.EntityAlpha(E));
   Result.Origin := FGame.EntityOrigin(E);
@@ -424,6 +429,11 @@ begin
     PName := 'player' + IntToStr(E);
   if not FGame.ConnectClient(E, PName, FNet.ClientColors(C)) then
     Exit(0);
+  if ServerSpawnSpot >= 0 then
+  begin
+    FGame.PlaceAtSpawnSpot(E, ServerSpawnSpot + FPlayersJoined);
+    Inc(FPlayersJoined);
+  end;
   FEvents[C].Clear;
   FReliable[C].Clear;
   FLastFrags[E] := 0;
