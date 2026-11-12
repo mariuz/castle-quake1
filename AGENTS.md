@@ -20,7 +20,7 @@ Read `docs/ARCHITECTURE.md` before a larger change, and the section of `docs/REF
 ```sh
 castle-engine compile --mode=release                  # the game (CGE 7.0-alpha.3 snapshot, FPC 3.2.2)
 cd tests && castle-engine compile && ./quaketests ../data/paks   # unit tests, exit code = failures
-python3 tests/scenarios.py [--only <name>]            # 38 scripted games (needs xvfb-run and Pillow on Linux)
+python3 tests/scenarios.py [--only <name>]            # 39 scripted games (needs xvfb-run and Pillow on Linux)
 python3 tools/lang_strings.py --check                 # translations complete and the template current
 python3 tests/community_maps.py                       # Quaddicted maps and Arcane Dimensions (downloads them)
 ```

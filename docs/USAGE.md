@@ -44,7 +44,7 @@ More options, by topic (details in [REFERENCE.md](REFERENCE.md)):
 | `map <name>`, `maps`, `maps_play <id>` | Change the level; list and play Map Browser releases |
 | `god`, `give all`, `killall` | Cheats (not in deathmatch) |
 | `save <slot>`, `load <slot>`, `saves` | Savegames |
-| `fov`, `gamma`, `fog`, `sky`, `shadows` | Video |
+| `fov`, `gamma`, `fog`, `sky`, `shadows`, `gl_texturemode`, `gl_texture_anisotropy`, `vid_fsaa` | Video |
 | `captions`, `hud_contrast`, `reduced_flashes`, `lang` | Accessibility and language |
 | `horde`, `speedrun`, `ghost`, `records`, `photo` | Game modes and tools |
 | `name`, `color`, `lan`, `lan_join <n>` | Multiplayer |

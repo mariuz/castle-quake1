@@ -1207,3 +1207,24 @@ msgstr "  pr_checkextension <0|1> - Le mod possono usare le estensioni QuakeC (p
 
 msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
 msgstr "  r_effectinfo <0|1> - L'effectinfo.txt di una mod disegna esplosioni, impatti e scie"
+
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Filtro delle texture (livello successivo)"
+
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr "  vid_fsaa <1|2|4|8> - Antialiasing, campioni (dopo un riavvio)"
+
+msgid "Texture Filter"
+msgstr "Filtro texture"
+
+msgid "Smooth"
+msgstr "Morbido"
+
+msgid "Blocky"
+msgstr "A blocchi"
+
+msgid "Anisotropic Filtering"
+msgstr "Filtro anisotropico"
+
+msgid "Anti-Aliasing"
+msgstr "Antialiasing"

@@ -10,6 +10,7 @@ The full list of what the game does. For how to use it see [USAGE.md](USAGE.md);
 - Dual-layer scrolling sky, turbulent liquid surfaces, animated textures, particles (gunshots, blood, explosions, trails, teleports), underwater warp and palette tints.
 - Only the potentially visible set is drawn: the world is split by BSP subtrees and the parts outside the camera leaf's PVS are hidden (seen through translucent water too), and so are the monsters, items, missiles, gibs and doors outside it; console `novis 1` draws everything.
 - Interactive brush entities: doors (including silver and gold key doors), platforms, buttons, trains, secret doors, triggers, teleporters, level changes.
+- Video options: field of view, brightness, blocky or smooth textures, anisotropic filtering and anti-aliasing (Options, or the console's `gl_texturemode`, `gl_texture_anisotropy`, `vid_fsaa`).
 
 **Gameplay**
 - A port of the NetQuake player physics: friction and acceleration, air control, stair stepping, swimming, water jumps, bunny hopping.

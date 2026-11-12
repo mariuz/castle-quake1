@@ -1610,6 +1610,25 @@ begin
     FConsole.Print(Format('fov %.0f (vertical %.1f), gamma %.2f, cl_bob %.3f, r_drawviewmodel %d',
       [VideoFov, RadToDeg(VerticalFov), VideoGamma, ViewBob, Ord(ShowWeapon)]));
   end else
+  if (Cmd = 'gl_texturemode') or (Cmd = 'gl_texture_anisotropy') or (Cmd = 'vid_fsaa') then
+  begin
+    { Texture filtering (the next level's textures) and multisampling
+      (after a restart), saved like the Options menu ones }
+    if Args <> '' then
+    begin
+      if Cmd = 'gl_texturemode' then
+        TextureSmooth := Pos('linear', LowerCase(Args)) = 1
+      else if Cmd = 'gl_texture_anisotropy' then
+        TextureAnisotropy := ValidAnisotropy(StrToIntDef(Args, TextureAnisotropy))
+      else
+        AntiAliasSamples := ValidAntiAlias(StrToIntDef(Args, AntiAliasSamples));
+      SaveVideoSettings;
+    end;
+    FConsole.Print(Format('gl_texturemode %s, gl_texture_anisotropy %d, vid_fsaa %d',
+      [BoolToStr(TextureSmooth, 'linear', 'nearest'), TextureAnisotropy, AntiAliasSamples]));
+    WritelnLog('GameViewPlay', 'Video: texture filter %s, anisotropy %d, anti-aliasing %d samples',
+      [BoolToStr(TextureSmooth, 'linear', 'nearest'), TextureAnisotropy, AntiAliasSamples]);
+  end else
   if Cmd = 'fog' then
   begin
     { FitzQuake's fog: fog <density> [r g b] for this level, 0 off; no
@@ -1845,6 +1864,8 @@ begin
     FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
+    FConsole.Print(Tr('  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)'));
+    FConsole.Print(Tr('  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)'));
     FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
     FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));
     FConsole.Print(Tr('  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)'));

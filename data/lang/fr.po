@@ -1207,3 +1207,24 @@ msgstr "  pr_checkextension <0|1> - Les mods peuvent utiliser les extensions Qua
 
 msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
 msgstr "  r_effectinfo <0|1> - L'effectinfo.txt d'un mod dessine les explosions, impacts et traînées"
+
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Filtrage des textures (niveau suivant)"
+
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr "  vid_fsaa <1|2|4|8> - Anticrénelage, échantillons (après un redémarrage)"
+
+msgid "Texture Filter"
+msgstr "Filtre de textures"
+
+msgid "Smooth"
+msgstr "Lisse"
+
+msgid "Blocky"
+msgstr "Pixelisé"
+
+msgid "Anisotropic Filtering"
+msgstr "Filtrage anisotrope"
+
+msgid "Anti-Aliasing"
+msgstr "Anticrénelage"

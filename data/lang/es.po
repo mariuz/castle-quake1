@@ -1207,3 +1207,24 @@ msgstr "  pr_checkextension <0|1> - Los mods pueden usar las extensiones de Quak
 
 msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
 msgstr "  r_effectinfo <0|1> - El effectinfo.txt de un mod dibuja las explosiones, impactos y estelas"
+
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Filtrado de texturas (siguiente nivel)"
+
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr "  vid_fsaa <1|2|4|8> - Antialiasing, muestras (tras reiniciar)"
+
+msgid "Texture Filter"
+msgstr "Filtro de texturas"
+
+msgid "Smooth"
+msgstr "Suave"
+
+msgid "Blocky"
+msgstr "Pixelado"
+
+msgid "Anisotropic Filtering"
+msgstr "Filtrado anisotrópico"
+
+msgid "Anti-Aliasing"
+msgstr "Antialiasing"

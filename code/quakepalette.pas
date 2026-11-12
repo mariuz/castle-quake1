@@ -7,7 +7,8 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections,
-  CastleVectors, CastleImages, CastleDownload, CastleUriUtils, CastleLog,
+  CastleVectors, CastleImages, CastleDownload, CastleUriUtils, CastleLog, CastleRenderOptions,
+  X3DNodes,
   QuakePak;
 
 type
@@ -61,6 +62,17 @@ type
     property HasColormap: Boolean read FHasColormap;
   end;
 
+var
+  { gl_texturemode: False Quake's blocky texels (nearest, with mipmaps),
+    True filtered ones. Read when a level's or a model's textures are made. }
+  TextureSmooth: Boolean = False;
+  { gl_texture_anisotropy: 1 (off), 2, 4, 8 or 16, for the world's textures }
+  TextureAnisotropy: Integer = 4;
+
+{ The filters of a texture from these settings; Anisotropic for surfaces
+  seen at a slant (the world), not for models and sprites }
+procedure SetupTextureFilter(const TexProps: TTexturePropertiesNode; const Anisotropic: Boolean);
+
 { Fast uncompressed 32-bit TGA writer for memory streams. }
 procedure WriteTga(const Image: TRGBAlphaImage; Stream: TStream);
 
@@ -68,6 +80,21 @@ var
   Palette: TQuakePalette;
 
 implementation
+
+procedure SetupTextureFilter(const TexProps: TTexturePropertiesNode; const Anisotropic: Boolean);
+begin
+  if TextureSmooth then
+  begin
+    TexProps.MagnificationFilter := magLinear;
+    TexProps.MinificationFilter := minLinearMipmapLinear;
+  end else
+  begin
+    TexProps.MagnificationFilter := magNearest;
+    TexProps.MinificationFilter := minNearestMipmapLinear;
+  end;
+  if Anisotropic and (TextureAnisotropy > 1) then
+    TexProps.AnisotropicDegree := TextureAnisotropy;
+end;
 
 type
   TTgaHeader = packed record

@@ -552,9 +552,7 @@ begin
   end else
   begin
     TexProps := TTexturePropertiesNode.Create;
-    TexProps.MagnificationFilter := magNearest;
-    TexProps.MinificationFilter := minNearestMipmapLinear;
-    TexProps.AnisotropicDegree := 4;
+    SetupTextureFilter(TexProps, True);
     Result.AddCustomField(TSFNode.Create(Result, False, 'sky_back', [],
       CreateSkyLayerTexture('quaketex:/map/' + MapName + '/' + TextureName + SKY_BACK_SUFFIX, TexProps)));
     Result.AddCustomField(TSFNode.Create(Result, False, 'sky_front', [],
@@ -686,9 +684,7 @@ begin
 
   { Texture properties for sharp retro filtering }
   TexProps := TTexturePropertiesNode.Create;
-  TexProps.MagnificationFilter := magNearest;
-  TexProps.MinificationFilter := minNearestMipmapLinear;
-  TexProps.AnisotropicDegree := 4;
+  SetupTextureFilter(TexProps, True);
 
   { Sky layers exist only for standard 256x128 sky miptexes (see TQuakeBsp.CacheSkyLayers) }
   UseSkybox := IsSky and SkyboxAvailable(SkyboxName);

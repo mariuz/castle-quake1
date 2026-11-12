@@ -513,8 +513,7 @@ begin
   if SkinId <> '' then
   begin
     TexProps := TTexturePropertiesNode.Create;
-    TexProps.MagnificationFilter := magNearest;
-    TexProps.MinificationFilter := minNearestMipmapLinear;
+    SetupTextureFilter(TexProps, False);
 
     TexNode := TImageTextureNode.Create;
     TexNode.SetUrl(['quaketex:/' + SkinId]);

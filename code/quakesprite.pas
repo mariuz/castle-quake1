@@ -240,8 +240,7 @@ begin
       Geom.TexCoord := TexCoord;
       Geom.Solid := False;
       TexProps := TTexturePropertiesNode.Create;
-      TexProps.MagnificationFilter := magNearest;
-      TexProps.MinificationFilter := minNearestMipmapLinear;
+      SetupTextureFilter(TexProps, False);
       Tex := TImageTextureNode.Create;
       Tex.SetUrl(['quaketex:/' + Im.ImageId]);
       Tex.RepeatS := False;

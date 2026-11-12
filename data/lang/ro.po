@@ -1207,3 +1207,24 @@ msgstr "  pr_checkextension <0|1> - Modurile pot folosi extensiile QuakeC (urmă
 
 msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
 msgstr "  r_effectinfo <0|1> - Fișierul effectinfo.txt al unui mod desenează exploziile, impacturile și dârele"
+
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Filtrarea texturilor (nivelul următor)"
+
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr "  vid_fsaa <1|2|4|8> - Antialiasing, eșantioane (după repornire)"
+
+msgid "Texture Filter"
+msgstr "Filtru texturi"
+
+msgid "Smooth"
+msgstr "Neted"
+
+msgid "Blocky"
+msgstr "Pixelat"
+
+msgid "Anisotropic Filtering"
+msgstr "Filtrare anizotropă"
+
+msgid "Anti-Aliasing"
+msgstr "Antialiasing"
