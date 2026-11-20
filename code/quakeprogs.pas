@@ -203,6 +203,8 @@ type
 
   TProgsStatistics = record
     Spawned, Removed, Thinks, Calls: Int64;
+    { QuakeC statements run }
+    Statements: Int64;
   end;
 
   TQuakeProgs = class
@@ -225,6 +227,8 @@ type
       for, tokenize's words, strzone's strings, FRIK_FILE's files }
     FUserCvars: TStringList;
     FCheckedExtensions: TStringList;
+    { PR_Profile_f: statements run in each function since the last report }
+    FProfile: array of Int64;
     FTokens: TStringList;
     FAddedStats: Integer;
     FZoned: specialize TDictionary<Integer, Boolean>;
@@ -455,6 +459,10 @@ type
     function CallBuiltin(const Num, ArgC: Integer): Boolean;
     { The extensions checkextension was asked about }
     property CheckedExtensions: TStringList read FCheckedExtensions;
+    { Quake's "profile": the Top functions by statements run since the last
+      call ("<statements> <function>" each), then the counts start again;
+      Total gets the statements of all functions }
+    function ProfileReport(const Top: Integer; out Total: Int64): TStringArray;
 
     { Set a field from a map key / value (ED_ParseEpair); False if the
       field is unknown to the progs }
@@ -807,6 +815,8 @@ begin
   if H.NumFieldDefs > 0 then
     Move((Data + H.OfsFieldDefs)^, FFieldDefs[0], H.NumFieldDefs * SizeOf(TProgDef));
   SetLength(FFunctions, H.NumFunctions);
+  SetLength(FProfile, 0);
+  SetLength(FProfile, Max(H.NumFunctions, 1));
   if H.NumFunctions > 0 then
     Move((Data + H.OfsFunctions)^, FFunctions[0], H.NumFunctions * SizeOf(TProgFunction));
   SetLength(FStrings, H.NumStrings);
@@ -857,6 +867,30 @@ begin
   WritelnLog('QuakeProgs', 'Loaded "%s": %d statements, %d functions, %d globals, %d entity fields, crc %d',
     [Path, H.NumStatements, H.NumFunctions, H.NumGlobals, FEntityFields, FCrc]);
   Result := True;
+end;
+
+function TQuakeProgs.ProfileReport(const Top: Integer; out Total: Int64): TStringArray;
+var
+  I, N, Best: Integer;
+begin
+  Total := 0;
+  for I := 0 to High(FProfile) do
+    Total := Total + FProfile[I];
+  SetLength(Result, 0);
+  for N := 1 to Top do
+  begin
+    Best := -1;
+    for I := 1 to High(FProfile) do
+      if (FProfile[I] > 0) and ((Best < 0) or (FProfile[I] > FProfile[Best])) then
+        Best := I;
+    if Best < 0 then
+      Break;
+    SetLength(Result, Length(Result) + 1);
+    Result[High(Result)] := Format('%d %s', [FProfile[Best], GetString(FFunctions[Best].SName)]);
+    FProfile[Best] := 0;
+  end;
+  for I := 0 to High(FProfile) do
+    FProfile[I] := 0;
 end;
 
 procedure TQuakeProgs.SetupWellKnown;
@@ -1328,6 +1362,8 @@ begin
       Break;
     end;
     FXStatement := S;
+    Inc(FProfile[FCurrentFunction]);
+    Inc(Statistics.Statements);
     St := @FStatements[S];
     A := Global(St^.A);
     B := Global(St^.B);

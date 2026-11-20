@@ -837,6 +837,17 @@ def check_quakec(logs):
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
     result.append((len(gliding) == 3 and max(gliding) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
+    # the profile of the fight and the timing of the level load
+    total = re.search(r'Profile: (\d+) QuakeC statements in ([\d.]+) s', logs['qcglide'])
+    funcs = re.findall(r'Profile: (\d+) (\w+)$', logs['qcglide'], re.M)
+    result.append((total is not None and int(total.group(1)) > 10000 and len(funcs) == 10 and
+                   [int(c) for c, _ in funcs] == sorted((int(c) for c, _ in funcs), reverse=True),
+                   'profile lists the ten QuakeC functions with the most statements (%s of %s first)'
+                   % (funcs[0][1] if funcs else '-', total.group(1) if total else '-')))
+    load = re.search(r'Level load "e1m1": ([\d.]+) s \(effects [\d.]+, bsp and QuakeC spawn [\d.]+, '
+                     r'geometry [\d.]+, lights and sound [\d.]+\)', logs['qcglide'])
+    result.append((load is not None and 'Level load "geometry of e1m1"' in logs['qcglide'],
+                   'the level load logs its stages (%s s)' % (load.group(1) if load else '-')))
     result += common_checks(logs, 'qcrec') + common_checks(logs, 'qcplay')
     played = [int(x) for x in re.findall(r'Entities gliding between steps: (\d+)', logs['qcplay'])]
     result.append((len(played) == 4 and max(played) > 0,
@@ -1430,7 +1441,7 @@ SCENARIOS = [
              check_e1m1_finish, ['finish_1', 'finish_4']),
     Scenario('e1m1_saveload', [('saveload', ['--autotest', 'e1m1', '{out}/saveload', '--demo',
                                              'W:0.5,G:1312;-218;-1156,A:270,C:2,W:1.5,X,W:0.6,X,W:0.6,O:scenario,'
-                                             'W:3,S,L:scenario,S,Q'], 0)],
+                                             'W:4,S,L:scenario,S,Q'], 0)],
              check_e1m1_saveload, []),
     Scenario('deathmatch', [('dm_host', ['--autotest', 'host:start', '{out}/dm_host', '--demo', 'W:16,S,Q',
                                          '-port', '26300'], 0),
@@ -1441,7 +1452,7 @@ SCENARIOS = [
     # of 0.1 s and glide between them (r_lerpmove)
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0),
                         ('qcglide', ['--autotest', 'qc:e1m1', '{out}/qcglide', '--demo',
-                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,Q'], 0),
+                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,CMD:profile,Q'], 0),
                         # the same fight recorded and played back: the demo
                         # carries the step flag and the monsters glide there too
                         ('qcrec', ['--autotest', 'qc:e1m1', '{out}/qcrec', '--demo',

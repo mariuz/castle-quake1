@@ -189,6 +189,8 @@ type
     FSkyTimeFields: TSFFloatList;
     FSkySurfaces: TQuakeSkySurfaceList;
     FSkybox: String;
+    { Where the world's build spends its time (the log's "Level load "geometry of ..."") }
+    FBuildTime: TLoadTimer;
     FSkyEyeFields: TSFVec3fList;
     FLiquidTimeFields: TSFFloatList;
     FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
@@ -1661,6 +1663,7 @@ begin
       { The world split by BSP subtrees, each with its own texture batches,
         so the shapes outside the camera's PVS can be hidden }
       BuildClusters(FaceCluster);
+      FBuildTime.Stage('clusters');
       SetLength(ClusterBatches, FClusters.Count);
       for C := 0 to High(ClusterBatches) do
         ClusterBatches[C] := TQuakeGeomBatchDict.Create([doOwnsValues]);
@@ -1670,10 +1673,13 @@ begin
             AddFace(FaceIdx, ClusterBatches[FaceCluster[FaceIdx]], Atlases)
           else
             AddFace(FaceIdx, OutBatches, Atlases);
+        FBuildTime.Stage('faces');
         CreateLightmapSets;
+        FBuildTime.Stage('lightmaps');
         for C := 0 to High(ClusterBatches) do
           FinishBatches(ClusterBatches[C], LMSets, RootNode, FClusters[C]);
         FinishBatches(OutBatches, LMSets, RootNode, nil);
+        FBuildTime.Stage('shapes');
       finally
         for C := 0 to High(ClusterBatches) do
           ClusterBatches[C].Free;
@@ -2034,11 +2040,13 @@ begin
   FSkybox := SkyboxName;
 
   { Build static world model (Model 0) }
+  FBuildTime.Start;
   RootWorld := TX3DRootNode.Create;
   Batches := TQuakeGeomBatchDict.Create([doOwnsValues]);
   try
     BuildModelGeometry(0, RootWorld, Batches, True);
     FSceneWorld.Load(RootWorld, True);
+    FBuildTime.Stage('scene');
   finally
     Batches.Free;
   end;
@@ -2047,6 +2055,8 @@ begin
 
   { Setup interactive submodels (doors, plats, buttons) }
   SetupSubmodels(Parent);
+  FBuildTime.Stage('brush entities');
+  FBuildTime.Report('geometry of ' + FBsp.MapName);
 end;
 
 type

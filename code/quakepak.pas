@@ -3,12 +3,13 @@
 unit QuakePak;
 
 {$mode objfpc}{$H+}
+{$modeswitch advancedrecords}
 
 interface
 
 uses
   SysUtils, Classes, Generics.Collections, ZStream, Math,
-  CastleDownload, CastleUriUtils, CastleLog, CastleTransform;
+  CastleDownload, CastleUriUtils, CastleLog, CastleTransform, CastleTimeUtils;
 
 type
   { Where an entry's bytes are: in a .pak (stored), in a .pk3 (zip: stored
@@ -24,6 +25,19 @@ const
   like monster_ogre_3 or func_door_7. ResetComponentNames starts the
   numbers again (a new level). }
 function ComponentName(const Base: String): String;
+
+type
+  { Where a level load spends its time: Start, a Stage after each part,
+    then Report logs "Level load "<map>": T s (bsp A, geometry B...)" }
+  TLoadTimer = record
+  private
+    FStart, FLast: TTimerResult;
+    FStages: String;
+  public
+    procedure Start;
+    procedure Stage(const AName: String);
+    procedure Report(const Map: String);
+  end;
 procedure ResetComponentNames;
 { Log the transform tree under Root (names and classes), what the
   inspector shows }
@@ -225,6 +239,29 @@ begin
     end;
     Result[I] := Chr(C);
   end;
+end;
+
+procedure TLoadTimer.Start;
+begin
+  FStart := Timer;
+  FLast := FStart;
+  FStages := '';
+end;
+
+procedure TLoadTimer.Stage(const AName: String);
+var
+  Now: TTimerResult;
+begin
+  Now := Timer;
+  if FStages <> '' then
+    FStages := FStages + ', ';
+  FStages := FStages + Format('%s %.2f', [AName, TimerSeconds(Now, FLast)]);
+  FLast := Now;
+end;
+
+procedure TLoadTimer.Report(const Map: String);
+begin
+  WritelnLog('LoadTimer', 'Level load "%s": %.2f s (%s)', [Map, TimerSeconds(Timer, FStart), FStages]);
 end;
 
 function ComponentName(const Base: String): String;

@@ -317,12 +317,14 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Entity traces and the player's touches in QuakeC mode test only the entities near them (Quake's area nodes, here a grid) instead of every edict: about 40 instead of 4091 per trace on Arcane Dimensions' Sepulcher.
 - [x] **Batched Engine Particles**:
   - The engine's own sparks, puffs, blood and explosions are one mesh of camera-facing quads instead of a scene with its own material per particle.
-- [ ] **QuakeC VM Profile**:
-  - A `profile` console command like Quake's (statements per QuakeC function over the last seconds) and a count of statements per frame in `Z`, to find what a heavy mod spends its time on; then the hot paths it shows (field lookups by name each frame in `TQuakeQcGame`, strings made per builtin call).
+- [x] **QuakeC VM Profile**:
+  - Quake's `profile`: the ten QuakeC functions that ran the most statements since the last call, and the statements per frame.
 - [ ] **Frame Time Budgets for Mods**:
   - The `budgets` scenario watches culling counts on four maps and the community test three Quaddicted maps. Add frame times and entity counts at fixed spots of `ad_sepulcher` and `ad_tears` in QuakeC mode to the community test, so a slowdown on the largest maps fails a (non-gating) job.
-- [ ] **Level Load Time**:
-  - Log the time of each stage of a level load (BSP, lightmap atlas, textures, models, QuakeC spawn) and cut the largest: Sepulcher's 198 000 faces are the case to measure.
+- [x] **Level Load Timing**:
+  - Every level load logs how long each stage took (BSP, QuakeC spawn, geometry and its parts, lights, entities).
+- [ ] **Faster World Build for Huge Maps**:
+  - Sepulcher (198 000 faces) loads in 5.7 s, 4.9 s of it building the world: 2.0 s making its 15 249 shapes (each with its own appearance, material, texture and texture properties nodes), 1.0 s loading the scene and 1.4 s for the 1096 brush entities (a scene each). Share the appearance of a texture between the shapes of all clusters, and the brush entities' appearances with the world's.
 
 **Graphics**
 
