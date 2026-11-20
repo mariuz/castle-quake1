@@ -87,6 +87,8 @@ type
     FStaticVisuals: array of TDemoVisual;
     { Draws the entities (shared with the QuakeC view) }
     FRenderer: TEntityRenderer;
+    { The first view's underwater warp }
+    FUnderwater: TUnderwaterWarp;
     FWeaponTransform: TCastleTransform;
     FPhoto: TPhotoMode;
     FWeapon: TDemoVisual;
@@ -368,6 +370,7 @@ var
 begin
   ClearLevel;
   FreeAndNil(FRenderer);
+  FreeAndNil(FUnderwater);
   FDemo.Free;
   for I := 2 to MaxSplitPlayers do
     FreeAndNil(FPlayers[I]);
@@ -387,6 +390,7 @@ begin
   if FViewport = nil then
   begin
     FViewport := TSplitViewport.Create(Self);
+    FUnderwater := TUnderwaterWarp.Create(FViewport, 'demo');
     FViewport.Name := 'viewport';
     FViewport.FullSize := True;
     FViewport.Transparent := False;
@@ -1732,7 +1736,10 @@ begin
     Hud.SetContents(I);
     S.Underwater := (I = CONTENTS_WATER) or (I = CONTENTS_SLIME) or (I = CONTENTS_LAVA);
     if Main then
+    begin
       Sounds.SetUnderwater(S.Underwater);
+      FUnderwater.Update(S.Underwater, SecondsPassed);
+    end;
   end;
   Hud.Update(SecondsPassed, S);
 end;

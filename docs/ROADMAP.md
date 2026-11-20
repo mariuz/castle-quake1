@@ -340,8 +340,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
 - [x] **Anti-Aliasing and Texture Filtering Options**:
   - Options (and the console) for the texture filter (Quake's blocky texels or smooth ones), anisotropic filtering (off to 16x) and anti-aliasing (off to 8x), saved with the other video settings.
-- [ ] **Underwater View**:
-  - The screen warps and tints under water in the original; here only the sound is filtered. A full-screen warp effect while the eyes are in a liquid, off with `reduced_flashes`.
+- [x] **Underwater View in Every Mode**:
+  - The picture waves while the eyes are in a liquid (software Quake's warp) in QuakeC mode, demos and network games as it already did in the play view; `r_waterwarp 0` turns it off.
 - [ ] **Dynamic Light on Models**:
   - Rockets, explosions and muzzle flashes light the world's lightmaps; check and, where missing, light the monsters and items near them the same way, and let entities take the colored light of `.lit` files under them.
 

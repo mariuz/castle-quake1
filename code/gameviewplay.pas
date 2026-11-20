@@ -53,10 +53,8 @@ type
     FBenchStarted: Boolean;
     FBobTime: Single;
     FDemoTimer: Single;
-    FUnderwaterEffect: TScreenEffectNode;
+    FUnderwater: TUnderwaterWarp;
     FPhoto: TPhotoMode;
-    FUnderwaterTime: TSFFloat;
-    FWarpTime: Single;
     FDeathTimer: Single;
     FHordeMode: Boolean;
     FHordeReported: Boolean;
@@ -72,7 +70,6 @@ type
     FDemoPadLeft, FDemoPadRight: TVector2;
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
     procedure SetupNavigation;
-    procedure CreateUnderwaterEffect;
     procedure UpdateViewContents(const SecondsPassed: Single);
     procedure HandleConsoleCommand(const Cmd, Args: String);
     procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
@@ -148,29 +145,11 @@ end;
 destructor TViewPlay.Destroy;
 begin
   FDemoCommands.Free;
+  FUnderwater.Free;
   inherited Destroy;
 end;
 
 const
-  { Underwater view warp, after D_WarpScreen in software Quake: every row and
-    column is shifted by a sine wave (8 pixels at 320x200, 128 pixel period),
-    with the image shrunk by the amplitude so the edges never sample outside. }
-  UnderwaterFragmentShader =
-    'uniform float warp_time;' + LineEnding +
-    'void main(void)' + LineEnding +
-    '{' + LineEnding +
-    '  const vec2 amp = vec2(8.0 / 320.0, 8.0 / 200.0);' + LineEnding +
-    '  const float tau = 6.2831853;' + LineEnding +
-    '  vec2 p = screenf_01_position;' + LineEnding +
-    '  vec2 q = p * (1.0 - 2.0 * amp) + amp;' + LineEnding +
-    '  q.x += amp.x * sin(p.y * (200.0 / 128.0) * tau + warp_time);' + LineEnding +
-    '  q.y += amp.y * sin(p.x * (320.0 / 128.0) * tau + warp_time);' + LineEnding +
-    '  gl_FragColor = vec4(screenf_01_get_color(q).rgb, 1.0);' + LineEnding +
-    '}' + LineEnding;
-
-  { Turbulence phase speed: 20 sine table steps (of 128) per second }
-  UnderwaterWarpSpeed = 20.0 * 6.2831853 / 128.0;
-
   { Delay before the level restarts after the player dies }
   DeathRestartDelay = 2.0;
 
@@ -187,26 +166,6 @@ begin
   Application.Terminate;
 end;
 
-procedure TViewPlay.CreateUnderwaterEffect;
-var
-  FragmentPart: TShaderPartNode;
-  Shader: TComposedShaderNode;
-begin
-  FragmentPart := TShaderPartNode.Create;
-  FragmentPart.ShaderType := stFragment;
-  FragmentPart.Contents := UnderwaterFragmentShader;
-
-  Shader := TComposedShaderNode.Create;
-  Shader.SetParts([FragmentPart]);
-  FUnderwaterTime := TSFFloat.Create(Shader, True, 'warp_time', 0);
-  Shader.AddCustomField(FUnderwaterTime);
-
-  FUnderwaterEffect := TScreenEffectNode.Create;
-  FUnderwaterEffect.SetShaders([Shader]);
-  FUnderwaterEffect.Enabled := False;
-  FViewport.AddScreenEffect(FUnderwaterEffect);
-end;
-
 procedure TViewPlay.UpdateViewContents(const SecondsPassed: Single);
 var
   Contents: Integer;
@@ -217,14 +176,8 @@ begin
   FHud.SetContents(Contents);
   InLiquid := (Contents = CONTENTS_WATER) or (Contents = CONTENTS_SLIME) or
     (Contents = CONTENTS_LAVA);
-  if FUnderwaterEffect.Enabled <> InLiquid then
-    FUnderwaterEffect.Enabled := InLiquid;
+  FUnderwater.Update(InLiquid, SecondsPassed);
   Sounds.SetUnderwater(InLiquid);
-  if InLiquid then
-  begin
-    FWarpTime := FloatModulo(FWarpTime + SecondsPassed * UnderwaterWarpSpeed, 2 * Pi);
-    FUnderwaterTime.Send(FWarpTime);
-  end;
 end;
 
 procedure TViewPlay.SetupNavigation;
@@ -283,7 +236,7 @@ begin
     FViewport.Transparent := False;
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
     InsertFront(FViewport);
-    CreateUnderwaterEffect;
+    FUnderwater := TUnderwaterWarp.Create(FViewport, 'play');
   end;
 
   SetupNavigation;
@@ -1750,6 +1703,12 @@ begin
       MoveLerp := Args <> '0';
     FConsole.Print(Format('r_lerpmove %d', [Ord(MoveLerp)]));
   end else
+  if Cmd = 'r_waterwarp' then
+  begin
+    if Args <> '' then
+      WaterWarp := Args <> '0';
+    FConsole.Print(Format('r_waterwarp %d', [Ord(WaterWarp)]));
+  end else
   if Cmd = 'r_effectinfo' then
   begin
     if Args <> '' then
@@ -1865,6 +1824,7 @@ begin
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
     FConsole.Print(Tr('  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)'));
+    FConsole.Print(Tr('  r_waterwarp <0|1> - The picture waves under water'));
     FConsole.Print(Tr('  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)'));
     FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
     FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));

@@ -1003,6 +1003,11 @@ def check_video(logs):
     result.append(('Video: texture filter nearest, anisotropy 1, anti-aliasing 1 samples' in log and
                    'Video: texture filter linear, anisotropy 1, anti-aliasing 1 samples' in log,
                    'the console sets the texture filter and the anisotropy'))
+    result += common_checks(logs, 'wplay') + common_checks(logs, 'wqc')
+    play = re.findall(r'Underwater view (on|off) \(play\)', logs['wplay'])
+    result.append((play == ['on', 'off'],
+                   'the play view waves under water, once: not with r_waterwarp 0 (%s)' % ', '.join(play)))
+    result.append(('Underwater view on (qc)' in logs['wqc'], 'QuakeC mode waves under water too'))
     return result
 
 
@@ -1670,7 +1675,14 @@ SCENARIOS = [
     # anisotropic filter, which smooths them on the software renderer)
     Scenario('video', [('vid', ['--autotest', 'e1m1', '{out}/vid', '--demo',
                                 'W:0.3,CMD:gl_texture_anisotropy 1,CMD:map e1m1,W:2.5,S,'
-                                'CMD:gl_texturemode linear,CMD:map e1m1,W:2.5,S,Q'], 0)],
+                                'CMD:gl_texturemode linear,CMD:map e1m1,W:2.5,S,Q'], 0),
+                       # the eyes in E1M1's water: the picture waves, in the
+                       # play view and in QuakeC mode, and not with r_waterwarp 0
+                       ('wplay', ['--autotest', 'e1m1', '{out}/wplay', '--demo',
+                                  'W:1,Y,G:550;-318;-920,W:0.6,S,G:480;46;-352,W:0.4,CMD:r_waterwarp 0,'
+                                  'G:550;-318;-920,W:0.6,S,Q'], 0),
+                       ('wqc', ['--autotest', 'qc:e1m1', '{out}/wqc', '--demo',
+                                'W:1,Y,G:550;-318;-920,W:0.6,S,Q'], 0)],
              check_video, [], frame_checks=frames_video),
     # A mod's effectinfo.txt draws the shotgun's impacts in QuakeC mode
     # (and not with r_effectinfo 0)
