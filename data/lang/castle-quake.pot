@@ -325,136 +325,136 @@ msgstr ""
 msgid "%d map records"
 msgstr ""
 
-#: code/gameviewplay.pas
-msgid "Name: \"%s\""
+#: code/gameviewplay_commands.inc
+msgid "Unknown command: "
 msgstr ""
 
-#: code/gameviewplay.pas
-msgid "Colors: shirt %d, pants %d"
-msgstr ""
-
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "Records of %s forgotten"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "All map records forgotten"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
+msgid "Name: \"%s\""
+msgstr ""
+
+#: code/gameviewplay_commands.inc
+msgid "Colors: shirt %d, pants %d"
+msgstr ""
+
+#: code/gameviewplay_commands.inc
 msgid "Language: %s (%s); lang <code> changes it:%s, auto"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  skill <0..3>   - Skill for the next map"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  record <name>  - Record a demo to <name>.dem, stop ends it"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  save [slot]    - Save the game (F6 = quick)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  load [slot]    - Load a saved game (F9 = quick)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  god            - God mode"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  give all       - Give all weapons, ammo, keys"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  shadows <0|1>  - Toggle dynamic shadows"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  wateralpha <0..1> - Opacity of water, slime and lava"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  fog <density> [r g b] - Fog for this level (0 off)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  horde [0|1]    - Waves of monsters on this map; killall - every monster dies"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  records [map], records_reset [map] - Best time, kills and secrets of each map and skill"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  saves          - List the saved games (the Load Game menu)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "    maps_play <id> [map], maps_remove <id> - download, play and remove one"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  lan - Find games on the local network; lan_join <n> - join the nth"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  fps            - Show the frame rate in the stats line"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  lang <code|auto> - Language of the menu, the HUD and this help"
 msgstr ""
 
-#: code/gameviewplay.pas
+#: code/gameviewplay_commands.inc
 msgid "  quit           - Exit game"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "Unknown command: "
 msgstr ""
 
 #: code/gameviewqc.pas

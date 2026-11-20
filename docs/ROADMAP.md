@@ -354,8 +354,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 - [x] **Settings Commands in One Table**:
   - The fifteen console commands that only change settings (video, textures, accessibility, the rendering switches for mods) are one table of names, help lines and handlers that every view runs, also from the test scripts' `CMD:`.
 - [x] **Console in Every View**: `~` opens the console in the QuakeC view (`map`, `god`, `give`, `profile`, `effect`, the settings) and in demos and network games (the settings, photo mode's commands, the host's).
-- [ ] **Play View Command Table**:
-  - The play view's own commands (`map`, `save`, `god`, `maps`, `lan`...) still sit in a chain of `if` blocks. Move them into a table like the settings commands' (names, help line, handler), so `help` and the commands cannot drift apart.
+- [x] **Play View Command Table**: the play view's commands are a table of names, help line and handler method (`gameviewplay_commands.inc`); `help` is built from it.
 - [ ] **Command Line Table**:
   - `gameinitialize.pas` parses over forty `-option` checks by hand, and the web build's `?option=` parameters repeat them. One table of options (name, argument, target variable) for both.
 - [ ] **Split the Largest Units**:

@@ -19,6 +19,17 @@ uses
 type
   TCameraMode = (cmFirstPerson, cmThirdPerson, cmFreeFly);
 
+  TPlayCommandHandler = procedure(const Cmd, Args: String) of object;
+
+  { A console command of the play view }
+  TPlayCommand = record
+    { The names it answers to, separated by spaces }
+    Names: String;
+    { The line "help" shows (English, translated when shown); may be empty }
+    Help: String;
+    Handler: TPlayCommandHandler;
+  end;
+
   { The main gameplay view }
   TViewPlay = class(TCastleView)
   private
@@ -68,10 +79,42 @@ type
     FDemoPadButton: TGameControllerButton;
     FDemoPadRelease: Single;
     FDemoPadLeft, FDemoPadRight: TVector2;
+    FCommands: array of TPlayCommand;
     procedure BuildUserCmd(out Cmd: TQuakeUserCmd);
     procedure SetupNavigation;
     procedure UpdateViewContents(const SecondsPassed: Single);
     procedure HandleConsoleCommand(const Cmd, Args: String);
+    { The console commands (gameviewplay_commands.inc) }
+    procedure AddCommand(const Names, Help: String; const Handler: TPlayCommandHandler);
+    procedure RegisterCommands;
+    function PlayCommandNames: TStringArray;
+    procedure CmdMap(const Cmd, Args: String);
+    procedure CmdSkill(const Cmd, Args: String);
+    procedure CmdRecord(const Cmd, Args: String);
+    procedure CmdSave(const Cmd, Args: String);
+    procedure CmdLoad(const Cmd, Args: String);
+    procedure CmdGod(const Cmd, Args: String);
+    procedure CmdGive(const Cmd, Args: String);
+    procedure CmdShadows(const Cmd, Args: String);
+    procedure CmdWaterAlpha(const Cmd, Args: String);
+    procedure CmdFog(const Cmd, Args: String);
+    procedure CmdHorde(const Cmd, Args: String);
+    procedure CmdKillAll(const Cmd, Args: String);
+    procedure CmdSpeedrun(const Cmd, Args: String);
+    procedure CmdGhostReset(const Cmd, Args: String);
+    procedure CmdRecords(const Cmd, Args: String);
+    procedure CmdSaves(const Cmd, Args: String);
+    procedure CmdPhoto(const Cmd, Args: String);
+    procedure CmdPhotoSetting(const Cmd, Args: String);
+    procedure CmdIdentity(const Cmd, Args: String);
+    procedure CmdSky(const Cmd, Args: String);
+    procedure CmdLightmaps(const Cmd, Args: String);
+    procedure CmdDebug(const Cmd, Args: String);
+    procedure CmdFps(const Cmd, Args: String);
+    procedure CmdNoVis(const Cmd, Args: String);
+    procedure CmdLang(const Cmd, Args: String);
+    procedure CmdQuit(const Cmd, Args: String);
+    procedure CmdHelp(const Cmd, Args: String);
     procedure HandleMenuAction(const Action: TMenuAction; const Param: String);
     procedure ParseDemoScript(const Script: String);
     procedure RunDemoStep(const SecondsPassed: Single);
@@ -140,6 +183,7 @@ begin
   FDemoCommands := TStringList.Create;
   FDemoIndex := 0;
   FDemoTimer := 0;
+  RegisterCommands;
 end;
 
 destructor TViewPlay.Destroy;
@@ -1458,316 +1502,7 @@ begin
   end;
 end;
 
-procedure TViewPlay.HandleConsoleCommand(const Cmd, Args: String);
-var
-  Parts: TStringArray;
-  FogColor: TVector3;
-  SkyName, LangList, Reply, HelpLine: String;
-  Lang: TLanguageInfo;
-  HelpLines: TStringList;
-begin
-  if RunSettingsCommand(Cmd, Args, Reply) then
-  begin
-    FConsole.Print(Reply);
-    Exit;
-  end;
-  if (Cmd = 'map') or (Cmd = 'warp') then
-  begin
-    if Args <> '' then
-      LoadLevel(Args)
-    else
-      FConsole.Print('Usage: map <mapname>');
-  end else
-  if Cmd = 'save' then
-  begin
-    if Args <> '' then
-      SaveGameSlot(Args)
-    else
-      SaveGameSlot('quick');
-  end else
-  if Cmd = 'load' then
-  begin
-    if Args <> '' then
-      LoadGameSlot(Args)
-    else
-      LoadGameSlot('quick');
-  end else
-  if Cmd = 'debug' then
-  begin
-    { Debug overlay: debug triggers,monsters,movers,leaf | all | off }
-    FWorld.DebugModes := ParseDebugModes(Args, FWorld.DebugModes);
-    FConsole.Print('Debug overlay: ' + DebugModesToString(FWorld.DebugModes));
-  end else
-  if Cmd = 'fps' then
-  begin
-    FShowFps := not FShowFps;
-    FConsole.Print('FPS display: ' + BoolToStr(FShowFps, 'on', 'off'));
-  end else
-  if Cmd = 'novis' then
-  begin
-    { r_novis: 1 draws the whole world, 0 only the camera's PVS }
-    if Args <> '' then
-      WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
-    FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
-  end else
-  if Cmd = 'name' then
-  begin
-    { The name in network games; no argument shows it }
-    if Args <> '' then
-    begin
-      PlayerName := Trim(Copy(Args, 1, MaxPlayerName));
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format(Tr('Name: "%s"'), [PlayerName]));
-  end else
-  if Cmd = 'color' then
-  begin
-    { color <shirt> [<pants>] (0..13) in network games, like Quake }
-    if Args <> '' then
-    begin
-      Parts := Args.Split([' '], TStringSplitOptions.ExcludeEmpty);
-      PlayerShirt := EnsureRange(StrToIntDef(Parts[0], PlayerShirt), 0, 13);
-      if Length(Parts) >= 2 then
-        PlayerPants := EnsureRange(StrToIntDef(Parts[1], PlayerPants), 0, 13)
-      else
-        PlayerPants := PlayerShirt;
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format(Tr('Colors: shirt %d, pants %d'), [PlayerShirt, PlayerPants]));
-  end else
-  if Cmd = 'fog' then
-  begin
-    { FitzQuake's fog: fog <density> [r g b] for this level, 0 off; no
-      argument shows it }
-    if Args <> '' then
-    begin
-      Parts := Args.Split([' '], TStringSplitOptions.ExcludeEmpty);
-      FogColor := Vector3(0.3, 0.3, 0.3);
-      if Length(Parts) >= 4 then
-        FogColor := Vector3(StrToFloatDef(Parts[1], 0.3), StrToFloatDef(Parts[2], 0.3), StrToFloatDef(Parts[3], 0.3));
-      SetViewportFog(FViewport, StrToFloatDef(Parts[0], 0), FogColor);
-      FWorld.RecordFog(StrToFloatDef(Parts[0], 0), FogColor);
-    end;
-    if FViewport.Fog <> nil then
-      FConsole.Print(Format('Fog: visibility range %.0f, color %s',
-        [FViewport.Fog.VisibilityRange, FViewport.Fog.Color.ToString]))
-    else
-      FConsole.Print('Fog: off');
-  end else
-  if Cmd = 'sky' then
-  begin
-    { FitzQuake's sky: sky <name> shows the skybox gfx/env/<name>, sky ""
-      or sky - the map's scrolling sky; no argument shows it }
-    if (Args <> '') and (FWorld.Geometry <> nil) then
-    begin
-      SkyName := LowerCase(Args);
-      if (SkyName = '-') or (SkyName = '""') then
-        SkyName := '';
-      if FWorld.Geometry.SetSkybox(SkyName) then
-        FWorld.RecordSkybox(FWorld.Geometry.Skybox);
-    end;
-    if (FWorld.Geometry <> nil) and (FWorld.Geometry.Skybox <> '') then
-      FConsole.Print('Sky: ' + FWorld.Geometry.Skybox)
-    else
-      FConsole.Print('Sky: the scrolling sky');
-  end else
-  if Cmd = 'lightmaps' then
-  begin
-    { 1 = Quake lightmaps blended in the shader, 0 = dynamic PBR lighting;
-      the current map is rebuilt }
-    if Args <> '' then
-    begin
-      WorldLightmaps := (Args = '1') or (Args = 'on');
-      LoadLevel(FMapName);
-    end;
-    FConsole.Print('Lightmaps: ' + BoolToStr(WorldLightmaps, True));
-  end else
-  if Cmd = 'record' then
-  begin
-    if Args = '' then
-      FConsole.Print('Usage: record <name>')
-    else if FWorld.StartRecording('castle-config:/' + Args + '.dem') then
-      FConsole.Print('Recording to ' + Args + '.dem')
-    else
-      FConsole.Print('Cannot record now');
-  end else
-  if Cmd = 'stop' then
-  begin
-    if FWorld.Recording then
-    begin
-      FWorld.StopRecording;
-      FConsole.Print('Recording stopped');
-    end else
-      FConsole.Print('Not recording');
-  end else
-  if Cmd = 'skill' then
-  begin
-    { Like Quake: takes effect on the next map }
-    if Args <> '' then
-      FWorld.Skill := EnsureRange(StrToIntDef(Args, FWorld.Skill), 0, 3);
-    FConsole.Print('Skill: ' + IntToStr(FWorld.Skill));
-  end else
-  if Cmd = 'god' then
-  begin
-    FWorld.CheatGodMode(FHud);
-    FConsole.Print('God mode enabled');
-  end else
-  if Cmd = 'horde' then
-  begin
-    { horde [0|1]: restart the map with waves of monsters (or without) }
-    if Args <> '' then
-      FHordeMode := (Args = '1') or (Args = 'on')
-    else
-      FHordeMode := not FHordeMode;
-    FConsole.Print('Horde mode: ' + BoolToStr(FHordeMode, 'on', 'off'));
-    FWorld.RespawnPlayer;
-    LoadLevel(FMapName);
-  end else
-  if (Cmd = 'speedrun') or (Cmd = 'ghost') then
-  begin
-    { speedrun [0|1]: the timer; ghost [0|1]: race the best run (from the
-      next map load; saved like the Options ones) }
-    if Args <> '' then
-    begin
-      if Cmd = 'speedrun' then
-        SpeedrunTimer := (Args = '1') or (Args = 'on')
-      else
-        GhostRacing := (Args = '1') or (Args = 'on');
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format('speedrun %d, ghost %d', [Ord(SpeedrunTimer), Ord(GhostRacing)]));
-  end else
-  if Cmd = 'ghost_reset' then
-  begin
-    FWorld.ResetGhost;
-    FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
-  end else
-  if Cmd = 'records' then
-    ListRecordsCommand(LowerCase(Args))
-  else
-  if Cmd = 'records_reset' then
-  begin
-    { records_reset [map]: forget a map's records, or all of them }
-    MapRecords.Reset(LowerCase(Args));
-    SaveMapRecords;
-    if Args <> '' then
-    begin
-      FConsole.Print(Format(Tr('Records of %s forgotten'), [LowerCase(Args)]));
-      WritelnLog('Records', 'Records reset: %s', [LowerCase(Args)]);
-    end else
-    begin
-      FConsole.Print(Tr('All map records forgotten'));
-      WritelnLog('Records', 'Records reset: all');
-    end;
-  end else
-  if Cmd = 'saves' then
-    ListSavesCommand
-  else
-  if Cmd = 'photo' then
-  begin
-    { photo [0|1]: photo mode (toggles without an argument) }
-    if Args <> '' then
-      SetPhotoMode((Args = '1') or (Args = 'on'))
-    else
-      SetPhotoMode(not FPhoto.Active);
-    FConsole.Print('Photo mode: ' + BoolToStr(FPhoto.Active, 'on', 'off'));
-  end else
-  if (Cmd = 'photo_fov') or (Cmd = 'photo_effect') or (Cmd = 'photo_scale') or (Cmd = 'photo_shot') then
-    FConsole.Print(FPhoto.Command(Cmd, Args, PhotoPrefix))
-  else
-  if (Cmd = 'maps') or (Cmd = 'maps_install') or (Cmd = 'maps_play') or (Cmd = 'maps_remove') or
-     (Cmd = 'maps_mount') then
-    MapBrowserCommand(Cmd, Args)
-  else
-  if (Cmd = 'lan') or (Cmd = 'lan_join') then
-    LanCommand(Cmd, Args)
-  else
-  if Cmd = 'killall' then
-  begin
-    FWorld.KillAllMonsters;
-    FConsole.Print('Killed every monster');
-  end else
-  if (Cmd = 'give') and (Args = 'all') then
-  begin
-    FWorld.CheatGiveAll(FHud);
-    FConsole.Print('Gave all weapons, keys and ammo');
-  end else
-  if Cmd = 'wateralpha' then
-  begin
-    { r_wateralpha: 1 opaque, 0 invisible }
-    if FWorld.Geometry <> nil then
-      FWorld.Geometry.LiquidAlpha := EnsureRange(StrToFloatDef(Args, 0.65), 0, 1);
-    FConsole.Print(Format('Water alpha: %.2f', [DefaultLiquidAlpha]));
-  end else
-  if Cmd = 'shadows' then
-  begin
-    Lighting.ShadowsEnabled := (Args = '1') or (Args = 'on');
-    FMenu.ShadowsEnabled := Lighting.ShadowsEnabled;
-    FConsole.Print('Shadows: ' + BoolToStr(Lighting.ShadowsEnabled, True));
-  end else
-  if (Cmd = 'quit') or (Cmd = 'exit') then
-  begin
-    RequestQuit;
-  end else
-  if Cmd = 'lang' then
-  begin
-    { lang <code>: the menu, HUD and help in another language (saved) }
-    if Args <> '' then
-    begin
-      if Args = 'auto' then
-        SetLanguage('')
-      else
-        SetLanguage(Args);
-      SaveLanguageSettings;
-    end;
-    LangList := '';
-    for Lang in Languages do
-      LangList := LangList + ' ' + Lang.Code;
-    FConsole.Print(Format(Tr('Language: %s (%s); lang <code> changes it:%s, auto'),
-      [CurrentLanguage, CurrentLanguageName, LangList]));
-  end else
-  if Cmd = 'help' then
-  begin
-    FConsole.Print(Tr('Commands:'));
-    { The settings commands every view runs (GameConsole's table) }
-    HelpLines := TStringList.Create;
-    try
-      SettingsCommandHelp(HelpLines);
-      for HelpLine in HelpLines do
-        FConsole.Print(HelpLine);
-    finally
-      HelpLines.Free;
-    end;
-    FConsole.Print(Tr('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)'));
-    FConsole.Print(Tr('  skill <0..3>   - Skill for the next map'));
-    FConsole.Print(Tr('  record <name>  - Record a demo to <name>.dem, stop ends it'));
-    FConsole.Print(Tr('  save [slot]    - Save the game (F6 = quick)'));
-    FConsole.Print(Tr('  load [slot]    - Load a saved game (F9 = quick)'));
-    FConsole.Print(Tr('  god            - God mode'));
-    FConsole.Print(Tr('  give all       - Give all weapons, ammo, keys'));
-    FConsole.Print(Tr('  shadows <0|1>  - Toggle dynamic shadows'));
-    FConsole.Print(Tr('  wateralpha <0..1> - Opacity of water, slime and lava'));
-    FConsole.Print(Tr('  fog <density> [r g b] - Fog for this level (0 off)'));
-    FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
-    FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
-    FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
-    FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
-    FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
-    FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));
-    FConsole.Print(Tr('  maps [rating|newest|name|installed] [text] - Quaddicted maps; maps_install <id>,'));
-    FConsole.Print(Tr('    maps_play <id> [map], maps_remove <id> - download, play and remove one'));
-    FConsole.Print(Tr('  lan - Find games on the local network; lan_join <n> - join the nth'));
-    FConsole.Print(Tr('  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)'));
-    FConsole.Print(Tr('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)'));
-    FConsole.Print(Tr('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting'));
-    FConsole.Print(Tr('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off'));
-    FConsole.Print(Tr('  fps            - Show the frame rate in the stats line'));
-    FConsole.Print(Tr('  novis <0|1>    - 1 draws the whole world, 0 only what the PVS can see'));
-    FConsole.Print(Tr('  lang <code|auto> - Language of the menu, the HUD and this help'));
-    FConsole.Print(Tr('  quit           - Exit game'));
-  end else
-    FConsole.Print(Tr('Unknown command: ') + Cmd);
-end;
+{$I gameviewplay_commands.inc}
 
 procedure TViewPlay.HandleMenuAction(const Action: TMenuAction; const Param: String);
 begin

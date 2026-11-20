@@ -521,6 +521,9 @@ def check_photo(logs):
     result.append((len(photos) == 2 and photos[1][1:] == ('1600', '900', '60', 'gray'),
                    'a grayscale photo at the window size with its own field of view (%s)' %
                    (' '.join(photos[1][1:]) if len(photos) > 1 else '-')))
+    helped = re.search(r'Console: help \((\d+) commands, (\d+) lines\)', log)
+    result.append((helped is not None and int(helped.group(1)) >= 40 and int(helped.group(2)) >= 35,
+                   'the play view\'s command table answers help (%s)' % (helped.group(0) if helped else 'no line')))
     v = views(log)
     result.append((len(v) == 3 and v[1]['eye'] != v[0]['eye'], 'the camera flies away from the player'))
     result.append((len(v) == 3 and v[2]['eye'] == v[0]['eye'], 'leaving puts the camera back on the player'))
@@ -1629,7 +1632,7 @@ SCENARIOS = [
     Scenario('photo', [('play', ['--autotest', 'e1m1', '{out}/play', '--demo',
                                  'W:0.5,Y,S,CMD:photo 1,M:-60,T:25,P:-10,W:2,S,CMD:photo_effect dof,'
                                  'CMD:photo_shot,CMD:photo_effect gray,CMD:photo_fov 60,CMD:photo_scale 1,'
-                                 'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,Q'], 0),
+                                 'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,CMD:help,CMD:nosuch,Q'], 0),
                        ('pdemo', ['--autotest', 'demo1.dem', '{out}/pdemo', '--demo',
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,CMD:help,CMD:fov,CMD:nosuch 1,W:1,S,Q'], 0)],

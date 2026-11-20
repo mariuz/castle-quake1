@@ -123,6 +123,10 @@ def collect():
             # the help lines of the settings commands' table
             for lit in re.findall(r"Help: (" + LITERAL + r")", text):
                 add(unquote(lit), rel)
+        if rel.endswith('gameviewplay_commands.inc'):
+            # the help lines of the play view's command table
+            for lit in re.findall(r"AddCommand\(" + LITERAL + r",\s*(" + LITERAL + r")", text):
+                add(unquote(lit), rel)
         if rel.endswith('quakecaptions.pas'):
             for lit in re.findall(r"Text: (" + LITERAL + r")\)", text):
                 add(unquote(lit), rel)
