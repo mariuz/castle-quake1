@@ -41,6 +41,8 @@ type
     { Draws the entities (shared with the demo / network view) }
     FRenderer: TEntityRenderer;
     FUnderwater: TUnderwaterWarp;
+    FLoadTime: TLoadTimer;
+    FProfileTime: Single;   { the game time of the last CMD:profile }
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -291,12 +293,17 @@ begin
   FStuffFogSet := False;
   FStuffLiquidAlpha := -1;
   { effectinfo.txt first: the level's spawn functions ask for its effects }
+  FLoadTime.Start;
   if EffectParticles <> nil then
     EffectParticles.Load(FViewport.Items);
+  FLoadTime.Stage('effects');
   if not FGame.LoadLevel(AMapName, Skill, KeepParms) then
     Exit;
+  FLoadTime.Stage('bsp and QuakeC spawn');
   MapName := AMapName;
   SetupLevel;
+  FLoadTime.Report(AMapName);
+  FProfileTime := FGame.Time;
   if FGame.TakeFixAngle(Angles) then
     SetViewAngles(Angles.Y, Angles.X)
   else
@@ -313,6 +320,7 @@ begin
   ResetComponentNames;
   FGeometry := TQuakeGeometry.Create(FGame.Bsp);
   FGeometry.AddToWorld(FViewport.Items);
+  FLoadTime.Stage('geometry');
   ApplyWorldFog(FViewport, FGeometry);
   { What the progs stuffed while spawning the level }
   ApplyStuffed;
@@ -324,6 +332,7 @@ begin
       Lighting.SetStyle(I, FGame.LightStyleValue(I));
   FAmbient.Setup(FGame.Bsp, FViewport.Items);
   FRenderer.SetupSubmodels(FGeometry, FGame.Bsp.ModelCount);
+  FLoadTime.Stage('lights and sound');
   FDeathTimer := 0;
   FHud.StopIntermission;
   World := FGame.Bsp.FindEntity('worldspawn');
@@ -559,9 +568,10 @@ end;
 
 procedure TViewQc.RunQcCommand(const Line: String);
 var
-  Parts: TStringArray;
+  Parts, Lines: TStringArray;
   Num, N: Integer;
   Org: TVector3;
+  Total: Int64;
 begin
   Parts := Trim(Line).Split([' '], TStringSplitOptions.ExcludeEmpty);
   if Length(Parts) = 0 then
@@ -576,6 +586,16 @@ begin
       N := EffectParticles.Spawn(Num, Org, TVector3.Zero, 1);
     WritelnLog('GameViewQc', 'Effect "%s" (%d): %d particles at %.0f %.0f %.0f',
       [Parts[1], Num, N, Org.X, Org.Y, Org.Z]);
+  end else
+  if LowerCase(Parts[0]) = 'profile' then
+  begin
+    { Where the progs spend their statements since the last profile }
+    Lines := FGame.Progs.ProfileReport(10, Total);
+    WritelnLog('GameViewQc', 'Profile: %d QuakeC statements in %.1f s (%.0f a frame at 72 fps)',
+      [Total, FGame.Time - FProfileTime, Total / Max((FGame.Time - FProfileTime) * 72, 1)]);
+    for N := 0 to High(Lines) do
+      WritelnLog('GameViewQc', 'Profile: %s', [Lines[N]]);
+    FProfileTime := FGame.Time;
   end else
   if (LowerCase(Parts[0]) = 'r_effectinfo') and (Length(Parts) > 1) then
   begin

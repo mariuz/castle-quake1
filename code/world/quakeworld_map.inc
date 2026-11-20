@@ -308,8 +308,10 @@ var
   MapPath: String;
   I: Integer;
   World: TQuakeEntity;
+  LoadTime: TLoadTimer;
 begin
   Result := False;
+  LoadTime.Start;
   FLevelExited := False;
   ResetComponentNames;
   if FTriggerRoot <> nil then
@@ -356,6 +358,8 @@ begin
     Exit;
   end;
 
+  LoadTime.Stage('bsp');
+
   { DecodeLevelParms: returning to the start map after an episode starts
     over with a fresh inventory (the runes are kept) }
   if IsStartMap and (FServerFlags <> 0) then
@@ -368,9 +372,11 @@ begin
   FGeometry := TQuakeGeometry.Create(FBsp);
   FGeometry.Skill := FSkill;
   FGeometry.AddToWorld(FRootTransform);
+  LoadTime.Stage('geometry');
 
   { Initialize dynamic lights from map entities }
   Lighting.CreateLightsFromBsp(FBsp, FRootTransform);
+  LoadTime.Stage('lights');
 
   { Spawn world items and monsters (monsters are dropped to the floor with
     the player physics traces, so give them the new map first) }
@@ -379,6 +385,7 @@ begin
   SetLength(FPhys.SolidBoxes, 0);
   SpawnEntities;
   ApplyEpisodeGates;
+  LoadTime.Stage('entities');
   FHordeActive := False;
   if FHordeMode then
     StartHorde;
@@ -431,5 +438,7 @@ begin
   FRootTransform.Add(FTriggerRoot);
   for I := 0 to FTriggers.Count - 1 do
     CreateTriggerTransform(FTriggers[I], FTriggerRoot);
+  LoadTime.Stage('sound and rest');
+  LoadTime.Report(AMapName);
   Result := True;
 end;
