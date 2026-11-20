@@ -119,6 +119,10 @@ def collect():
             if m:
                 for lit in re.findall(LITERAL, call_args(text, m.end() - 1)):
                     add(unquote(lit), rel)
+        if rel.endswith('gameconsole.pas'):
+            # the help lines of the settings commands' table
+            for lit in re.findall(r"Help: (" + LITERAL + r")", text):
+                add(unquote(lit), rel)
         if rel.endswith('quakecaptions.pas'):
             for lit in re.findall(r"Text: (" + LITERAL + r")\)", text):
                 add(unquote(lit), rel)

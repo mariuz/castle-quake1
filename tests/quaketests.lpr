@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole;
 
 var
   Checks, Failures: Integer;
@@ -562,6 +562,36 @@ begin
   finally
     Game.Free;
   end;
+end;
+
+procedure TestSettingsCommands;
+var
+  Reply: String;
+  Lines: TStringList;
+begin
+  { GameConsole's table: the settings commands every view runs }
+  StartTest('Console settings commands');
+  VideoSettingsVolatile := True;
+  Check(Length(SettingsCommandNames) >= 15, Format('the table has the settings commands (%d)',
+    [Length(SettingsCommandNames)]));
+  Check(RunSettingsCommand('fov', '110', Reply) and (Round(VideoFov) = 110), 'fov sets the field of view');
+  Check(Pos('fov 110', Reply) = 1, 'and answers with the values (' + Reply + ')');
+  Check(RunSettingsCommand('fov', '', Reply) and (Round(VideoFov) = 110), 'no argument only shows them');
+  Check(RunSettingsCommand('r_lerpmove', '0', Reply) and not MoveLerp and (Reply = 'r_lerpmove 0'),
+    'r_lerpmove 0 turns the glide off');
+  Check(RunSettingsCommand('r_lerpmove', '1', Reply) and MoveLerp, 'and 1 on again');
+  Check(RunSettingsCommand('gl_texture_anisotropy', '9', Reply) and (TextureAnisotropy = 8),
+    'the anisotropy takes the nearest setting below');
+  Check(not RunSettingsCommand('map', 'e1m1', Reply), 'a view''s own command is not in the table');
+  Lines := TStringList.Create;
+  try
+    SettingsCommandHelp(Lines);
+    Check(Lines.Count >= 11, Format('every command has a help line (%d)', [Lines.Count]));
+  finally
+    Lines.Free;
+  end;
+  VideoFov := DefaultFov;
+  TextureAnisotropy := 4;
 end;
 
 procedure TestProgsStateRoundTrip;
@@ -2307,6 +2337,7 @@ begin
   TestEffectInfo;
   TestSkinContents;
   TestAreaGrid;
+  TestSettingsCommands;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

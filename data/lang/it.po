@@ -1231,3 +1231,18 @@ msgstr "Antialiasing"
 
 msgid "  r_waterwarp <0|1> - The picture waves under water"
 msgstr "  r_waterwarp <0|1> - L'immagine ondeggia sott'acqua"
+
+msgid "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Photo mode (demos)"
+msgstr "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Modalità foto (demo)"
+
+msgid "  A network game's host also runs status, kick, map, timelimit, fraglimit, addbot"
+msgstr "  L'host di una partita in rete ha anche status, kick, map, timelimit, fraglimit, addbot"
+
+msgid "Unknown command: %s"
+msgstr "Comando sconosciuto: %s"
+
+msgid "  map <name>, god, give - Another map, god mode, all weapons (QuakeC mode)"
+msgstr "  map <name>, god, give - Altra mappa, modalità dio, tutte le armi (modalità QuakeC)"
+
+msgid "  profile, effect <name> [count] - QuakeC statements per function, a mod's particle effect"
+msgstr "  profile, effect <name> [count] - Istruzioni QuakeC per funzione, un effetto particellare del mod"

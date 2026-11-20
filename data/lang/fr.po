@@ -1231,3 +1231,18 @@ msgstr "Anticrénelage"
 
 msgid "  r_waterwarp <0|1> - The picture waves under water"
 msgstr "  r_waterwarp <0|1> - L'image ondule sous l'eau"
+
+msgid "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Photo mode (demos)"
+msgstr "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Mode photo (démos)"
+
+msgid "  A network game's host also runs status, kick, map, timelimit, fraglimit, addbot"
+msgstr "  L'hôte d'une partie en réseau a aussi status, kick, map, timelimit, fraglimit, addbot"
+
+msgid "Unknown command: %s"
+msgstr "Commande inconnue : %s"
+
+msgid "  map <name>, god, give - Another map, god mode, all weapons (QuakeC mode)"
+msgstr "  map <name>, god, give - Autre carte, mode dieu, toutes les armes (mode QuakeC)"
+
+msgid "  profile, effect <name> [count] - QuakeC statements per function, a mod's particle effect"
+msgstr "  profile, effect <name> [count] - Instructions QuakeC par fonction, un effet de particules du mod"

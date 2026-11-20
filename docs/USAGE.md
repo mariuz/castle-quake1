@@ -37,7 +37,7 @@ More options, by topic (details in [REFERENCE.md](REFERENCE.md)):
 
 ## Console
 
-`~` opens the developer console; `help` lists the commands. The ones used most:
+`~` opens the developer console; `help` lists the commands of the view you are in (the settings work everywhere; QuakeC mode adds `map`, `god`, `give`, `profile` and `effect`, a network game the host's commands, a demo photo mode's). The ones used most:
 
 | Command | What it does |
 | --- | --- |
