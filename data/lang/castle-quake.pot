@@ -346,6 +346,14 @@ msgid "  records [map], records_reset [map] - Best time, kills and secrets of ea
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr ""
+
+#: code/gameviewplay.pas
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
 msgstr ""
 
@@ -995,6 +1003,26 @@ msgstr ""
 
 #: code/quakemenu.pas
 msgid "Show Weapon"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Texture Filter"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Smooth"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Blocky"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Anisotropic Filtering"
+msgstr ""
+
+#: code/quakemenu.pas
+msgid "Anti-Aliasing"
 msgstr ""
 
 #: code/quakemenu.pas

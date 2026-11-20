@@ -10,7 +10,7 @@ uses
   CastleVectors, CastleUIControls, CastleControls, CastleKeysMouse, CastleColors,
   CastleRectangles, CastleGLUtils, CastleImages, CastleFindFiles, CastleUriUtils, CastleComponentSerialize,
   CastleGameControllers,
-  QuakeSound, QuakePak, QuakeGeometry, QuakeMapBrowser, GameInput, GameVideo;
+  QuakeSound, QuakePak, QuakePalette, QuakeGeometry, QuakeMapBrowser, GameInput, GameVideo;
 
 type
   TMenuAction = (
@@ -444,6 +444,18 @@ begin
           FItems.Add('Show Weapon: [ON]')
         else
           FItems.Add('Show Weapon: [OFF]');
+        if TextureSmooth then
+          FItems.Add('Texture Filter: [Smooth]')
+        else
+          FItems.Add('Texture Filter: [Blocky]');
+        if TextureAnisotropy > 1 then
+          FItems.Add(Format('Anisotropic Filtering: [%dx]', [TextureAnisotropy]))
+        else
+          FItems.Add('Anisotropic Filtering: [OFF]');
+        if AntiAliasSamples > 1 then
+          FItems.Add(Format('Anti-Aliasing: [%dx]', [AntiAliasSamples]))
+        else
+          FItems.Add('Anti-Aliasing: [OFF]');
         FItems.Add('Captions: [' + BoolToStr(CaptionsEnabled, 'ON', 'OFF') + ']');
         FItems.Add('High Contrast HUD: [' + BoolToStr(HighContrastHud, 'ON', 'OFF') + ']');
         FItems.Add('Reduced Flashes: [' + BoolToStr(ReducedFlashes, 'ON', 'OFF') + ']');
@@ -944,7 +956,7 @@ begin
             RebuildMenuItems;
             FSelectedIdx := 3;
           end;
-        4, 5, 6, 7, 8, 9, 10, 11, 12:
+        4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15:
           begin
             { Video and accessibility options, applied by the views each
               frame and saved }
@@ -953,21 +965,26 @@ begin
               5: VideoGamma := NextInCycle(VideoGamma, [0.6, 0.7, 0.8, 0.9, 1.0, 1.2]);
               6: if ViewBob > 0 then ViewBob := 0 else ViewBob := DefaultViewBob;
               7: ShowWeapon := not ShowWeapon;
-              8: CaptionsEnabled := not CaptionsEnabled;
-              9: HighContrastHud := not HighContrastHud;
-              10: ReducedFlashes := not ReducedFlashes;
-              11: SpeedrunTimer := not SpeedrunTimer;
-              12: GhostRacing := not GhostRacing;
+              { The textures of the next level loaded; the window's
+                samples after a restart }
+              8: TextureSmooth := not TextureSmooth;
+              9: if TextureAnisotropy >= 16 then TextureAnisotropy := 1 else TextureAnisotropy := TextureAnisotropy * 2;
+              10: if AntiAliasSamples >= 8 then AntiAliasSamples := 1 else AntiAliasSamples := AntiAliasSamples * 2;
+              11: CaptionsEnabled := not CaptionsEnabled;
+              12: HighContrastHud := not HighContrastHud;
+              13: ReducedFlashes := not ReducedFlashes;
+              14: SpeedrunTimer := not SpeedrunTimer;
+              15: GhostRacing := not GhostRacing;
             end;
             SaveVideoSettings;
             Selected := FSelectedIdx;
             RebuildMenuItems;
             FSelectedIdx := Selected;
           end;
-        13, 14:
+        16, 17:
           begin
             { The colors of the player in network games (0..13) }
-            if FSelectedIdx = 13 then
+            if FSelectedIdx = 16 then
               PlayerShirt := (PlayerShirt + 1) mod 14
             else
               PlayerPants := (PlayerPants + 1) mod 14;
@@ -976,20 +993,20 @@ begin
             RebuildMenuItems;
             FSelectedIdx := Selected;
           end;
-        15:
+        18:
           begin
             { Auto (the system's), English, then the translations }
             SetLanguage(NextLanguageSetting(LanguageSetting));
             SaveLanguageSettings;
             RebuildMenuItems;
-            FSelectedIdx := 15;
+            FSelectedIdx := 18;
           end;
-        16:
+        19:
           begin
             FSubMenu := smControls;
             RebuildMenuItems;
           end;
-        17:
+        20:
           begin
             FSubMenu := smMain;
             RebuildMenuItems;

@@ -11,7 +11,7 @@ uses
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeServer, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
-  QuakeRandomMap, QuakeWorld, QuakeMapBrowser;
+  QuakeRandomMap, QuakeWorld, QuakeMapBrowser, CastleConfig;
 
 var
   Window: TCastleWindow;
@@ -869,6 +869,34 @@ begin
     Window.Container.View := ViewMenu;
 end;
 
+function SavedAntiAliasing: TAntiAliasing;
+var
+  I, Samples: Integer;
+begin
+  { The window's samples are fixed when it opens, before the user config
+    is loaded for everything else: read the one setting here. Headless
+    tests and the platforms whose config is not a file yet keep the default. }
+  Result := aaNone;
+  {$if not defined(ANDROID) and not defined(WASI)}
+  for I := 1 to Parameters.High do
+    if (Parameters[I] = '--autotest') or (Parameters[I] = '--qctest') or (Parameters[I] = '--export-map') then
+      Exit;
+  try
+    UserConfig.Load;
+    Samples := ValidAntiAlias(UserConfig.GetValue('video/fsaa', 1));
+  except
+    Samples := 1;
+  end;
+  case Samples of
+    2: Result := aa2SamplesFaster;
+    4: Result := aa4SamplesFaster;
+    8: Result := aa8SamplesFaster;
+  end;
+  if Samples > 1 then
+    WritelnLog('GameInitialize', 'Anti-aliasing: %d samples', [Samples]);
+  {$endif}
+end;
+
 initialization
   CmdPaks := TStringList.Create;
   ApplicationProperties.ApplicationName := 'castle-quake1';
@@ -878,6 +906,7 @@ initialization
   Application.OnInitialize := @ApplicationInitialize;
 
   Window := TCastleWindow.Create(Application);
+  Window.AntiAliasing := SavedAntiAliasing;
   Window.Caption := 'Castle Quake';
   Window.Width := 1600;
   Window.Height := 900;

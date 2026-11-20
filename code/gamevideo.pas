@@ -10,7 +10,7 @@ interface
 
 uses
   SysUtils, Classes, Math, CastleVectors, CastleViewport, CastleTransform, CastleCameras, X3DNodes, X3DFields,
-  CastleRenderOptions, CastleImages;
+  CastleRenderOptions, CastleImages, QuakePalette;
 
 const
   DefaultFov = 90;
@@ -47,9 +47,15 @@ var
   ModEffects: Boolean = True;
   { Changes are not saved (headless tests) }
   VideoSettingsVolatile: Boolean = False;
+  { vid_fsaa: multisampling samples (1 off, 2, 4, 8), used when the window
+    opens: a change shows after a restart }
+  AntiAliasSamples: Integer = 1;
 
 procedure LoadVideoSettings;
 procedure SaveVideoSettings;
+{ The nearest setting the options take: 1, 2, 4, 8, 16 / 1, 2, 4, 8 }
+function ValidAnisotropy(const V: Integer): Integer;
+function ValidAntiAlias(const V: Integer): Integer;
 
 { The colors as the network sends them: shirt * 16 + pants }
 function PlayerColors: Integer;
@@ -133,12 +139,34 @@ const
   BobCycle = 0.6;
   BobUp = 0.5;
 
+function ValidAnisotropy(const V: Integer): Integer;
+begin
+  if V >= 16 then
+    Result := 16
+  else if V >= 8 then
+    Result := 8
+  else if V >= 4 then
+    Result := 4
+  else if V >= 2 then
+    Result := 2
+  else
+    Result := 1;
+end;
+
+function ValidAntiAlias(const V: Integer): Integer;
+begin
+  Result := Min(ValidAnisotropy(V), 8);
+end;
+
 procedure LoadVideoSettings;
 begin
   VideoFov := EnsureRange(UserConfig.GetFloat('video/fov', DefaultFov), 50, 130);
   VideoGamma := EnsureRange(UserConfig.GetFloat('video/gamma', DefaultGamma), 0.4, 1.5);
   ViewBob := EnsureRange(UserConfig.GetFloat('video/bob', DefaultViewBob), 0, 0.1);
   ShowWeapon := UserConfig.GetValue('video/show_weapon', True);
+  TextureSmooth := UserConfig.GetValue('video/texture_smooth', False);
+  TextureAnisotropy := ValidAnisotropy(UserConfig.GetValue('video/anisotropy', 4));
+  AntiAliasSamples := ValidAntiAlias(UserConfig.GetValue('video/fsaa', 1));
   CaptionsEnabled := UserConfig.GetValue('access/captions', False);
   HighContrastHud := UserConfig.GetValue('access/hud_contrast', False);
   ReducedFlashes := UserConfig.GetValue('access/reduced_flashes', False);
@@ -166,6 +194,9 @@ begin
     UserConfig.SetDeleteFloat('video/gamma', VideoGamma, DefaultGamma);
     UserConfig.SetDeleteFloat('video/bob', ViewBob, ViewBobDefault);
     UserConfig.SetDeleteValue('video/show_weapon', ShowWeapon, True);
+    UserConfig.SetDeleteValue('video/texture_smooth', TextureSmooth, False);
+    UserConfig.SetDeleteValue('video/anisotropy', TextureAnisotropy, 4);
+    UserConfig.SetDeleteValue('video/fsaa', AntiAliasSamples, 1);
     UserConfig.SetDeleteValue('access/captions', CaptionsEnabled, False);
     UserConfig.SetDeleteValue('access/hud_contrast', HighContrastHud, False);
     UserConfig.SetDeleteValue('access/reduced_flashes', ReducedFlashes, False);

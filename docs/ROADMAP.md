@@ -338,8 +338,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
 - [x] **Smooth Movement in Demos and Network Games**:
   - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
-- [ ] **Anti-Aliasing and Texture Filtering Options**:
-  - Options > Video for multisampling (off, 2x, 4x), anisotropic filtering (now fixed at 4) and the choice between Quake's blocky texels and filtered ones (`gl_texturemode`), saved with the other video settings.
+- [x] **Anti-Aliasing and Texture Filtering Options**:
+  - Options (and the console) for the texture filter (Quake's blocky texels or smooth ones), anisotropic filtering (off to 16x) and anti-aliasing (off to 8x), saved with the other video settings.
 - [ ] **Underwater View**:
   - The screen warps and tints under water in the original; here only the sound is filtered. A full-screen warp effect while the eyes are in a liquid, off with `reduced_flashes`.
 - [ ] **Dynamic Light on Models**:

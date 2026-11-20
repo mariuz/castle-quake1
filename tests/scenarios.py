@@ -997,6 +997,33 @@ def frames_exttex(out_dir):
     return [(red > 160 * 90 * 0.1, 'the red checks show on the walls (%d of %d pixels red)' % (red, 160 * 90))]
 
 
+def check_video(logs):
+    log = logs['vid']
+    result = common_checks(logs, 'vid')
+    result.append(('Video: texture filter nearest, anisotropy 1, anti-aliasing 1 samples' in log and
+                   'Video: texture filter linear, anisotropy 1, anti-aliasing 1 samples' in log,
+                   'the console sets the texture filter and the anisotropy'))
+    return result
+
+
+def frames_video(out_dir):
+    """The same wall beside the player with blocky and with smooth texels"""
+    paths = [os.path.join(out_dir, 'vid_%d.png' % i) for i in (1, 2)]
+    if not all(os.path.exists(p) for p in paths):
+        return [(False, 'vid_1.png and vid_2.png exist')]
+    box = (0, 500, 300, 800)
+    blocky, smooth = (Image.open(p).convert('L').crop(box) for p in paths)
+
+    def edges(img):
+        # mean step between neighbouring pixels: hard texel borders make it large
+        w, h = img.size
+        px = img.load()
+        return sum(abs(px[x, y] - px[x + 1, y]) for y in range(h) for x in range(w - 1)) / (h * (w - 1))
+
+    e1, e2 = edges(blocky), edges(smooth)
+    return [(e1 > e2 * 1.3, 'blocky texels have harder edges than smooth ones (%.2f, %.2f)' % (e1, e2))]
+
+
 def prepare_litfog(out_dir):
     # E1M1 with a .lit of its own gray light (must look unchanged), with a
     # red tinted .lit, and with a worldspawn fog key
@@ -1639,6 +1666,12 @@ SCENARIOS = [
              check_records, []),
     # External textures: a texture pack in a game directory replaces E1M1's
     # wall textures (QuakeSpasm-Spiked's textures/<map>/<name>.tga)
+    # Video options: the wall textures blocky, then smooth (without the
+    # anisotropic filter, which smooths them on the software renderer)
+    Scenario('video', [('vid', ['--autotest', 'e1m1', '{out}/vid', '--demo',
+                                'W:0.3,CMD:gl_texture_anisotropy 1,CMD:map e1m1,W:2.5,S,'
+                                'CMD:gl_texturemode linear,CMD:map e1m1,W:2.5,S,Q'], 0)],
+             check_video, [], frame_checks=frames_video),
     # A mod's effectinfo.txt draws the shotgun's impacts in QuakeC mode
     # (and not with r_effectinfo 0)
     Scenario('fxmod', [('fx', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fx', '--demo',
