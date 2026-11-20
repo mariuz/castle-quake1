@@ -1441,7 +1441,7 @@ SCENARIOS = [
              check_e1m1_finish, ['finish_1', 'finish_4']),
     Scenario('e1m1_saveload', [('saveload', ['--autotest', 'e1m1', '{out}/saveload', '--demo',
                                              'W:0.5,G:1312;-218;-1156,A:270,C:2,W:1.5,X,W:0.6,X,W:0.6,O:scenario,'
-                                             'W:3,S,L:scenario,S,Q'], 0)],
+                                             'W:4,S,L:scenario,S,Q'], 0)],
              check_e1m1_saveload, []),
     Scenario('deathmatch', [('dm_host', ['--autotest', 'host:start', '{out}/dm_host', '--demo', 'W:16,S,Q',
                                          '-port', '26300'], 0),
