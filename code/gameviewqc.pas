@@ -126,7 +126,7 @@ var
 implementation
 
 uses
-  GameViewMenu, GameConsole, GameTranslate;
+  GameViewMenu, GameConsole, GameTranslate, GameLogWatch;
 
 const
   DeathRestartDelay = 3.0;
@@ -1036,6 +1036,12 @@ begin
       if FScriptTimer < StrToFloatDef(Param, 1.0) then
         Exit;
       FScriptTimer := 0;
+    end else
+    if Action = 'WL' then
+    begin
+      { Wait for a log line with this text }
+      if ScriptWaitsForLog(Param, SecondsPassed, FScriptTimer) then
+        Exit;
     end else
     if Action = 'S' then
       CaptureScreenshot

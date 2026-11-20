@@ -292,7 +292,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate, GameConsole;
+  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate, GameConsole, GameLogWatch;
 
 procedure TSplitViewport.RenderFromViewEverything(const RenderingCamera: TRenderingCamera);
 var
@@ -1959,6 +1959,12 @@ begin
       if FScriptTimer < StrToFloatDef(Param, 1.0) then
         Exit;
       FScriptTimer := 0;
+    end else
+    if Action = 'WL' then
+    begin
+      { Wait for a log line with this text }
+      if ScriptWaitsForLog(Param, SecondsPassed, FScriptTimer) then
+        Exit;
     end else
     if Action = 'S' then
       CaptureScreenshot

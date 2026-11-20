@@ -11,7 +11,7 @@ uses
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeServer, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
-  QuakeRandomMap, QuakeWorld, QuakeMapBrowser, CastleConfig;
+  QuakeRandomMap, QuakeWorld, QuakeMapBrowser, CastleConfig, GameLogWatch;
 
 var
   Window: TCastleWindow;
@@ -302,6 +302,8 @@ begin
     begin
       AutoTestMap := Parameters[I + 1];
       AutoTestPrefix := Parameters[I + 2];
+      { The script's WL: action reads the log from here on }
+      StartLogWatch;
       Inc(I, 2);
     end else
     if (Parameters[I] = '--demo') and (I + 1 <= Parameters.High) then
@@ -692,6 +694,7 @@ begin
   begin
     AutoTestMap := PageParameter('autotest');
     AutoTestPrefix := 'web';
+    StartLogWatch;
     AutoTestDemo := PageParameter('demo');
     WritelnLog('GameInitialize', 'Web autotest "%s" with "%s"', [AutoTestMap, AutoTestDemo]);
   end;

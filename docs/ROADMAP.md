@@ -361,7 +361,6 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
 - [x] **Stable Network Scenarios**:
   - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
-- [ ] **Scenarios That Wait for Log Lines**:
-  - A script action that waits for a line in the log (the client joined, the level changed) instead of a number of seconds, for the scenarios with two processes.
+- [x] **Scenarios That Wait for Log Lines**: the script action `WL:<text>` waits for a log line in every view; the `chat` scenario's host and client use it.
 - [ ] **Shared Test Helpers**:
   - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.

@@ -170,7 +170,7 @@ var
 
 implementation
 
-uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords, QuakeProgs, GameConsole;
+uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords, QuakeProgs, GameConsole, GameLogWatch;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -881,6 +881,11 @@ begin
       FDemoTimer := 0;
       Inc(FDemoIndex);
     end;
+  end else
+  if Action = 'WL' then { Wait for a log line with this text }
+  begin
+    if not ScriptWaitsForLog(Param, SecondsPassed, FDemoTimer) then
+      Inc(FDemoIndex);
   end else
   if Action = 'S' then { Screenshot }
   begin
