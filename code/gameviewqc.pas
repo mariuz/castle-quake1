@@ -40,6 +40,7 @@ type
     FStaticVisuals: array of TQcVisual;
     { Draws the entities (shared with the demo / network view) }
     FRenderer: TEntityRenderer;
+    FUnderwater: TUnderwaterWarp;
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -147,6 +148,7 @@ destructor TViewQc.Destroy;
 begin
   ClearLevel;
   FGame.Free;
+  FUnderwater.Free;
   FAmbient.Free;
   FScript.Free;
   inherited Destroy;
@@ -161,6 +163,7 @@ begin
   if FViewport = nil then
   begin
     FViewport := TCastleViewport.Create(Self);
+    FUnderwater := TUnderwaterWarp.Create(FViewport, 'qc');
     FViewport.FullSize := True;
     FViewport.Transparent := False;
     FViewport.BackgroundColor := Vector4(0.02, 0.02, 0.03, 1.0);
@@ -852,6 +855,7 @@ begin
   FHud.SetContents(C);
   S.Underwater := (C = CONTENTS_WATER) or (C = CONTENTS_SLIME) or (C = CONTENTS_LAVA);
   Sounds.SetUnderwater(S.Underwater);
+  FUnderwater.Update(S.Underwater, SecondsPassed);
   FHud.Update(SecondsPassed, S);
 end;
 

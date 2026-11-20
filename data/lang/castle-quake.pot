@@ -350,6 +350,10 @@ msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Textur
 msgstr ""
 
 #: code/gameviewplay.pas
+msgid "  r_waterwarp <0|1> - The picture waves under water"
+msgstr ""
+
+#: code/gameviewplay.pas
 msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
 msgstr ""
 

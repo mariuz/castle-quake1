@@ -53,6 +53,27 @@ var
 
 procedure LoadVideoSettings;
 procedure SaveVideoSettings;
+type
+  { The underwater view of software Quake (D_WarpScreen): a screen effect
+    on a viewport that waves the picture while the eye is in a liquid }
+  TUnderwaterWarp = class
+  private
+    FEffect: TScreenEffectNode;
+    FTime: TSFFloat;
+    FPhase: Single;
+    FName: String;
+  public
+    { AName tells the views apart in the log ("play", "qc", "demo") }
+    constructor Create(const Viewport: TCastleViewport; const AName: String);
+    { Every frame: on while InLiquid (and r_waterwarp), the waves move on }
+    procedure Update(const InLiquid: Boolean; const SecondsPassed: Single);
+    function Active: Boolean;
+  end;
+
+var
+  { r_waterwarp: the picture waves under water }
+  WaterWarp: Boolean = True;
+
 { The nearest setting the options take: 1, 2, 4, 8, 16 / 1, 2, 4, 8 }
 function ValidAnisotropy(const V: Integer): Integer;
 function ValidAntiAlias(const V: Integer): Integer;
@@ -138,6 +159,67 @@ const
   { cl_bobcycle, cl_bobup }
   BobCycle = 0.6;
   BobUp = 0.5;
+
+const
+  { Every row and column is shifted by a sine wave (8 pixels at 320x200,
+    128 pixel period), with the image shrunk by the amplitude so the edges
+    never sample outside }
+  UnderwaterFragmentShader =
+    'uniform float warp_time;' + LineEnding +
+    'void main(void)' + LineEnding +
+    '{' + LineEnding +
+    '  const vec2 amp = vec2(8.0 / 320.0, 8.0 / 200.0);' + LineEnding +
+    '  const float tau = 6.2831853;' + LineEnding +
+    '  vec2 p = screenf_01_position;' + LineEnding +
+    '  vec2 q = p * (1.0 - 2.0 * amp) + amp;' + LineEnding +
+    '  q.x += amp.x * sin(p.y * (200.0 / 128.0) * tau + warp_time);' + LineEnding +
+    '  q.y += amp.y * sin(p.x * (320.0 / 128.0) * tau + warp_time);' + LineEnding +
+    '  gl_FragColor = vec4(screenf_01_get_color(q).rgb, 1.0);' + LineEnding +
+    '}' + LineEnding;
+  { Turbulence phase speed: 20 sine table steps (of 128) per second }
+  UnderwaterWarpSpeed = 20.0 * 6.2831853 / 128.0;
+
+constructor TUnderwaterWarp.Create(const Viewport: TCastleViewport; const AName: String);
+var
+  FragmentPart: TShaderPartNode;
+  Shader: TComposedShaderNode;
+begin
+  inherited Create;
+  FName := AName;
+  FragmentPart := TShaderPartNode.Create;
+  FragmentPart.ShaderType := stFragment;
+  FragmentPart.Contents := UnderwaterFragmentShader;
+  Shader := TComposedShaderNode.Create;
+  Shader.SetParts([FragmentPart]);
+  FTime := TSFFloat.Create(Shader, True, 'warp_time', 0);
+  Shader.AddCustomField(FTime);
+  FEffect := TScreenEffectNode.Create;
+  FEffect.SetShaders([Shader]);
+  FEffect.Enabled := False;
+  Viewport.AddScreenEffect(FEffect);
+end;
+
+function TUnderwaterWarp.Active: Boolean;
+begin
+  Result := FEffect.Enabled;
+end;
+
+procedure TUnderwaterWarp.Update(const InLiquid: Boolean; const SecondsPassed: Single);
+var
+  Wanted: Boolean;
+begin
+  Wanted := InLiquid and WaterWarp;
+  if FEffect.Enabled <> Wanted then
+  begin
+    FEffect.Enabled := Wanted;
+    WritelnLog('GameVideo', 'Underwater view %s (%s)', [BoolToStr(Wanted, 'on', 'off'), FName]);
+  end;
+  if Wanted then
+  begin
+    FPhase := FloatModulo(FPhase + SecondsPassed * UnderwaterWarpSpeed, 2 * Pi);
+    FTime.Send(FPhase);
+  end;
+end;
 
 function ValidAnisotropy(const V: Integer): Integer;
 begin

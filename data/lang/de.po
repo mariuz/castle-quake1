@@ -1228,3 +1228,6 @@ msgstr "Anisotrope Filterung"
 
 msgid "Anti-Aliasing"
 msgstr "Kantenglättung"
+
+msgid "  r_waterwarp <0|1> - The picture waves under water"
+msgstr "  r_waterwarp <0|1> - Das Bild wellt sich unter Wasser"

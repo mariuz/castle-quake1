@@ -1228,3 +1228,6 @@ msgstr "Filtrage anisotrope"
 
 msgid "Anti-Aliasing"
 msgstr "Anticrénelage"
+
+msgid "  r_waterwarp <0|1> - The picture waves under water"
+msgstr "  r_waterwarp <0|1> - L'image ondule sous l'eau"
