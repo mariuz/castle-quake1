@@ -214,6 +214,22 @@ msgid "Only the host of the game runs commands"
 msgstr ""
 
 #: code/gameviewdemo.pas
+msgid "Commands:"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Photo mode (demos)"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "  A network game's host also runs status, kick, map, timelimit, fraglimit, addbot"
+msgstr ""
+
+#: code/gameviewdemo.pas
+msgid "Unknown command: %s"
+msgstr ""
+
+#: code/gameviewdemo.pas
 msgid "say:"
 msgstr ""
 
@@ -330,10 +346,6 @@ msgid "Language: %s (%s); lang <code> changes it:%s, auto"
 msgstr ""
 
 #: code/gameviewplay.pas
-msgid "Commands:"
-msgstr ""
-
-#: code/gameviewplay.pas
 msgid "  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)"
 msgstr ""
 
@@ -443,6 +455,14 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "Unknown command: "
+msgstr ""
+
+#: code/gameviewqc.pas
+msgid "  map <name>, god, give - Another map, god mode, all weapons (QuakeC mode)"
+msgstr ""
+
+#: code/gameviewqc.pas
+msgid "  profile, effect <name> [count] - QuakeC statements per function, a mod's particle effect"
 msgstr ""
 
 #: code/quakecaptions.pas

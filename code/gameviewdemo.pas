@@ -21,7 +21,7 @@ uses
   GameInput, GameVideo, GameTouch, GamePhoto,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeSprite, QuakeAmbient, QuakePalette, QuakeDemo, QuakePhysics, QuakeNet, QuakeServer, QuakeWebSocketRelay,
-  GameEntityRenderer, QuakeEffectParticles;
+  GameEntityRenderer, QuakeEffectParticles, QuakeConsole;
 
 type
   TDemoVisual = TEntityVisual;
@@ -158,11 +158,19 @@ type
     FInputSent: array[0..255] of Double;
     FPingAck: Integer;
     FPing: Single;
+    { The developer console (the settings commands, photo mode's, the host's) }
+    FConsole: TQuakeConsole;
     FIntermissionBoard: Boolean;
     procedure ShowChatLine;
     { Send a chat line, or run a host command (a line starting with /) }
     procedure SendChatLine(const Text: String);
     procedure RunHostCommand(const Line: String);
+    { A line of the console or of a script's CMD: the settings commands,
+      photo mode's, then the host's (network game) }
+    procedure RunConsoleCommand(const Line: String);
+    procedure HandleConsoleCommand(const Cmd, Args: String);
+    { To the console and, while it is closed, the HUD }
+    procedure ConsoleSay(const S: String; const Seconds: Single);
     function ScoreboardText: String;
     function ScoreboardLog: String;
     procedure ClearLevel;
@@ -483,6 +491,12 @@ begin
   FHud.CrosshairVisible := NetMode;
   FNavigation.Exists := NetMode;
   FNavigation.MouseLook := NetMode and (AutoTestPrefix = '');
+  if FConsole = nil then
+  begin
+    FConsole := TQuakeConsole.Create(Self);
+    FConsole.OnCommand := @HandleConsoleCommand;
+    InsertFront(FConsole);
+  end;
   Particles.SetParent(FViewport.Items);
   if FRenderer = nil then
     FRenderer := TEntityRenderer.Create(FViewport.Items, 'entity');
@@ -718,7 +732,7 @@ begin
   Input.Msec := Min(Round(FInputTime * 1000), MaxInputMsec);
   FInputTime := Max(0, FInputTime - Input.Msec / 1000);
   Input.Angles := FDemo.ViewAngles;
-  if (AutoTestPrefix = '') and not FChatting then
+  if (AutoTestPrefix = '') and not FChatting and not FConsole.IsOpen then
   begin
     if BindingHeld(qbForward, Container, PlayerOne) then
       Input.Move.X := Input.Move.X + ClForwardSpeed;
@@ -1569,7 +1583,70 @@ begin
   end;
   Answer := ListenServer.HostCommand(Line, FDemo.ViewEntity);
   if Answer <> '' then
-    FHud.ShowMessage(Answer, 4);
+    ConsoleSay(Answer, 4);
+end;
+
+procedure TViewDemo.ConsoleSay(const S: String; const Seconds: Single);
+begin
+  if FConsole <> nil then
+    FConsole.Print(S);
+  if (FConsole = nil) or not FConsole.IsOpen then
+    FHud.ShowMessage(S, Seconds);
+end;
+
+procedure TViewDemo.HandleConsoleCommand(const Cmd, Args: String);
+begin
+  RunConsoleCommand(Trim(Cmd + ' ' + Args));
+end;
+
+procedure TViewDemo.RunConsoleCommand(const Line: String);
+var
+  P: Integer;
+  Cmd, Args, Reply, HelpLine: String;
+  HelpLines: TStringList;
+begin
+  P := Pos(' ', Line);
+  if P = 0 then
+    P := Length(Line) + 1;
+  Cmd := Copy(Line, 1, P - 1);
+  Args := Trim(Copy(Line, P + 1, MaxInt));
+  if Cmd = '' then
+    Exit;
+  { The settings commands of every view (fov, r_lerpmove...) first }
+  if RunSettingsCommand(LowerCase(Cmd), Args, Reply) then
+    ConsoleSay(Reply, 3)
+  else
+  if LowerCase(Cmd) = 'help' then
+  begin
+    FConsole.Print(Tr('Commands:'));
+    FConsole.Print(Tr('  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Photo mode (demos)'));
+    FConsole.Print(Tr('  A network game''s host also runs status, kick, map, timelimit, fraglimit, addbot'));
+    HelpLines := TStringList.Create;
+    try
+      SettingsCommandHelp(HelpLines);
+      for HelpLine in HelpLines do
+        FConsole.Print(HelpLine);
+      WritelnLog('GameViewDemo', 'Console: help (%d settings lines)', [HelpLines.Count]);
+    finally
+      HelpLines.Free;
+    end;
+  end else
+  { Photo mode's console commands: photo [0|1], photo_fov, photo_effect,
+    photo_scale, photo_shot }
+  if Cmd = 'photo' then
+    SetPhotoMode(Args <> '0')
+  else
+  if Pos('photo_', Cmd) = 1 then
+    FPhoto.Command(Cmd, Args, PhotoPrefix)
+  else
+  if NetMode then
+    { The listen server's host console }
+    RunHostCommand(Line)
+  else
+  begin
+    FConsole.Print(Format(Tr('Unknown command: %s'), [Cmd]));
+    WritelnLog('GameViewDemo', 'Command not run in a demo: %s', [Line]);
+  end;
 end;
 
 procedure TViewDemo.ShowChatLine;
@@ -1859,7 +1936,7 @@ end;
 
 procedure TViewDemo.RunScript(const SecondsPassed: Single);
 var
-  Cmd, Action, Param, SettingsReply: String;
+  Cmd, Action, Param: String;
   P: Integer;
   Parts: TStringArray;
 begin
@@ -1951,24 +2028,7 @@ begin
     end else
     if Action = 'CMD' then
     begin
-      { Photo mode's console commands: photo [0|1], photo_fov, photo_effect,
-        photo_scale, photo_shot }
-      P := Pos(' ', Param);
-      if P = 0 then
-        P := Length(Param) + 1;
-      { The settings commands of every view (fov, r_lerpmove...) first }
-      if RunSettingsCommand(LowerCase(Copy(Param, 1, P - 1)), Trim(Copy(Param, P + 1, MaxInt)), SettingsReply) then
-        FHud.ShowMessage(SettingsReply, 3)
-      else
-      if Copy(Param, 1, P - 1) = 'photo' then
-        SetPhotoMode(Trim(Copy(Param, P + 1, MaxInt)) <> '0')
-      else
-      if Pos('photo_', Param) = 1 then
-        FPhoto.Command(Copy(Param, 1, P - 1), Trim(Copy(Param, P + 1, MaxInt)), PhotoPrefix)
-      else
-      if NetMode then
-        { The listen server's host console }
-        RunHostCommand(Param);
+      RunConsoleCommand(Param);
     end else
     if (Action = 'SB') and NetMode then { Log the scoreboard (and show it a moment) }
       WritelnLog('GameViewDemo', 'Scoreboard: %s', [ScoreboardLog])
@@ -2117,8 +2177,11 @@ begin
 
   { Touch controls only in a network game; their menu button leaves it }
   FTouch.UpdateShown(NetMode);
-  if NetMode and TouchControlsWanted and FNavigation.MouseLook then
-    FNavigation.MouseLook := False;
+  if NetMode and FNavigation.MouseLook and (TouchControlsWanted or FConsole.IsOpen) then
+    FNavigation.MouseLook := False
+  else if NetMode and (AutoTestPrefix = '') and not TouchControlsWanted and not FConsole.IsOpen and
+     not FNavigation.MouseLook and FNavigation.Exists then
+    FNavigation.MouseLook := True;
   if FTouch.MenuRequested then
   begin
     Leave;
@@ -2315,6 +2378,16 @@ begin
   Result := inherited Press(Event);
   if Result then
     Exit;
+  { The console takes the keys while it is open }
+  if FConsole.IsOpen then
+    Exit(FConsole.Press(Event));
+  if not FChatting and not FPhoto.Active and
+     (BindingEvent(qbConsole, Event) or (Event.KeyString = '~') or (Event.KeyString = '`')) then
+  begin
+    FConsole.Toggle;
+    WritelnLog('GameViewDemo', 'Console %s', [BoolToStr(FConsole.IsOpen, 'opened', 'closed')]);
+    Exit(True);
+  end;
   if NetMode then
   begin
     { Typing chat: Enter sends, Escape drops it, the rest is the text }

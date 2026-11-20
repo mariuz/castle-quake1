@@ -530,6 +530,9 @@ def check_photo(logs):
                    'the demo waits in photo mode and goes on after (time %s)' % ' -> '.join('%.1f' % t for t in shots)))
     demo_photos = PHOTO_RE.findall(d)
     result.append((len(demo_photos) == 1 and demo_photos[0][4] == 'vignette', 'a photo from demo playback'))
+    result.append((re.search(r'Console: help \(\d+ settings lines\)', d) is not None and 'Console: fov: fov' in d and
+                   'Command not run in a demo: nosuch 1' in d,
+                   'the demo view\'s console: help, a settings command and an unknown one'))
     return result
 
 
@@ -835,7 +838,7 @@ def check_quakec(logs):
     result.append((count >= 150, 'progs.dat spawned the level (%d edicts)' % count))
     result += common_checks(logs, 'qcglide')
     gliding = [int(x) for x in re.findall(r'Entities drawn: .* (\d+) gliding', logs['qcglide'])]
-    result.append((len(gliding) == 3 and max(gliding) > 0,
+    result.append((len(gliding) == 4 and max(gliding[:3]) > 0,
                    'walking monsters glide between their steps (%s)' % gliding))
     # the profile of the fight and the timing of the level load
     total = re.search(r'Profile: (\d+) QuakeC statements in ([\d.]+) s', logs['qcglide'])
@@ -852,6 +855,12 @@ def check_quakec(logs):
     played = [int(x) for x in re.findall(r'Entities gliding between steps: (\d+)', logs['qcplay'])]
     result.append((len(played) == 4 and max(played) > 0,
                    'and in the recorded demo of the fight (%s)' % played))
+    # the console's commands of the QuakeC view (CMD: runs what the console runs)
+    g = logs['qcglide']
+    result.append(('God mode off' in g and 'r_lerpmove <0|1>' in g and 'map <name>, god, give' in g,
+                   'the QuakeC view\'s console: help lists its commands and the settings, god'))
+    result.append(('No maps/nosuchmap.bsp' in g and 'Map "e1m2" loaded in QuakeC mode' in g and
+                   'Level load "e1m2"' in g, 'its map command loads another level and refuses an unknown one'))
     m = re.findall(r'Entity traces: (\d+), ([\d.]+) entities tested each of (\d+) edicts', logs['qcglide'])
     result.append((bool(m) and int(m[-1][0]) > 100 and float(m[-1][1]) < int(m[-1][2]) / 4,
                    'the area grid keeps the entity traces short (%s)'
@@ -1452,7 +1461,8 @@ SCENARIOS = [
     # of 0.1 s and glide between them (r_lerpmove)
     Scenario('quakec', [('qc', ['--autotest', 'qc:e1m1', '{out}/qc', '--demo', 'W:1,E,S,Q'], 0),
                         ('qcglide', ['--autotest', 'qc:e1m1', '{out}/qcglide', '--demo',
-                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,CMD:profile,Q'], 0),
+                                     'W:1,Y,X,W:1,X,W:2,S,W:0.05,S,W:0.05,S,CMD:profile,CMD:help,CMD:god,'
+                                     'CMD:map nosuchmap,CMD:map e1m2,W:1,S,Q'], 0),
                         # the same fight recorded and played back: the demo
                         # carries the step flag and the monsters glide there too
                         ('qcrec', ['--autotest', 'qc:e1m1', '{out}/qcrec', '--demo',
@@ -1622,7 +1632,7 @@ SCENARIOS = [
                                  'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,Q'], 0),
                        ('pdemo', ['--autotest', 'demo1.dem', '{out}/pdemo', '--demo',
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
-                                  'CMD:photo 0,W:1,S,Q'], 0)],
+                                  'CMD:photo 0,CMD:help,CMD:fov,CMD:nosuch 1,W:1,S,Q'], 0)],
              check_photo, [], frame_checks=frames_photo),
     # LAN discovery: a host answers the search of another process, which
     # joins the game it found

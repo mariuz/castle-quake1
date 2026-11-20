@@ -1231,3 +1231,18 @@ msgstr "Kantenglättung"
 
 msgid "  r_waterwarp <0|1> - The picture waves under water"
 msgstr "  r_waterwarp <0|1> - Das Bild wellt sich unter Wasser"
+
+msgid "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Photo mode (demos)"
+msgstr "  photo <0|1>, photo_fov, photo_effect, photo_scale, photo_shot - Fotomodus (Demos)"
+
+msgid "  A network game's host also runs status, kick, map, timelimit, fraglimit, addbot"
+msgstr "  Der Host eines Netzwerkspiels hat auch status, kick, map, timelimit, fraglimit, addbot"
+
+msgid "Unknown command: %s"
+msgstr "Unbekannter Befehl: %s"
+
+msgid "  map <name>, god, give - Another map, god mode, all weapons (QuakeC mode)"
+msgstr "  map <name>, god, give - Andere Karte, Gottmodus, alle Waffen (QuakeC-Modus)"
+
+msgid "  profile, effect <name> [count] - QuakeC statements per function, a mod's particle effect"
+msgstr "  profile, effect <name> [count] - QuakeC-Anweisungen je Funktion, ein Partikeleffekt des Mods"

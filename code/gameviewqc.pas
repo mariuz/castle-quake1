@@ -14,7 +14,8 @@ uses
   CastleCameras, CastleBehaviors, X3DNodes,
   GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
-  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame, QuakeEffectParticles, GameEntityRenderer;
+  QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame, QuakeEffectParticles, GameEntityRenderer,
+  QuakeConsole;
 
 type
   TQcVisual = TEntityVisual;
@@ -42,6 +43,8 @@ type
     FRenderer: TEntityRenderer;
     FUnderwater: TUnderwaterWarp;
     FLoadTime: TLoadTimer;
+    { The developer console (the settings commands and this view's own) }
+    FConsole: TQuakeConsole;
     FProfileTime: Single;   { the game time of the last CMD:profile }
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
@@ -83,6 +86,7 @@ type
     { The script's CMD: in QuakeC mode: effect <name> [count] (an
       effectinfo.txt effect 64 units in front of the camera), r_effectinfo }
     procedure RunQcCommand(const Line: String);
+    procedure HandleConsoleCommand(const Cmd, Args: String);
     { effectinfo.txt's underwater / notunderwater }
     function PointInLiquid(const QuakePos: TVector3): Boolean;
     procedure RunStuffedCommand(const Command: String);
@@ -122,7 +126,7 @@ var
 implementation
 
 uses
-  GameViewMenu, GameConsole;
+  GameViewMenu, GameConsole, GameTranslate;
 
 const
   DeathRestartDelay = 3.0;
@@ -222,6 +226,12 @@ begin
     if Trim(Cmd) <> '' then
       FScript.Add(Trim(Cmd));
   FNavigation.MouseLook := AutoTestPrefix = '';
+  if FConsole = nil then
+  begin
+    FConsole := TQuakeConsole.Create(Self);
+    FConsole.OnCommand := @HandleConsoleCommand;
+    InsertFront(FConsole);
+  end;
 
   if MapName = '' then
     MapName := 'start';
@@ -566,18 +576,66 @@ begin
   FHud.ShowMessage(StringReplace(S, #10, LineEnding, [rfReplaceAll]), 2.5);
 end;
 
+procedure TViewQc.HandleConsoleCommand(const Cmd, Args: String);
+begin
+  RunQcCommand(Trim(Cmd + ' ' + Args));
+end;
+
 procedure TViewQc.RunQcCommand(const Line: String);
+
+  { To the console (when it is open) and the log }
+  procedure Say(const S: String);
+  begin
+    WritelnLog('GameViewQc', '%s', [S]);
+    if FConsole <> nil then
+      FConsole.Print(S);
+  end;
+
 var
   Parts, Lines: TStringArray;
-  Reply: String;
+  Reply, Cmd, Args, HelpLine: String;
   Num, N: Integer;
   Org: TVector3;
   Total: Int64;
+  HelpLines: TStringList;
 begin
   Parts := Trim(Line).Split([' '], TStringSplitOptions.ExcludeEmpty);
   if Length(Parts) = 0 then
     Exit;
-  if (LowerCase(Parts[0]) = 'effect') and (Length(Parts) > 1) and (EffectParticles <> nil) then
+  Cmd := LowerCase(Parts[0]);
+  Args := Trim(Copy(Trim(Line), Length(Parts[0]) + 1, MaxInt));
+  { The settings commands of every view (fov, r_lerpmove, r_effectinfo...) }
+  if RunSettingsCommand(Cmd, Args, Reply) then
+  begin
+    if FConsole <> nil then
+      FConsole.Print(Reply);
+  end else
+  if (Cmd = 'map') or (Cmd = 'warp') then
+  begin
+    if Args = '' then
+      Say('Usage: map <mapname>')
+    else if not Pak.FileExists('maps/' + Args + '.bsp') then
+      Say(Format('No maps/%s.bsp', [Args]))
+    else if LoadLevel(Args, False) then
+    begin
+      Say(Format('Map "%s" loaded in QuakeC mode', [Args]));
+      if FConsole <> nil then
+        FConsole.Close;
+    end else
+      Say(Format('Cannot load map "%s"', [Args]));
+  end else
+  if Cmd = 'god' then
+  begin
+    FGod := not FGod;
+    Say('God mode ' + BoolToStr(FGod, 'on', 'off'));
+  end else
+  if Cmd = 'give' then
+  begin
+    { The progs' own cheat: all weapons, ammo and keys }
+    FImpulse := 9;
+    Say('Impulse 9: all weapons, ammo and keys');
+  end else
+  if (Cmd = 'effect') and (Length(Parts) > 1) and (EffectParticles <> nil) then
   begin
     Num := EffectParticles.Info.EffectNum(Parts[1]);
     Org := CgeToQuake(FViewport.Camera.Translation + FViewport.Camera.Direction * 64);
@@ -585,22 +643,33 @@ begin
       N := EffectParticles.Spawn(Num, Org, TVector3.Zero, StrToFloatDef(Parts[2], 1))
     else
       N := EffectParticles.Spawn(Num, Org, TVector3.Zero, 1);
-    WritelnLog('GameViewQc', 'Effect "%s" (%d): %d particles at %.0f %.0f %.0f',
-      [Parts[1], Num, N, Org.X, Org.Y, Org.Z]);
+    Say(Format('Effect "%s" (%d): %d particles at %.0f %.0f %.0f', [Parts[1], Num, N, Org.X, Org.Y, Org.Z]));
   end else
-  if LowerCase(Parts[0]) = 'profile' then
+  if Cmd = 'profile' then
   begin
     { Where the progs spend their statements since the last profile }
     Lines := FGame.Progs.ProfileReport(10, Total);
-    WritelnLog('GameViewQc', 'Profile: %d QuakeC statements in %.1f s (%.0f a frame at 72 fps)',
-      [Total, FGame.Time - FProfileTime, Total / Max((FGame.Time - FProfileTime) * 72, 1)]);
+    Say(Format('Profile: %d QuakeC statements in %.1f s (%.0f a frame at 72 fps)',
+      [Total, FGame.Time - FProfileTime, Total / Max((FGame.Time - FProfileTime) * 72, 1)]));
     for N := 0 to High(Lines) do
-      WritelnLog('GameViewQc', 'Profile: %s', [Lines[N]]);
+      Say('Profile: ' + Lines[N]);
     FProfileTime := FGame.Time;
   end else
-  { The settings commands of every view (fov, r_lerpmove, r_effectinfo...) }
-  if not RunSettingsCommand(LowerCase(Parts[0]), Trim(Copy(Trim(Line), Length(Parts[0]) + 1, MaxInt)), Reply) then
-    WritelnLog('GameViewQc', 'Command not run in QuakeC mode: %s', [Line]);
+  if Cmd = 'help' then
+  begin
+    Say(Tr('Commands:'));
+    Say(Tr('  map <name>, god, give - Another map, god mode, all weapons (QuakeC mode)'));
+    Say(Tr('  profile, effect <name> [count] - QuakeC statements per function, a mod''s particle effect'));
+    HelpLines := TStringList.Create;
+    try
+      SettingsCommandHelp(HelpLines);
+      for HelpLine in HelpLines do
+        Say(HelpLine);
+    finally
+      HelpLines.Free;
+    end;
+  end else
+    Say(Format('Command not run in QuakeC mode: %s', [Line]));
 end;
 
 function TViewQc.PointInLiquid(const QuakePos: TVector3): Boolean;
@@ -884,7 +953,7 @@ var
   PadForward, PadSide: Single;
 begin
   FillChar(Cmd, SizeOf(Cmd), 0);
-  if AutoTestPrefix = '' then
+  if (AutoTestPrefix = '') and not FConsole.IsOpen then
   begin
     if BindingHeld(qbForward, Container) then
       Cmd.ForwardMove := Cmd.ForwardMove + ClForwardSpeed;
@@ -1050,8 +1119,8 @@ begin
 
   { The touch controls; their menu button goes back to the menu like Escape }
   FTouch.UpdateShown(True);
-  if TouchControlsWanted and FNavigation.MouseLook then
-    FNavigation.MouseLook := False;
+  { The mouse is free while the console is open }
+  FNavigation.MouseLook := (AutoTestPrefix = '') and not TouchControlsWanted and not FConsole.IsOpen;
   if FTouch.MenuRequested then
   begin
     Container.View := ViewMenu;
@@ -1061,7 +1130,7 @@ begin
   { Input }
   BuildUserCmd(Cmd);
   FScriptJump := Math.Max(0.0, FScriptJump - SecondsPassed);
-  Fire := (FFireHeld > 0) or ((AutoTestPrefix = '') and BindingHeld(qbFire, Container));
+  Fire := (FFireHeld > 0) or ((AutoTestPrefix = '') and not FConsole.IsOpen and BindingHeld(qbFire, Container));
   UpdateGamepad;
   if AutoTestPrefix = '' then
   begin
@@ -1160,6 +1229,15 @@ begin
   Result := inherited Press(Event);
   if Result then
     Exit;
+  { The console takes the keys while it is open }
+  if (FConsole <> nil) and FConsole.IsOpen then
+    Exit(FConsole.Press(Event));
+  if (FConsole <> nil) and (BindingEvent(qbConsole, Event) or (Event.KeyString = '~') or (Event.KeyString = '`')) then
+  begin
+    FConsole.Toggle;
+    WritelnLog('GameViewQc', 'Console %s', [BoolToStr(FConsole.IsOpen, 'opened', 'closed')]);
+    Exit(True);
+  end;
   if Event.IsKey(keyEscape) then
   begin
     Container.View := ViewMenu;
