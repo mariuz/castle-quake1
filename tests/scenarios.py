@@ -383,7 +383,7 @@ def check_chat(logs):
     result.append((re.search(r'Demo: \w+: hello there', h) is not None, 'the host\'s player gets it'))
     result.append((re.search(r'Demo: \w+: gg', c) is not None, 'and the host\'s answer reaches the client'))
     waits = re.findall(r'LogWatch: found "([^"]*)" after ([\d.]+) s', h + c)
-    result.append((len(waits) == 4 and 'LogWatch: gave up' not in h + c,
+    result.append((len(waits) == 3 and 'LogWatch: gave up' not in h + c,
                    'both scripts wait for log lines, not seconds (%s)' % ', '.join('%s %s s' % w for w in waits)))
     return result
 
@@ -1670,10 +1670,10 @@ SCENARIOS = [
              check_netrecord, [], dark=('rhost',)),
     # Chat: a client says something, everyone gets it; the host answers
     Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo',
-                                 'WL:Client 2 ,W:1,SAY:gg,WL:hello there,W:1.5,S,Q', '-port',
+                                 'WL:hello there,W:0.5,SAY:gg,W:2.5,S,Q', '-port',
                                  '26006'], 0),
                       ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
-                                   'WL:Connected,W:1.5,SAY:hello there,WL:: gg,W:1,S,Q'], 2)],
+                                   'WL:Connected,W:1.5,SAY:hello there,WL:: gg,W:0.5,S,Q'], 2)],
              check_chat, [], dark=('chost', 'cclient')),
     # Player names and colors: a coop host and a client, each with its
     # -name and -color; the client turns to the host's player

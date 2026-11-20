@@ -14,7 +14,7 @@ The autotest harness allows headless verification and screenshot generation:
 
 Demo script actions:
 - `W:sec` wait seconds
-- `WL:<text>` wait until a log line with this text appears (after the line the last `WL:` found; every view). Logs `LogWatch: found "<text>" after N s`, or `LogWatch: gave up on "<text>" after 30.0 s` and goes on. For two-process scenarios: `WL:Client 2` on a host, `WL:Connected` on a client
+- `WL:<text>` wait until a log line with this text appears (after the line the last `WL:` found; every view). Logs `LogWatch: found "<text>" after N s`, or `LogWatch: gave up on "<text>" after 30.0 s` and goes on. For two-process scenarios: `WL:Client 2 ` on a host, `WL:Connected` on a client
 - `S` take screenshot
 - `X` fire equipped weapon
 - `F:sec` hold fire (nailguns, lightning gun)

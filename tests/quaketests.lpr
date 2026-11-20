@@ -584,6 +584,8 @@ begin
   Timer := LogWaitTimeout;
   Check(not ScriptWaitsForLog('level changed', 0.5, Timer) and (Timer = 0), 'a wait gives up after the timeout');
   Check(not ScriptWaitsForLog('', 0.5, Timer), 'an empty text does not wait');
+  LogWatchLine('GameInitialize: Parsed AutoTestMap="e1m1" Prefix="x" Demo="WL:Connected,Q"');
+  Check(ScriptWaitsForLog('Connected', 0.5, Timer), 'the line that shows the script does not count');
 end;
 
 procedure TestSettingsCommands;

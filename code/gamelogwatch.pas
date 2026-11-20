@@ -57,8 +57,10 @@ end;
 
 procedure TLogWatch.HandleLog(const Message: String);
 begin
-  { Not this unit's own lines: they quote the text waited for }
-  if Pos('LogWatch: ', Message) = 0 then
+  { Not the lines that quote the text waited for: this unit's own and the
+    one that shows the script }
+  if (Pos('LogWatch: ', Message) = 0) and (Pos('GameInitialize: Parsed AutoTestMap', Message) = 0) and
+     (Pos('GameInitialize: Web autotest', Message) = 0) then
     Lines.Add(Message);
 end;
 
