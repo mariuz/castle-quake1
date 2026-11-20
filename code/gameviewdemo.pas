@@ -284,7 +284,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate;
+  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate, GameConsole;
 
 procedure TSplitViewport.RenderFromViewEverything(const RenderingCamera: TRenderingCamera);
 var
@@ -1859,7 +1859,7 @@ end;
 
 procedure TViewDemo.RunScript(const SecondsPassed: Single);
 var
-  Cmd, Action, Param: String;
+  Cmd, Action, Param, SettingsReply: String;
   P: Integer;
   Parts: TStringArray;
 begin
@@ -1956,6 +1956,10 @@ begin
       P := Pos(' ', Param);
       if P = 0 then
         P := Length(Param) + 1;
+      { The settings commands of every view (fov, r_lerpmove...) first }
+      if RunSettingsCommand(LowerCase(Copy(Param, 1, P - 1)), Trim(Copy(Param, P + 1, MaxInt)), SettingsReply) then
+        FHud.ShowMessage(SettingsReply, 3)
+      else
       if Copy(Param, 1, P - 1) = 'photo' then
         SetPhotoMode(Trim(Copy(Param, P + 1, MaxInt)) <> '0')
       else

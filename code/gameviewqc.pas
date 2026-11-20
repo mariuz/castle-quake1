@@ -122,7 +122,7 @@ var
 implementation
 
 uses
-  GameViewMenu;
+  GameViewMenu, GameConsole;
 
 const
   DeathRestartDelay = 3.0;
@@ -569,6 +569,7 @@ end;
 procedure TViewQc.RunQcCommand(const Line: String);
 var
   Parts, Lines: TStringArray;
+  Reply: String;
   Num, N: Integer;
   Org: TVector3;
   Total: Int64;
@@ -597,11 +598,8 @@ begin
       WritelnLog('GameViewQc', 'Profile: %s', [Lines[N]]);
     FProfileTime := FGame.Time;
   end else
-  if (LowerCase(Parts[0]) = 'r_effectinfo') and (Length(Parts) > 1) then
-  begin
-    ModEffects := Parts[1] <> '0';
-    WritelnLog('GameViewQc', 'r_effectinfo %d', [Ord(ModEffects)]);
-  end else
+  { The settings commands of every view (fov, r_lerpmove, r_effectinfo...) }
+  if not RunSettingsCommand(LowerCase(Parts[0]), Trim(Copy(Trim(Line), Length(Parts[0]) + 1, MaxInt)), Reply) then
     WritelnLog('GameViewQc', 'Command not run in QuakeC mode: %s', [Line]);
 end;
 

@@ -5,6 +5,50 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
+#: code/gameconsole.pas
+msgid "  fov <degrees>  - Field of view at 4:3 (wider screens see more)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  gamma <0.4..1.5> - Brightness, lower is brighter"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  r_waterwarp <0|1> - The picture waves under water"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)"
+msgstr ""
+
+#: code/gameconsole.pas
+msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
+msgstr ""
+
 #: code/gameinput.pas
 msgid "Move forward"
 msgstr ""
@@ -330,10 +374,6 @@ msgid "  fog <density> [r g b] - Fog for this level (0 off)"
 msgstr ""
 
 #: code/gameviewplay.pas
-msgid "  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility"
-msgstr ""
-
-#: code/gameviewplay.pas
 msgid "  horde [0|1]    - Waves of monsters on this map; killall - every monster dies"
 msgstr ""
 
@@ -343,34 +383,6 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "  records [map], records_reset [map] - Best time, kills and secrets of each map and skill"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  r_waterwarp <0|1> - The picture waves under water"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  r_effectinfo <0|1> - A mod's effectinfo.txt draws the explosions, impacts and trails"
 msgstr ""
 
 #: code/gameviewplay.pas
@@ -403,18 +415,6 @@ msgstr ""
 
 #: code/gameviewplay.pas
 msgid "  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  fov <degrees>  - Field of view at 4:3 (wider screens see more)"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  gamma <0.4..1.5> - Brightness, lower is brighter"
-msgstr ""
-
-#: code/gameviewplay.pas
-msgid "  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon"
 msgstr ""
 
 #: code/gameviewplay.pas

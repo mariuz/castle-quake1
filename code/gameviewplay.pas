@@ -127,7 +127,7 @@ var
 
 implementation
 
-uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords, QuakeProgs;
+uses GameViewQc, GameViewDemo, GameViewMenu, GameTranslate, QuakeNet, QuakeRecords, QuakeProgs, GameConsole;
 
 constructor TViewPlay.Create(AOwner: TComponent);
 begin
@@ -1462,9 +1462,15 @@ procedure TViewPlay.HandleConsoleCommand(const Cmd, Args: String);
 var
   Parts: TStringArray;
   FogColor: TVector3;
-  SkyName, LangList: String;
+  SkyName, LangList, Reply, HelpLine: String;
   Lang: TLanguageInfo;
+  HelpLines: TStringList;
 begin
+  if RunSettingsCommand(Cmd, Args, Reply) then
+  begin
+    FConsole.Print(Reply);
+    Exit;
+  end;
   if (Cmd = 'map') or (Cmd = 'warp') then
   begin
     if Args <> '' then
@@ -1504,22 +1510,6 @@ begin
       WorldPvsCulling := not ((Args = '1') or (Args = 'on'));
     FConsole.Print('PVS culling: ' + BoolToStr(WorldPvsCulling, 'on', 'off') + ' (' + PvsStatus + ')');
   end else
-  if (Cmd = 'captions') or (Cmd = 'hud_contrast') or (Cmd = 'reduced_flashes') then
-  begin
-    { Accessibility options (saved like the Options menu ones) }
-    if Args <> '' then
-    begin
-      if Cmd = 'captions' then
-        CaptionsEnabled := (Args = '1') or (Args = 'on')
-      else if Cmd = 'hud_contrast' then
-        HighContrastHud := (Args = '1') or (Args = 'on')
-      else
-        ReducedFlashes := (Args = '1') or (Args = 'on');
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format('captions %d, hud_contrast %d, reduced_flashes %d',
-      [Ord(CaptionsEnabled), Ord(HighContrastHud), Ord(ReducedFlashes)]));
-  end else
   if Cmd = 'name' then
   begin
     { The name in network games; no argument shows it }
@@ -1544,43 +1534,6 @@ begin
       SaveVideoSettings;
     end;
     FConsole.Print(Format(Tr('Colors: shirt %d, pants %d'), [PlayerShirt, PlayerPants]));
-  end else
-  if (Cmd = 'fov') or (Cmd = 'gamma') or (Cmd = 'cl_bob') or (Cmd = 'r_drawviewmodel') then
-  begin
-    { Video options (saved like the Options menu ones); no argument shows them }
-    if Args <> '' then
-    begin
-      if Cmd = 'fov' then
-        VideoFov := EnsureRange(StrToFloatDef(Args, VideoFov), 50, 130)
-      else if Cmd = 'gamma' then
-        VideoGamma := EnsureRange(StrToFloatDef(Args, VideoGamma), 0.4, 1.5)
-      else if Cmd = 'cl_bob' then
-        ViewBob := EnsureRange(StrToFloatDef(Args, ViewBob), 0, 0.1)
-      else
-        ShowWeapon := (Args = '1') or (Args = 'on');
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format('fov %.0f (vertical %.1f), gamma %.2f, cl_bob %.3f, r_drawviewmodel %d',
-      [VideoFov, RadToDeg(VerticalFov), VideoGamma, ViewBob, Ord(ShowWeapon)]));
-  end else
-  if (Cmd = 'gl_texturemode') or (Cmd = 'gl_texture_anisotropy') or (Cmd = 'vid_fsaa') then
-  begin
-    { Texture filtering (the next level's textures) and multisampling
-      (after a restart), saved like the Options menu ones }
-    if Args <> '' then
-    begin
-      if Cmd = 'gl_texturemode' then
-        TextureSmooth := Pos('linear', LowerCase(Args)) = 1
-      else if Cmd = 'gl_texture_anisotropy' then
-        TextureAnisotropy := ValidAnisotropy(StrToIntDef(Args, TextureAnisotropy))
-      else
-        AntiAliasSamples := ValidAntiAlias(StrToIntDef(Args, AntiAliasSamples));
-      SaveVideoSettings;
-    end;
-    FConsole.Print(Format('gl_texturemode %s, gl_texture_anisotropy %d, vid_fsaa %d',
-      [BoolToStr(TextureSmooth, 'linear', 'nearest'), TextureAnisotropy, AntiAliasSamples]));
-    WritelnLog('GameViewPlay', 'Video: texture filter %s, anisotropy %d, anti-aliasing %d samples',
-      [BoolToStr(TextureSmooth, 'linear', 'nearest'), TextureAnisotropy, AntiAliasSamples]);
   end else
   if Cmd = 'fog' then
   begin
@@ -1689,39 +1642,6 @@ begin
     FWorld.ResetGhost;
     FConsole.Print('Best run of ' + FWorld.MapName + ' forgotten');
   end else
-  if Cmd = 'r_lerpmodels' then
-  begin
-    { Pose blending of the models in QuakeC mode, demos and network games }
-    if Args <> '' then
-      ModelLerp := Args <> '0';
-    FConsole.Print(Format('r_lerpmodels %d', [Ord(ModelLerp)]));
-  end else
-  if Cmd = 'r_lerpmove' then
-  begin
-    { Walking monsters glide between their steps in QuakeC mode }
-    if Args <> '' then
-      MoveLerp := Args <> '0';
-    FConsole.Print(Format('r_lerpmove %d', [Ord(MoveLerp)]));
-  end else
-  if Cmd = 'r_waterwarp' then
-  begin
-    if Args <> '' then
-      WaterWarp := Args <> '0';
-    FConsole.Print(Format('r_waterwarp %d', [Ord(WaterWarp)]));
-  end else
-  if Cmd = 'r_effectinfo' then
-  begin
-    if Args <> '' then
-      ModEffects := Args <> '0';
-    FConsole.Print(Format('r_effectinfo %d', [Ord(ModEffects)]));
-  end else
-  if Cmd = 'pr_checkextension' then
-  begin
-    { The QuakeC extensions, for the next map loaded in QuakeC mode }
-    if Args <> '' then
-      ProgsExtensions := Args <> '0';
-    FConsole.Print(Format('pr_checkextension %d', [Ord(ProgsExtensions)]));
-  end else
   if Cmd = 'records' then
     ListRecordsCommand(LowerCase(Args))
   else
@@ -1809,6 +1729,15 @@ begin
   if Cmd = 'help' then
   begin
     FConsole.Print(Tr('Commands:'));
+    { The settings commands every view runs (GameConsole's table) }
+    HelpLines := TStringList.Create;
+    try
+      SettingsCommandHelp(HelpLines);
+      for HelpLine in HelpLines do
+        FConsole.Print(HelpLine);
+    finally
+      HelpLines.Free;
+    end;
     FConsole.Print(Tr('  map <name>     - Load map (e.g. start, e1m1, lq_e0m1)'));
     FConsole.Print(Tr('  skill <0..3>   - Skill for the next map'));
     FConsole.Print(Tr('  record <name>  - Record a demo to <name>.dem, stop ends it'));
@@ -1819,17 +1748,9 @@ begin
     FConsole.Print(Tr('  shadows <0|1>  - Toggle dynamic shadows'));
     FConsole.Print(Tr('  wateralpha <0..1> - Opacity of water, slime and lava'));
     FConsole.Print(Tr('  fog <density> [r g b] - Fog for this level (0 off)'));
-    FConsole.Print(Tr('  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility'));
     FConsole.Print(Tr('  horde [0|1]    - Waves of monsters on this map; killall - every monster dies'));
     FConsole.Print(Tr('  speedrun [0|1], ghost [0|1], ghost_reset - Timer, race the best run, forget it'));
     FConsole.Print(Tr('  records [map], records_reset [map] - Best time, kills and secrets of each map and skill'));
-    FConsole.Print(Tr('  gl_texturemode <nearest|linear>, gl_texture_anisotropy <1..16> - Texture filtering (next level)'));
-    FConsole.Print(Tr('  r_waterwarp <0|1> - The picture waves under water'));
-    FConsole.Print(Tr('  vid_fsaa <1|2|4|8> - Anti-aliasing samples (after a restart)'));
-    FConsole.Print(Tr('  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)'));
-    FConsole.Print(Tr('  r_lerpmove <0|1> - Walking monsters glide between their steps (QuakeC mode)'));
-    FConsole.Print(Tr('  pr_checkextension <0|1> - Mods may use the QuakeC extensions (next QuakeC map)'));
-    FConsole.Print(Tr('  r_effectinfo <0|1> - A mod''s effectinfo.txt draws the explosions, impacts and trails'));
     FConsole.Print(Tr('  saves          - List the saved games (the Load Game menu)'));
     FConsole.Print(Tr('  photo [0|1] (P) - Photo mode: the game pauses, the camera flies; photo_fov <deg>,'));
     FConsole.Print(Tr('    photo_effect <none|dof|gray|sepia|vignette|ao>, photo_scale <1..4>, photo_shot'));
@@ -1838,9 +1759,6 @@ begin
     FConsole.Print(Tr('  lan - Find games on the local network; lan_join <n> - join the nth'));
     FConsole.Print(Tr('  name <name>, color <shirt> [<pants>] - You in network games (colors 0..13)'));
     FConsole.Print(Tr('  sky <name> - Skybox gfx/env/<name> for this level (- the scrolling sky)'));
-    FConsole.Print(Tr('  fov <degrees>  - Field of view at 4:3 (wider screens see more)'));
-    FConsole.Print(Tr('  gamma <0.4..1.5> - Brightness, lower is brighter'));
-    FConsole.Print(Tr('  cl_bob <0..0.1> - View bob (0 off), r_drawviewmodel <0|1> - the weapon'));
     FConsole.Print(Tr('  lightmaps <0|1> - Quake lightmaps or dynamic PBR world lighting'));
     FConsole.Print(Tr('  debug <modes>  - Overlay: triggers, monsters, movers, leaf, all, off'));
     FConsole.Print(Tr('  fps            - Show the frame rate in the stats line'));
