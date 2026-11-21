@@ -1726,7 +1726,7 @@ SCENARIOS = [
                        # the models take the light of the level, a shot lights
                        # the weapon, r_modellight 0 is full bright again
                        ('mlight', ['--autotest', 'e1m1', '{out}/mlight', '--demo',
-                                   'W:1,CMD:r_modellight,X,W:0.05,CMD:r_modellight,CMD:r_modellight 0,W:0.5,'
+                                   'W:1,CMD:r_modellight,X,W:0.4,CMD:r_modellight,CMD:r_modellight 0,W:0.5,'
                                    'CMD:r_modellight,S,Q'], 0),
                        ('mlqc', ['--autotest', 'qc:e1m1', '{out}/mlqc', '--demo', 'W:1,CMD:r_modellight,S,Q'], 0),
                        ('mldemo', ['--autotest', 'demo1.dem', '{out}/mldemo', '--demo',

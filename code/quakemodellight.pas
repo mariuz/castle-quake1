@@ -39,9 +39,9 @@ function ModelIsFullBright(const ModelName: String): Boolean;
 function ModelLightAt(const Bsp: TQuakeBsp; const P: TVector3): TVector3;
 { Tint every model scene in a world for this frame }
 procedure UpdateModelLights(const Bsp: TQuakeBsp; const SecondsPassed: Single);
-{ Counted by UpdateModelLights: the scenes tinted in the last call, how
-  many of them stood in the light of a dynamic light, and the mean tint
-  (for the log and the tests) }
+{ Counted by UpdateModelLights: the scenes tinted in the last call and
+  their mean tint, and the most scenes a frame since the last call of this
+  function saw in a dynamic light (for the log and the tests) }
 function ModelLightStats: String;
 
 implementation
@@ -61,7 +61,7 @@ type
 
 var
   Tags: TList;
-  StatScenes, StatDynamic: Integer;
+  StatScenes, StatDynamic, StatDynamicPeak: Integer;
   StatMean: Single;
 
 destructor TModelLightTag.Destroy;
@@ -181,11 +181,16 @@ begin
   end;
   if StatScenes > 0 then
     StatMean := Sum / StatScenes;
+  if StatDynamic > StatDynamicPeak then
+    StatDynamicPeak := StatDynamic;
 end;
 
 function ModelLightStats: String;
 begin
-  Result := Format('%d models lit, %d by dynamic lights, mean %.2f', [StatScenes, StatDynamic, StatMean]);
+  { A flash lasts a tenth of a second: the most models any frame since the
+    last call saw in one }
+  Result := Format('%d models lit, %d by dynamic lights, mean %.2f', [StatScenes, StatDynamicPeak, StatMean]);
+  StatDynamicPeak := 0;
 end;
 
 finalization
