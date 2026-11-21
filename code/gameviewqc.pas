@@ -1228,8 +1228,9 @@ begin
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
   end;
-  Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
+  { Before the lights age: a flash made this frame shows even in a long frame }
   UpdateModelLights(FGame.Bsp, SecondsPassed);
+  Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
   UpdateHudStats(SecondsPassed);
 end;
 

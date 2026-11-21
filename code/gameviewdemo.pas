@@ -2342,8 +2342,8 @@ begin
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
   end;
-  Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateModelLights(FBsp, Dt);
+  Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
   if FSplit then
   begin
