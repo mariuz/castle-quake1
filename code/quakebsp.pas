@@ -279,6 +279,10 @@ type
       -1 when the map has no BSP tree }
     function PointLeaf(const QuakePoint: TVector3): Integer;
 
+    { The size of a face's lightmap in texels (CalcSurfaceExtents); False
+      for a face without one (sky, liquids, no light data) }
+    function FaceLightmapSize(const FaceIdx: Integer; out W, H: Integer): Boolean;
+
     { R_LightPoint: the light of the world under a point (Quake
       coordinates), from the lightmap of the first face straight below it
       (within 2048 units): the sum of the face's lightstyle layers, each
@@ -1664,6 +1668,41 @@ begin
     end;
   end;
   Result := True;
+end;
+
+function TQuakeBsp.FaceLightmapSize(const FaceIdx: Integer; out W, H: Integer): Boolean;
+var
+  Tex: TBSPTexInfo;
+  V: TVector3;
+  I: Integer;
+  S, T, LoS, HiS, LoT, HiT: Single;
+begin
+  Result := False;
+  W := 0;
+  H := 0;
+  if (FaceIdx < 0) or (FaceIdx >= Length(FFaces)) or (FFaces[FaceIdx].LightmapOffset < 0) or
+     (FLightmaps = nil) or (FFaces[FaceIdx].TexInfoId < 0) or (FFaces[FaceIdx].TexInfoId >= Length(FTexInfos)) then
+    Exit;
+  Tex := FTexInfos[FFaces[FaceIdx].TexInfoId];
+  if (Tex.Flags and 1) <> 0 then
+    Exit;
+  LoS := 1e30;
+  HiS := -1e30;
+  LoT := 1e30;
+  HiT := -1e30;
+  for I := 0 to FFaces[FaceIdx].NumEdges - 1 do
+  begin
+    V := GetFaceVertex(FaceIdx, I);
+    S := V.X * Tex.VecS.X + V.Y * Tex.VecS.Y + V.Z * Tex.VecS.Z + Tex.VecS.W;
+    T := V.X * Tex.VecT.X + V.Y * Tex.VecT.Y + V.Z * Tex.VecT.Z + Tex.VecT.W;
+    if S < LoS then LoS := S;
+    if S > HiS then HiS := S;
+    if T < LoT then LoT := T;
+    if T > HiT then HiT := T;
+  end;
+  W := Ceil(HiS / 16) - Floor(LoS / 16) + 1;
+  H := Ceil(HiT / 16) - Floor(LoT / 16) + 1;
+  Result := (W > 0) and (H > 0);
 end;
 
 function TQuakeBsp.LightPoint(const P: TVector3; const Styles: array of Single; out Color: TVector3): Boolean;

@@ -9,7 +9,7 @@ uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleBoxes, CastleScene, CastleTransform, X3DNodes, CastleLog, CastleColors,
   CastleImages, CastleUtils, CastleRenderOptions, X3DFields, CastleViewport,
-  QuakeBsp, QuakePalette, QuakeLight, QuakePak, X3DLoad, CastleUriUtils;
+  QuakeBsp, QuakePalette, QuakeLight, QuakePak, X3DLoad, CastleUriUtils, CastleTimeUtils;
 
 type
   { Lightmap atlases (one per lightstyle slot) of a BSP model and the shader
@@ -56,7 +56,12 @@ type
     procedure AddPolygon(const Verts: array of TVector3; const UVs, LMUVs: array of TVector2;
       const Normal: TVector3; const Styles: TVector4);
     { Build X3D nodes. Lightmaps.Effect may be nil (then the batch is fullbright). }
-    procedure CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet);
+    { SharedAppearance (with its SharedTexture): the appearance (material,
+      texture, effects) a batch of the same texture and lightmap page
+      already made for the same scene; used instead of making the same
+      nodes again. }
+    procedure CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet;
+      const SharedAppearance: TAppearanceNode = nil; const SharedTexture: TImageTextureNode = nil);
   end;
 
   { Packs the per-face Quake lightmaps (8-bit luminance, one map per
@@ -98,6 +103,14 @@ type
   TQuakeLightmapAtlasList = specialize TObjectList<TQuakeLightmapAtlas>;
 
   TQuakeGeomBatchDict = specialize TObjectDictionary<String, TQuakeGeomBatch>;
+
+  { The appearance the first batch of a texture and lightmap page made }
+  TSharedAppearance = record
+    Appearance: TAppearanceNode;
+    TexNode: TImageTextureNode;
+    IsSky, IsLiquid, IsFence: Boolean;
+  end;
+  TSharedAppearanceDict = specialize TDictionary<String, TSharedAppearance>;
 
   TQuakeIntArray = array of Integer;
 
@@ -193,6 +206,11 @@ type
     FBuildTime: TLoadTimer;
     FSkyEyeFields: TSFVec3fList;
     FLiquidTimeFields: TSFFloatList;
+    { The first batch of each texture and lightmap page of the scene being
+      built (FSharedRoot): the later ones use its appearance }
+    FSharedBatches: TSharedAppearanceDict;
+    FSharedRoot: TX3DRootNode;
+    FSharedCount: Integer;
     FLiquidMaterials: specialize TList<TUnlitMaterialNode>;
     FLiquidAlpha: Single;
     FLoggedLiquidAlpha: Boolean;
@@ -649,7 +667,8 @@ begin
   end;
 end;
 
-procedure TQuakeGeomBatch.CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet);
+procedure TQuakeGeomBatch.CreateNodes(const MapName: String; const Lightmaps: TQuakeLightmapSet;
+  const SharedAppearance: TAppearanceNode; const SharedTexture: TImageTextureNode);
 var
   TexProps: TTexturePropertiesNode;
   UnlitMat: TUnlitMaterialNode;
@@ -681,6 +700,39 @@ begin
   Geometry.Ccw := False;
   Geometry.Solid := not IsLiquid;
   Geometry.NormalPerVertex := True; { one (face) normal per vertex }
+  Geometry.TexCoord := TexCoordNode;
+
+  UseLightmap := WorldLightmaps and (Lightmaps.Effect <> nil) and (not IsSky) and (not IsLiquid);
+  if UseLightmap then
+  begin
+    { Lightmap coordinates and the face's lightstyles go to the shader as
+      vertex attributes }
+    LMCoordAttrib := TFloatVertexAttributeNode.Create;
+    LMCoordAttrib.NameField := 'quake_lm_coord';
+    LMCoordAttrib.NumComponents := 2;
+    LMCoordAttrib.FdValue.Items.Count := LMTexCoords.Count * 2;
+    Move(LMTexCoords.L^, LMCoordAttrib.FdValue.Items.L^, LMTexCoords.Count * SizeOf(TVector2));
+    StylesAttrib := TFloatVertexAttributeNode.Create;
+    StylesAttrib.NameField := 'quake_styles';
+    StylesAttrib.NumComponents := 4;
+    StylesAttrib.FdValue.Items.Assign(LMStyles);
+    Geometry.FdAttrib.Add(LMCoordAttrib);
+    Geometry.FdAttrib.Add(StylesAttrib);
+  end;
+
+  if SharedAppearance <> nil then
+  begin
+    { The same texture on the same lightmap page in another cluster: one
+      appearance for all its shapes (a huge map has thousands of them) }
+    Appearance := SharedAppearance;
+    TexNode := SharedTexture;
+    Shape := TShapeNode.Create;
+    Shape.Geometry := Geometry;
+    Shape.Appearance := Appearance;
+    if IsLiquid then
+      Shape.Collision := scNone;
+    Exit;
+  end;
 
   Appearance := TAppearanceNode.Create;
 
@@ -740,20 +792,8 @@ begin
   if UseLightmap then
   begin
     Appearance.Texture := TexNode;
-    Geometry.TexCoord := TexCoordNode;
-    { Lightmap coordinates and the face's lightstyles go to the shader as
-      vertex attributes }
-    LMCoordAttrib := TFloatVertexAttributeNode.Create;
-    LMCoordAttrib.NameField := 'quake_lm_coord';
-    LMCoordAttrib.NumComponents := 2;
-    LMCoordAttrib.FdValue.Items.Count := LMTexCoords.Count * 2;
-    Move(LMTexCoords.L^, LMCoordAttrib.FdValue.Items.L^, LMTexCoords.Count * SizeOf(TVector2));
-    StylesAttrib := TFloatVertexAttributeNode.Create;
-    StylesAttrib.NameField := 'quake_styles';
-    StylesAttrib.NumComponents := 4;
-    StylesAttrib.FdValue.Items.Assign(LMStyles);
-    Geometry.FdAttrib.Add(LMCoordAttrib);
-    Geometry.FdAttrib.Add(StylesAttrib);
+    { (the lightmap coordinates and lightstyles are vertex attributes of
+      the geometry, added above) }
     if IsFence then
       Appearance.SetEffects([CreateFenceEffect, Lightmaps.Effect])
     else
@@ -1101,6 +1141,7 @@ begin
   FAnimTextures := TQuakeAnimTexList.Create(True);
   FSkyTimeFields := TSFFloatList.Create;
   FLiquidTimeFields := TSFFloatList.Create;
+  FSharedBatches := TSharedAppearanceDict.Create;
   FLiquidMaterials := specialize TList<TUnlitMaterialNode>.Create;
   FLiquidAlpha := DefaultLiquidAlpha;
   FSkyEyeFields := TSFVec3fList.Create;
@@ -1145,6 +1186,7 @@ begin
   FAnimTextures.Free;
   FSkyTimeFields.Free;
   FLiquidTimeFields.Free;
+  FSharedBatches.Free;
   FLiquidMaterials.Free;
   FSkyEyeFields.Free;
   FSkySurfaces.Free;
@@ -1378,13 +1420,42 @@ var
   Batch: TQuakeGeomBatch;
   SkySurface: TQuakeSkySurface;
   MapAlpha: Single;
+  First: TSharedAppearance;
 begin
+  { The appearances are shared between the batches of one scene (a new
+    scene's root has no shapes yet) }
+  if (FSharedRoot <> RootNode) or (RootNode.FdChildren.Count = 0) then
+  begin
+    FSharedRoot := RootNode;
+    FSharedBatches.Clear;
+  end;
   for BatchPair in Batches do
   begin
     Batch := BatchPair.Value;
+    if FSharedBatches.TryGetValue(BatchPair.Key, First) and (First.Appearance <> nil) and
+       (First.IsSky = Batch.IsSky) and (First.IsLiquid = Batch.IsLiquid) and (First.IsFence = Batch.IsFence) then
+    begin
+      Batch.CreateNodes(FBsp.MapName, LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))],
+        First.Appearance, First.TexNode);
+      if Batch.Shape <> nil then
+      begin
+        Inc(FSharedCount);
+        RootNode.AddChildren(Batch.Shape);
+        if Cluster <> nil then
+          Cluster.Shapes.Add(Batch.Shape);
+      end;
+      { Its texture animation, sky and liquid fields are the first one's }
+      Continue;
+    end;
     Batch.CreateNodes(FBsp.MapName, LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))]);
     if Batch.Shape <> nil then
     begin
+      First.Appearance := Batch.Appearance;
+      First.TexNode := Batch.TexNode;
+      First.IsSky := Batch.IsSky;
+      First.IsLiquid := Batch.IsLiquid;
+      First.IsFence := Batch.IsFence;
+      FSharedBatches.AddOrSetValue(BatchPair.Key, First);
       RootNode.AddChildren(Batch.Shape);
       if Cluster <> nil then
         Cluster.Shapes.Add(Batch.Shape);
@@ -1421,6 +1492,32 @@ begin
         FLiquidTimeFields.Add(Batch.LiquidTimeField);
     end;
   end;
+end;
+
+{ The lightmap atlas page of a brush entity: the smallest power of two
+  that holds the lightmaps of its faces (with their padding and the gray
+  block), up to MaxSize. Most doors and buttons need 32 or 64 texels, not
+  the 512 every one of them got: on a map with a thousand brush entities
+  that was most of the time spent on them, and of the lightmap memory. }
+function BrushAtlasSize(const Bsp: TQuakeBsp; const ModelIdx, MaxSize: Integer): Integer;
+var
+  F, W, H, Widest: Integer;
+  Area: Int64;
+begin
+  Area := 25; { the 4x4 gray block and its padding }
+  Widest := 4;
+  for F := Bsp.Models[ModelIdx].FirstFace to Bsp.Models[ModelIdx].FirstFace + Bsp.Models[ModelIdx].NumFaces - 1 do
+    if Bsp.FaceLightmapSize(F, W, H) then
+    begin
+      Area := Area + Int64(W + 1) * (H + 1);
+      Widest := Max(Widest, Max(W, H));
+    end;
+  { Shelves waste some room: half as much again as the texels, and a page as
+    wide as the widest face plus the block }
+  Result := 16;
+  while (Result < MaxSize) and ((Result < Widest + 6) or (Int64(Result) * Result * 2 < Area * 3)) do
+    Result := Result * 2;
+  Result := Min(Result, MaxSize);
 end;
 
 function IndexIntArray(const A: array of Integer; const Value: Integer): Integer;
@@ -1651,7 +1748,7 @@ begin
   if ModelIdx = 0 then
     AtlasSize := LightmapAtlasSize
   else
-    AtlasSize := Min(512, LightmapAtlasSize);
+    AtlasSize := BrushAtlasSize(FBsp, ModelIdx, Min(512, LightmapAtlasSize));
   FFullbrightFaces := 0;
 
   Atlases := TQuakeLightmapAtlasList.Create(True);
@@ -1692,6 +1789,8 @@ begin
       FShapeCount := TotalShapes;
       WritelnLog('QuakeGeometry', 'World split into %d PVS clusters, %d shapes, %d leaves',
         [FClusters.Count, TotalShapes, FBsp.VisLeafCount]);
+      WritelnLog('QuakeGeometry', 'Appearances: %d of the %d world shapes share the appearance of another',
+        [FSharedCount, TotalShapes]);
     end else
     begin
       for FaceIdx := Mdl.FirstFace to Mdl.FirstFace + Mdl.NumFaces - 1 do
@@ -1891,7 +1990,11 @@ var
   MoveV: TVector3;
   BoxSize: TVector3;
   Dist: Single;
+  T0, T1: TTimerResult;
+  BuildSeconds, LoadSeconds: Single;
 begin
+  BuildSeconds := 0;
+  LoadSeconds := 0;
   for I := 0 to FBsp.Entities.Count - 1 do
   begin
     Ent := FBsp.Entities[I];
@@ -2004,8 +2107,12 @@ begin
         Root := TX3DRootNode.Create;
         Batches := TQuakeGeomBatchDict.Create([doOwnsValues]);
         try
+          T0 := Timer;
           BuildModelGeometry(MdlIdx, Root, Batches);
+          T1 := Timer;
           Sub.Scene.Load(Root, True);
+          BuildSeconds := BuildSeconds + TimerSeconds(T1, T0);
+          LoadSeconds := LoadSeconds + TimerSeconds(Timer, T1);
         finally
           Batches.Free;
         end;
@@ -2016,7 +2123,8 @@ begin
     end;
   end;
 
-  WritelnLog('QuakeGeometry', 'Configured %d interactive submodels', [FSubmodels.Count]);
+  WritelnLog('QuakeGeometry', 'Configured %d interactive submodels (%.2f s building their shapes, %.2f s loading their scenes)',
+    [FSubmodels.Count, BuildSeconds, LoadSeconds]);
 end;
 
 procedure TQuakeGeometry.AddToWorld(const Parent: TCastleTransform);
