@@ -11,7 +11,7 @@ uses
   Classes, SysUtils, Math,
   CastleVectors, CastleUIControls, CastleKeysMouse, CastleViewport, CastleTransform,
   CastleScene, CastleLog, CastleImages, CastleQuaternions, CastleWindow, CastleUtils,
-  CastleCameras, CastleBehaviors, X3DNodes,
+  CastleCameras, CastleBehaviors, X3DNodes, CastleTimeUtils,
   GameInput, GameVideo, GameTouch,
   QuakePak, QuakeBsp, QuakeGeometry, QuakeLight, QuakeSound, QuakeHud, QuakeParticles,
   QuakeMdl, QuakeSprite, QuakeAmbient, QuakePhysics, QuakeDemo, QuakeProgs, QuakeQcGame, QuakeEffectParticles, GameEntityRenderer,
@@ -46,6 +46,14 @@ type
     { The developer console (the settings commands and this view's own) }
     FConsole: TQuakeConsole;
     FProfileTime: Single;   { the game time of the last CMD:profile }
+    { Frame timing between two Z script actions }
+    FBenchFrames: Integer;
+    FBenchStart: TTimerResult;
+    FBenchLongest: Single;
+    FBenchStarted: Boolean;
+    { Where the time of the frames between two Z actions went (seconds):
+      the progs' frame, the entities, the world and the rest of Update }
+    FBenchGame, FBenchEntities, FBenchWorld, FBenchUpdate: Single;
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -1075,6 +1083,31 @@ begin
       FImpulse := 9
     else if Action = 'Y' then
       FGod := not FGod
+    else if Action = 'Z' then
+    begin
+      { Log the frame times since the previous Z (in the play view's
+        format, with the edicts of the progs), then start counting again }
+      if FBenchStarted and (FBenchFrames > 0) and (FGeometry <> nil) then
+        WritelnLog('GameViewQc', 'Frames: %d in %.2f s, %.2f ms average, %.2f ms longest, culling %s, leaf %d, ' +
+          'clusters %d/%d, shapes %d/%d, entities %d/%d, edicts %d',
+          [FBenchFrames, FBenchStart.ElapsedTime, 1000 * FBenchStart.ElapsedTime / FBenchFrames,
+           1000 * FBenchLongest, BoolToStr(WorldPvsCulling, 'on', 'off'), FGeometry.CameraLeaf,
+           FGeometry.VisibleClusters, FGeometry.ClusterCount, FGeometry.VisibleShapes, FGeometry.ShapeCount,
+           FGeometry.VisibleEntities, FGeometry.EntityCount, FGame.Progs.NumEdicts]);
+      if FBenchStarted and (FBenchFrames > 0) then
+        WritelnLog('GameViewQc', 'Frame parts: update %.1f ms a frame (progs %.1f, entities %.1f, world %.1f), ' +
+          'the rest is drawing',
+          [1000 * FBenchUpdate / FBenchFrames, 1000 * FBenchGame / FBenchFrames,
+           1000 * FBenchEntities / FBenchFrames, 1000 * FBenchWorld / FBenchFrames]);
+      FBenchGame := 0;
+      FBenchEntities := 0;
+      FBenchWorld := 0;
+      FBenchUpdate := 0;
+      FBenchFrames := 0;
+      FBenchLongest := 0;
+      FBenchStart := Timer;
+      FBenchStarted := True;
+    end
     else if Action = 'A' then
       SetViewAngles(StrToFloatDef(Param, 0), Pitch)
     else if Action = 'T' then
@@ -1135,11 +1168,15 @@ var
   E, I: Integer;
   Fire: Boolean;
   Flags: Integer;
+  T0, TStart: TTimerResult;
 begin
+  TStart := Timer;
   inherited Update(SecondsPassed, HandleInput);
   ApplyVideoSettings(FViewport);
   if FQuitRequested or not FLoaded then
     Exit;
+  Inc(FBenchFrames);
+  FBenchLongest := Max(FBenchLongest, SecondsPassed);
   if FScript.Count > 0 then
     RunScript(SecondsPassed);
 
@@ -1178,7 +1215,9 @@ begin
   Pitch := -RadToDeg(ArcSin(Clamped(CamDir.Y, -1, 1)));
 
   { The frame of the progs }
+  T0 := Timer;
   FGame.Frame(Cmd, Yaw, Pitch, Min(SecondsPassed, 0.1), Fire, FImpulse);
+  FBenchGame := FBenchGame + TimerSeconds(Timer, T0);
   FImpulse := 0;
   if FGame.TakeFixAngle(Angles) then
   begin
@@ -1206,6 +1245,7 @@ begin
   end;
 
   { Entities }
+  T0 := Timer;
   for I := 0 to High(FRenderer.SubmodelUsed) do
     FRenderer.SubmodelUsed[I] := False;
   for E := 2 to FGame.Progs.NumEdicts - 1 do
@@ -1234,10 +1274,13 @@ begin
 
   UpdateWeapon;
   FRenderer.UpdateBeams(SecondsPassed);
+  FBenchEntities := FBenchEntities + TimerSeconds(Timer, T0);
 
+  T0 := Timer;
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
   FGeometry.UpdateVisibility(FViewport.Camera.Translation);
   CullVisuals;
+  FBenchWorld := FBenchWorld + TimerSeconds(Timer, T0);
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   if EffectParticles <> nil then
@@ -1252,6 +1295,7 @@ begin
   Decals.WorldBsp := FGame.Bsp;
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
   UpdateHudStats(SecondsPassed);
+  FBenchUpdate := FBenchUpdate + TimerSeconds(Timer, TStart);
 end;
 
 function TViewQc.Press(const Event: TInputPressRelease): Boolean;

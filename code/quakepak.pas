@@ -85,6 +85,11 @@ type
   private
     FContainers: specialize TObjectList<TQuakePakContainer>;
     FEntries: TQuakePakEntryList;
+    { Path -> index in FEntries: a file is looked up many times a frame
+      (which variant of a model is this), and a mod has thousands of them.
+      Rebuilt when entries were removed. }
+    FIndex: specialize TDictionary<String, Integer>;
+    FIndexValid: Boolean;
     { Entries replaced by a later pak, kept so original maps stay reachable }
     FShadowed: TQuakePakEntryList;
     FProtocolRegistered: Boolean;
@@ -93,6 +98,7 @@ type
     FDataCache: specialize TObjectDictionary<String, TMemoryStream>;
     FInMissingHook: Boolean;
     FMountTag: String;
+    function IndexOfPath(const Target: String): Integer;
     function FindEntryIndex(const APath: String; const AllowHook: Boolean = True): Integer;
     function FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
     function AddContainer(const Name: String; const Stream: TStream; const Base, Size: Int64;
@@ -399,6 +405,7 @@ begin
   inherited Create;
   FContainers := specialize TObjectList<TQuakePakContainer>.Create(True);
   FEntries := TQuakePakEntryList.Create;
+  FIndex := specialize TDictionary<String, Integer>.Create;
   FShadowed := TQuakePakEntryList.Create;
   FDataCache := specialize TObjectDictionary<String, TMemoryStream>.Create([doOwnsValues]);
   FProtocolRegistered := False;
@@ -410,6 +417,7 @@ begin
     CastleDownload.UnregisterUrlProtocol('quakepak');
   FContainers.Free;
   FEntries.Free;
+  FIndex.Free;
   FShadowed.Free;
   FDataCache.Free;
   inherited Destroy;
@@ -569,7 +577,11 @@ begin
     FEntries[ExistingIndex] := Entry;
     FDataCache.Remove(Entry.Path);
   end else
+  begin
     FEntries.Add(Entry);
+    if FIndexValid then
+      FIndex.AddOrSetValue(Entry.Path, FEntries.Count - 1);
+  end;
 end;
 
 type
@@ -857,6 +869,8 @@ begin
       end else
         FEntries.Delete(I);
     end;
+  { The indexes moved }
+  FIndexValid := False;
   for J := FShadowed.Count - 1 downto 0 do
     if Gone[FShadowed[J].PakIndex] then
       FShadowed.Delete(J);
@@ -1039,14 +1053,12 @@ end;
 function TQuakePak.FindEntryIndex(const APath: String; const AllowHook: Boolean): Integer;
 var
   Target: String;
-  I: Integer;
   Added: Boolean;
 begin
   Target := NormalizePath(APath);
-  for I := FEntries.Count - 1 downto 0 do
-    if FEntries[I].Path = Target then
-      Exit(I);
-  Result := -1;
+  Result := IndexOfPath(Target);
+  if Result >= 0 then
+    Exit;
   if not AllowHook or FInMissingHook or not Assigned(PakMissingFileHook) then
     Exit;
   FInMissingHook := True;
@@ -1056,9 +1068,22 @@ begin
     FInMissingHook := False;
   end;
   if Added then
-    for I := FEntries.Count - 1 downto 0 do
-      if FEntries[I].Path = Target then
-        Exit(I);
+    Result := IndexOfPath(Target);
+end;
+
+function TQuakePak.IndexOfPath(const Target: String): Integer;
+var
+  I: Integer;
+begin
+  if not FIndexValid then
+  begin
+    FIndex.Clear;
+    for I := 0 to FEntries.Count - 1 do
+      FIndex.AddOrSetValue(FEntries[I].Path, I);
+    FIndexValid := True;
+  end;
+  if not FIndex.TryGetValue(Target, Result) then
+    Result := -1;
 end;
 
 function TQuakePak.FindEntry(const APath: String; out Entry: TQuakePakEntry): Boolean;
