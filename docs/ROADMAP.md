@@ -323,8 +323,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - The `budgets` scenario watches culling counts on four maps and the community test three Quaddicted maps. Add frame times and entity counts at fixed spots of `ad_sepulcher` and `ad_tears` in QuakeC mode to the community test, so a slowdown on the largest maps fails a (non-gating) job.
 - [x] **Level Load Timing**:
   - Every level load logs how long each stage took (BSP, QuakeC spawn, geometry and its parts, lights, entities).
-- [ ] **Faster World Build for Huge Maps**:
-  - Sepulcher (198 000 faces) loads in 5.7 s, 4.9 s of it building the world: 2.0 s making its 15 249 shapes (each with its own appearance, material, texture and texture properties nodes), 1.0 s loading the scene and 1.4 s for the 1096 brush entities (a scene each). Share the appearance of a texture between the shapes of all clusters, and the brush entities' appearances with the world's.
+- [x] **Faster World Build for Huge Maps**: Sepulcher's world builds in 2.5 s instead of 4.3 s: the shapes of a texture share one appearance, and brush entities get lightmap pages of the size they need (16 to 512) instead of 512 each.
 
 **Graphics**
 

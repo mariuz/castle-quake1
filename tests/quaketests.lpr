@@ -583,7 +583,7 @@ procedure TestModelLight;
 var
   Bsp: TQuakeBsp;
   One, Two, Zero: array[0..63] of Single;
-  I: Integer;
+  I, Lit, FW, FH: Integer;
   A, B, C, Tint: TVector3;
 begin
   { R_LightPoint: the lightmap under a model }
@@ -608,6 +608,14 @@ begin
     Check(Bsp.LightPoint(Vector3(480, 352, 60), One, C) and (C.X = A.X),
       'a point a little higher above the same floor takes the same light');
     Check(not Bsp.LightPoint(Vector3(480, 352, -6000), One, C) and (C.X = 0), 'nothing below the map');
+    { The lightmap sizes of the faces (the atlas pages of brush entities
+      are sized by them) }
+    Lit := 0;
+    for I := Bsp.Models[1].FirstFace to Bsp.Models[1].FirstFace + Bsp.Models[1].NumFaces - 1 do
+      if Bsp.FaceLightmapSize(I, FW, FH) and (FW >= 1) and (FW <= 256) and (FH >= 1) and (FH <= 256) then
+        Inc(Lit);
+    Check(Lit > 0, Format('the faces of a brush entity have lightmap sizes (%d faces)', [Lit]));
+    Check(not Bsp.FaceLightmapSize(-1, FW, FH) and not Bsp.FaceLightmapSize(MaxInt, FW, FH), 'not a face out of range');
     Tint := ModelLightAt(Bsp, Vector3(480, 352, 46));
     Check((Tint.X >= ModelLightMin) and (Tint.X <= ModelLightMax) and
       (Abs(Tint.X - EnsureRange(A.X / 128, ModelLightMin, ModelLightMax)) < 0.01),
