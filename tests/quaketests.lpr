@@ -952,6 +952,10 @@ type
   public
     LastSoundEntity, LastSoundChannel, LastSoundIndex: Integer;
     LastSoundOrigin: TVector3;
+    { svc_pointparticles / svc_trailparticles }
+    Effects, Trails, LastEffectNum, LastEffectCount: Integer;
+    LastEffectA, LastEffectB: TVector3;
+    procedure OnEffect(const Trail: Boolean; const Num: Integer; const A, B: TVector3; const Count: Integer);
   end;
 
 constructor TDemoListener.Create;
@@ -964,6 +968,19 @@ destructor TDemoListener.Destroy;
 begin
   Prints.Free;
   inherited Destroy;
+end;
+
+procedure TDemoListener.OnEffect(const Trail: Boolean; const Num: Integer; const A, B: TVector3;
+  const Count: Integer);
+begin
+  if Trail then
+    Inc(Trails)
+  else
+    Inc(Effects);
+  LastEffectNum := Num;
+  LastEffectCount := Count;
+  LastEffectA := A;
+  LastEffectB := B;
 end;
 
 procedure TDemoListener.OnPrint(const S: String);
@@ -1373,6 +1390,57 @@ begin
   finally
     R.Free;
     Listener.Free;
+  end;
+end;
+
+procedure TestDemoEffects;
+var
+  W: TQuakeDemoWriter;
+  R: TQuakeDemoReader;
+  L: TDemoListener;
+  CD: TDemoClientData;
+  State: TDemoEntityState;
+  Url: String;
+  I: Integer;
+begin
+  { A mod's effectinfo.txt effects in a demo }
+  StartTest('Demo effects (svc_pointparticles, svc_trailparticles)');
+  W := TQuakeDemoWriter.Create;
+  R := TQuakeDemoReader.Create;
+  L := TDemoListener.Create;
+  try
+    W.BeginLevel('maps/fx.bsp', 'Effects level', Vector3(0, 0, 0), 0, 0);
+    CD := Default(TDemoClientData);
+    CD.ViewHeight := 22;
+    CD.Health := 100;
+    State := Default(TDemoEntityState);
+    State.ModelIndex := W.ModelIndex('progs/player.mdl');
+    for I := 0 to 19 do
+    begin
+      W.BeginFrame(1.0 + I * 0.1);
+      W.WriteClientData(CD);
+      W.WriteEntity(1, State);
+      if I = 5 then
+        W.WritePointParticles(7, Vector3(100, -200.5, 64), Vector3(0, 0, 120), 12);
+      if I = 8 then
+        W.WriteTrailParticles(3, 9, Vector3(10, 20, 30), Vector3(40, 50, 60.25));
+      W.EndFrame(TVector3.Zero);
+    end;
+    Url := TempUrl('quaketests_fx.dem');
+    Check(W.SaveToUrl(Url), 'demo saved');
+    R.OnEffect := @L.OnEffect;
+    Check(R.Load(Url), 'demo loads');
+    for I := 1 to 60 do
+      R.Advance(0.05);
+    CheckEquals(1, L.Effects, 'one point effect');
+    CheckEquals(1, L.Trails, 'one trail');
+    CheckEquals(3, L.LastEffectNum, 'the trail''s effect number');
+    CheckVector(Vector3(10, 20, 30), L.LastEffectA, 0.01, 'its start');
+    CheckVector(Vector3(40, 50, 60.25), L.LastEffectB, 0.13, 'its end');
+  finally
+    L.Free;
+    R.Free;
+    W.Free;
   end;
 end;
 
@@ -2600,6 +2668,7 @@ begin
   TestDemoRoundTrip;
   TestDemoFitzQuake;
   TestDemoFogSkybox;
+  TestDemoEffects;
   TestDemoLargeCoords;
   TestUIScale;
   TestBindings;

@@ -1007,6 +1007,14 @@ def check_fxmod(logs):
     net = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', logs['fxnet'])]
     result.append((len(net) == 1 and net[0] >= 1,
                    'a network game draws the shotgun\'s impacts from it too (%s calls)' % net))
+    sent = re.search(r'Effect "TE_TELEPORT" \(2\) sent, (\d+) effect messages', logs['fxnet'])
+    got = [int(x) for x in re.findall(r'Effect messages: (\d+)', logs['fxnet'])]
+    result.append((sent is not None and len(got) == 1 and got[0] >= 1,
+                   'the server sends an effect to its clients, which draw it (%s messages)' % got))
+    result += common_checks(logs, 'fxrec') + common_checks(logs, 'fxplay')
+    played = [int(x) for x in re.findall(r'Effect messages: (\d+)', logs['fxplay'])]
+    result.append((len(played) == 1 and played[0] == 1,
+                   'an effect recorded in QuakeC mode plays in the demo (%s messages)' % played))
     return result
 
 
@@ -1756,7 +1764,13 @@ SCENARIOS = [
                                   'W:0.5,CMD:r_effectinfo 0,W:0.5,X,W:0.2,S,Q'], 0),
                        # the same in a network game: the host's own view
                        ('fxnet', ['-game', '{out}/fxmod', '--autotest', 'host:e1m1', '{out}/fxnet', '--demo',
-                                  'W:4,X,W:0.3,S,Q', '-port', '26014', '-netloopback'], 0)],
+                                  'W:4,X,W:0.3,CMD:effect TE_TELEPORT,W:0.3,S,Q', '-port', '26014',
+                                  '-netloopback'], 0),
+                       # QuakeC mode records the effect into a demo, which plays it
+                       ('fxrec', ['-game', '{out}/fxmod', '--autotest', 'qc:e1m1', '{out}/fxrec', '--demo',
+                                  'W:0.5,R:fxdemo,W:0.5,CMD:effect TE_TELEPORT,W:4,R,Q'], 0),
+                       ('fxplay', ['-game', '{out}/fxmod', '--autotest', 'castle-config:/fxdemo.dem', '{out}/fxplay',
+                                   '--demo', 'W:3,S,Q'], 0)],
              check_fxmod, [], prepare=prepare_fxmod, dark=('fxnet',)),
     Scenario('exttex', [('tex', ['-game', '{out}/texmod', '--autotest', 'e1m1', '{out}/tex', '--demo', 'W:0.5,S,Q'], 0)],
              check_exttex, [], prepare=prepare_exttex, frame_checks=frames_exttex),

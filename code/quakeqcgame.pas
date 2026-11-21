@@ -90,6 +90,10 @@ type
   { A complete svc message the progs wrote (raw protocol bytes), for the
     client edict E (0: everyone) }
   TQcMessageEvent = procedure(const E: Integer; const Data: TBytes) of object;
+  { The progs' pointparticles (at A with velocity B, Count times) or
+    trailparticles (a Trail of entity E from A to B) }
+  TQcEffectEvent = procedure(const Trail: Boolean; const Num, E: Integer; const A, B: TVector3;
+    const Count: Single) of object;
 
   TQuakeQcGame = class(TQuakeProgsHost)
   private
@@ -185,6 +189,13 @@ type
     OnParticle: TQcParticleEvent;
     OnLightStyle: TQcLightStyleEvent;
     OnMessage: TQcMessageEvent;
+    { The progs' effectinfo.txt effects: a demo recorder, or the server
+      that sends them to its clients }
+    OnEffect: TQcEffectEvent;
+    { The effects are drawn by this process' EffectParticles as the progs
+      ask for them (QuakeC mode); False on a server, whose host sees them
+      as a client like everyone else }
+    EffectsLocal: Boolean;
     { The protocol bytes of the progs' WriteCoord / WriteAngle are protocol
       999's (float coordinates, 16-bit angles): set by the server }
     LargeCoordMessages: Boolean;
@@ -384,6 +395,7 @@ var
   I: Integer;
 begin
   inherited Create;
+  EffectsLocal := True;
   FProgs := TQuakeProgs.Create(Self);
   for I := 1 to MaxQcClients do
   begin
@@ -2076,13 +2088,17 @@ end;
 procedure TQuakeQcGame.PointParticles(const Progs: TQuakeProgs; const Num: Integer; const Org, Vel: TVector3;
   const Count: Single);
 begin
-  if EffectParticles <> nil then
+  if Assigned(OnEffect) then
+    OnEffect(False, Num, 0, Org, Vel, Count);
+  if EffectsLocal and (EffectParticles <> nil) then
     EffectParticles.Spawn(Num, Org, Vel, Count);
 end;
 
 procedure TQuakeQcGame.TrailParticles(const Progs: TQuakeProgs; const Num, E: Integer; const Start, Stop: TVector3);
 begin
-  if EffectParticles <> nil then
+  if Assigned(OnEffect) then
+    OnEffect(True, Num, E, Start, Stop, 1);
+  if EffectsLocal and (EffectParticles <> nil) then
     EffectParticles.Trail(Num, Start, Stop);
 end;
 

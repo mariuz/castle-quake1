@@ -26,6 +26,7 @@ type
     FSkill: Integer;
     FEvents: array[1..MaxNetClients] of TQuakeNetMessage;    { unreliable, this frame }
     FReliable: array[1..MaxNetClients] of TQuakeNetMessage;
+    FEffectsSent: Integer;
     FOut: TQuakeNetMessage;
     FLastFrags: array[1..MaxQcClients] of Integer;
     FPlayersJoined: Integer;  { -spawnspot: the players that connected so far }
@@ -83,6 +84,10 @@ type
     procedure HandleLightStyle(const Style: Integer; const Value: String);
     procedure HandleParticle(const Org, Dir: TVector3; const Color, Count: Integer);
     procedure HandleMessage(const E: Integer; const Data: TBytes);
+    { The progs' pointparticles / trailparticles go to every client
+      (svc_pointparticles, svc_trailparticles) }
+    procedure HandleEffect(const Trail: Boolean; const Num, E: Integer; const A, B: TVector3;
+      const Count: Single);
   public
     { Coop: the single player rules with monsters, everyone on one side;
       otherwise deathmatch }
@@ -181,6 +186,9 @@ begin
   FGame.OnLightStyle := @HandleLightStyle;
   FGame.OnParticle := @HandleParticle;
   FGame.OnMessage := @HandleMessage;
+  FGame.OnEffect := @HandleEffect;
+  { The host's view gets the effects as a client, like the others }
+  FGame.EffectsLocal := False;
   FNet := TQuakeNetServer.Create(Port);
   FNet.OnConnect := @HandleConnect;
   FNet.OnDisconnect := @HandleDisconnect;
@@ -665,7 +673,8 @@ begin
     Exit;
   SetLength(Raw, Length(Data));
   Move(Data[0], Raw[0], Length(Data));
-  Unreliable := (Data[0] = svc_temp_entity) or (Data[0] = svc_damage) or (Data[0] = svc_particle);
+  Unreliable := (Data[0] = svc_temp_entity) or (Data[0] = svc_damage) or (Data[0] = svc_particle) or
+    (Data[0] = svc_pointparticles) or (Data[0] = svc_trailparticles);
   ForClients(E, not Unreliable, First, Last);
   for C := First to Last do
     if (C > 0) and FNet.ClientActive(C) then
@@ -677,6 +686,62 @@ begin
       end else
         FReliable[C].Append(Raw);
     end;
+end;
+
+procedure TQuakeServer.HandleEffect(const Trail: Boolean; const Num, E: Integer; const A, B: TVector3;
+  const Count: Single);
+var
+  Raw: TBytes;
+
+  procedure PutByte(const V: Integer);
+  begin
+    SetLength(Raw, Length(Raw) + 1);
+    Raw[High(Raw)] := Byte(V and 255);
+  end;
+
+  procedure PutShort(const V: Integer);
+  begin
+    PutByte(V);
+    PutByte(V shr 8);
+  end;
+
+  { A coordinate in the game's protocol: a float (999) or 13.3 fixed point }
+  procedure PutVector(const V: TVector3);
+  var
+    I, Bits: Integer;
+    F: Single;
+  begin
+    for I := 0 to 2 do
+      if NetGameProtocol = 999 then
+      begin
+        F := V.Data[I];
+        Bits := 0;
+        Move(F, Bits, 4);
+        PutShort(Bits);
+        PutShort(Bits shr 16);
+      end else
+        PutShort(Round(V.Data[I] * 8));
+  end;
+
+begin
+  Raw := nil;
+  if Trail then
+  begin
+    PutByte(svc_trailparticles);
+    PutShort(E);
+    PutShort(Num);
+  end else
+  begin
+    PutByte(svc_pointparticles);
+    PutShort(Num);
+  end;
+  PutVector(A);
+  PutVector(B);
+  if not Trail then
+    { A count below 1 (a chance of one particle) still sends the effect }
+    PutShort(EnsureRange(Max(1, Round(Count)), 1, 32767));
+  Inc(FEffectsSent);
+  HandleMessage(0, Raw);
 end;
 
 { Frames }
@@ -905,13 +970,29 @@ begin
       V := FGame.TeamPlay;
     Result := Format('%s %s', [Cmd, FormatFloat('0.##', V, Fmt)]);
   end else
+  if Cmd = 'effect' then
+  begin
+    { effect <name> [count]: a mod's effectinfo.txt effect over the host,
+      sent to every client like the progs' pointparticles }
+    if Length(Parts) < 2 then
+      Exit('Usage: effect <name> [count]');
+    N := FGame.ParticleEffectNum(FGame.Progs, Parts[1]);
+    if N = 0 then
+      Exit(Format('No effect "%s" in effectinfo.txt', [Parts[1]]));
+    V := 1;
+    if Length(Parts) > 2 then
+      V := StrToFloatDef(Parts[2], 1, Fmt);
+    FGame.PointParticles(FGame.Progs, N, FGame.EntityOrigin(OwnEdict) + Vector3(0, 0, 40), TVector3.Zero, V);
+    Result := Format('Effect "%s" (%d) sent, %d effect messages so far', [Parts[1], N, FEffectsSent]);
+    WritelnLog('QuakeServer', '%s', [Result]);
+  end else
   if Cmd = 'addbot' then
   begin
     N := AddBots(Max(1, StrToIntDef(Arg, 1)), FBots.Skill);
     PrintAll(Format('The host adds %d bots', [N]));
     Result := Format('%d bots added', [N]);
   end else
-    Result := Format('Unknown host command "%s" (status, kick, map, fraglimit, timelimit, teamplay, addbot)', [Cmd]);
+    Result := Format('Unknown host command "%s" (status, kick, map, fraglimit, timelimit, teamplay, addbot, effect)', [Cmd]);
   WritelnLog('QuakeServer', 'Host: %s: %s', [Trim(Line), Result]);
 end;
 

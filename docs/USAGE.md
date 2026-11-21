@@ -50,7 +50,7 @@ More options, by topic (details in [REFERENCE.md](REFERENCE.md)):
 | `name`, `color`, `lan`, `lan_join <n>` | Multiplayer |
 | `r_lerpmodels`, `r_lerpmove`, `r_effectinfo`, `pr_checkextension` | QuakeC mode and mods |
 
-As the host of a network game, a chat line starting with a slash runs a host command: `/status`, `/kick <name>`, `/map <name>`, `/fraglimit N`, `/timelimit M`, `/teamplay N`, `/addbot`.
+As the host of a network game, a chat line starting with a slash runs a host command: `/status`, `/kick <name>`, `/map <name>`, `/fraglimit N`, `/timelimit M`, `/teamplay N`, `/addbot`, `/effect <name> [count]` (a mod's `effectinfo.txt` effect, shown to everyone).
 
 ## Controls
 

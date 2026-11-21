@@ -158,6 +158,8 @@ type
     FInputSent: array[0..255] of Double;
     FPingAck: Integer;
     FPing: Single;
+    { svc_pointparticles / svc_trailparticles drawn }
+    FEffectMessages: Integer;
     { The developer console (the settings commands, photo mode's, the host's) }
     FConsole: TQuakeConsole;
     FIntermissionBoard: Boolean;
@@ -193,6 +195,8 @@ type
     procedure HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector3;
       const Entity, ColorStart, ColorLength: Integer);
     procedure HandleParticle(const Org, Dir: TVector3; const Count, Color: Integer);
+    { svc_pointparticles / svc_trailparticles: a mod's effectinfo.txt effect }
+    procedure HandleEffect(const Trail: Boolean; const Num: Integer; const A, B: TVector3; const Count: Integer);
     procedure HandlePrint(const S: String);
     procedure HandleCenterPrint(const S: String);
     procedure HandleFinale(const S: String);
@@ -359,6 +363,7 @@ begin
   FDemo.OnSound := @HandleSound;
   FDemo.OnTempEntity := @HandleTempEntity;
   FDemo.OnParticle := @HandleParticle;
+  FDemo.OnEffect := @HandleEffect;
   FDemo.OnPrint := @HandlePrint;
   FDemo.OnCenterPrint := @HandleCenterPrint;
   FDemo.OnFinale := @HandleFinale;
@@ -1375,6 +1380,19 @@ begin
   FRenderer.TempEntity(Kind, Pos, Pos2);
 end;
 
+procedure TViewDemo.HandleEffect(const Trail: Boolean; const Num: Integer; const A, B: TVector3;
+  const Count: Integer);
+begin
+  { A seek reads ahead without sounds and effects }
+  if FSeeking or (EffectParticles = nil) or not ModEffects then
+    Exit;
+  Inc(FEffectMessages);
+  if Trail then
+    EffectParticles.Trail(Num, A, B)
+  else
+    EffectParticles.Spawn(Num, A, B, Count);
+end;
+
 procedure TViewDemo.HandleParticle(const Org, Dir: TVector3; const Count, Color: Integer);
 var
   C: TVector4Byte;
@@ -1892,9 +1910,12 @@ begin
           Inc(Gliding);
       WritelnLog('GameViewDemo', 'Entities gliding between steps: %d', [Gliding]);
       if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
+      begin
+        WritelnLog('GameViewDemo', 'Effect messages: %d (svc_pointparticles, svc_trailparticles)', [FEffectMessages]);
         WritelnLog('GameViewDemo', 'Effect particles: %d drawn, %d made by %d effect calls, %d lights, %d hits of the world',
           [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls, EffectParticles.Lights,
-      EffectParticles.Bounces]);
+          EffectParticles.Bounces]);
+      end;
       if Spectate then
       begin
         Eye := CgeToQuake(FViewport.Camera.Translation);
