@@ -712,8 +712,9 @@ begin
     WritelnLog('GameViewQc', 'Entity traces: %d, %.1f entities tested each of %d edicts',
       [FGame.TraceCount, FGame.TraceTested / FGame.TraceCount, FGame.Progs.NumEdicts]);
   if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
-    WritelnLog('GameViewQc', 'Effect particles: %d drawn, %d made by %d effect calls',
-      [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);
+    WritelnLog('GameViewQc', 'Effect particles: %d drawn, %d made by %d effect calls, %d lights, %d hits of the world',
+      [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls, EffectParticles.Lights,
+      EffectParticles.Bounces]);
 end;
 
 procedure TViewQc.ApplyStuffed;
@@ -1221,11 +1222,15 @@ begin
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   if EffectParticles <> nil then
+  begin
+    EffectParticles.WorldBsp := FGame.Bsp;
     EffectParticles.Update(SecondsPassed,
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
-  Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
+  end;
+  { Before the lights age: a flash made this frame shows even in a long frame }
   UpdateModelLights(FGame.Bsp, SecondsPassed);
+  Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
   UpdateHudStats(SecondsPassed);
 end;
 

@@ -336,8 +336,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - A mod's `effectinfo.txt` effects for the temp entities and model trails are drawn in demos and network games too, not only in QuakeC mode.
 - [ ] **Point Particles for Clients**:
   - Send the progs' `pointparticles` and `trailparticles` to network clients and into demos (`svc_pointparticles`); now only the host's own view shows them.
-- [ ] **Particle Lights, Bounce and Stretch**:
-  - The `effectinfo.txt` keys parsed but not used: `lightradius` / `lightcolor` (a dynamic light per effect), `bounce` (particles stop or bounce on the world), `stretchfactor` (sparks drawn along their velocity) and `rotate`.
+- [x] **Particle Lights, Bounce and Stretch**: an effect's `lightradius` makes a dynamic light, `bounce` particles hit the world (bounce off or vanish), sparks are drawn along their velocity (`stretchfactor`) and `rotate` turns the pictures. The lights are white (`lightcolor` only scales them).
 - [x] **Smooth Movement in Demos and Network Games**:
   - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
 - [x] **Anti-Aliasing and Texture Filtering Options**:

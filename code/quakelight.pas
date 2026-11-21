@@ -142,7 +142,11 @@ end;
 procedure TQuakeLighting.Clear;
 var
   L: TQuakeDynamicLight;
+  I: Integer;
 begin
+  { The flashes of the level left }
+  for I := 0 to MaxDLights - 1 do
+    FDLights[I].TimeLeft := 0;
   { The level's lights go with it (they were owned by the viewport root
     before and stayed in the scene across maps) }
   for L in FLights do

@@ -980,8 +980,9 @@ def prepare_fxmod(out_dir):
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, 'effectinfo.txt'), 'w') as f:
         f.write('// test effects\n'
-                'effect TE_GUNSHOT\ncount 12\ntype static\ncolor 0xffe060 0xff8020\nsize 1 2\n'
-                'alpha 200 256 256\nvelocityjitter 64 64 64\ngravity 0.5\n\n'
+                'effect TE_GUNSHOT\ncount 12\ntype spark\ncolor 0xffe060 0xff8020\nsize 1 2\n'
+                'alpha 200 256 128\nvelocityjitter 64 64 64\ngravity 1\nbounce 1.5\nstretchfactor 2\n'
+                'lightradius 120\nlightradiusfade 400\nlightcolor 1 0.7 0.3\n\n'
                 'effect TE_TELEPORT\ncountabsolute 80\ntype alphastatic\ncolor 0x4080ff 0xffffff\n'
                 'size 2 4\nalpha 256 256 128\noriginjitter 16 16 28\nvelocityjitter 8 8 8\n')
 
@@ -993,6 +994,10 @@ def check_fxmod(logs):
                    'the mod\'s effectinfo.txt is read'))
     calls = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', on)]
     result.append((len(calls) == 2 and calls[0] >= 1, 'the shotgun\'s TE_GUNSHOT comes from it (%s calls)' % calls))
+    extra = re.findall(r'effect calls, (\d+) lights, (\d+) hits of the world', on)
+    result.append((len(extra) == 2 and int(extra[-1][0]) >= 1 and int(extra[-1][1]) >= 1,
+                   'its sparks bounce off the walls and the impact makes a light (%s)'
+                   % ('%s lights, %s hits' % extra[-1] if extra else 'no line')))
     m = re.search(r'Effect "TE_TELEPORT" \(2\): (\d+) particles', on)
     result.append((m is not None and int(m.group(1)) == 80, 'TE_TELEPORT makes its 80 particles (%s)'
                    % (m.group(1) if m else 'none')))

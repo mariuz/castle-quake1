@@ -537,9 +537,10 @@ begin
   Particles.Update(SecondsPassed);
 
   { Update lighting styles and muzzle timer }
-  Lighting.Update(SecondsPassed, FPlayerPos);
-  { The models take the world's light and the dynamic lights' }
+  { The models take the world's light and the dynamic lights' (before
+    the lights age: a flash made this frame shows even in a long frame) }
   UpdateModelLights(FBsp, SecondsPassed);
+  Lighting.Update(SecondsPassed, FPlayerPos);
 
   { Update weapon cooldown and view recoil }
   if FWeaponCooldown > 0 then
