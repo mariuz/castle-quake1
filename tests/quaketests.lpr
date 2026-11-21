@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions, QuakeModelLight, QuakeLight;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions, QuakeModelLight, QuakeLight, QuakeDecals;
 
 var
   Checks, Failures: Integer;
@@ -423,12 +423,12 @@ begin
   StartTest('effectinfo.txt effects');
   Info := TEffectInfo.Create;
   try
-    CheckEquals(3, Info.LoadFromText(Text), 'sections with a drawn particle');
+    CheckEquals(4, Info.LoadFromText(Text), 'sections with a particle or a decal');
     CheckEquals(3, Info.EffectCount, 'effect names');
     CheckEquals(1, Info.EffectNum('te_test'), 'effect numbers ignore the case');
     CheckEquals(0, Info.EffectNum('TE_MISSING'), 'an unknown effect is 0');
     CheckEquals(2, Info.SectionCount(1), 'two sections of TE_TEST');
-    CheckEquals(0, Info.SectionCount(2), 'a decal is not drawn');
+    CheckEquals(1, Info.SectionCount(2), 'a decal is a section too');
     Sec := Info.Section(1, 0);
     Check(Sec^.PType = eptStatic, 'type static');
     CheckNear(1, Sec^.Color1.X, 1e-4, 'color 0xff0000');
@@ -469,7 +469,7 @@ begin
     Check((Sec^.LightRadius = 200) and (Sec^.LightRadiusFade = 400) and (Sec^.LightColor.Y = 0.5),
       'lightradius, lightradiusfade and lightcolor');
     Check((Sec^.RotateMax = 360) and (Sec^.SpinMin = -90) and (Sec^.SpinMax = 90), 'rotate');
-    Check((Info.Section(3, 0)^.PType = eptNone) and (Info.Section(3, 0)^.LightTime = 0.5), 'lighttime of a decal''s light');
+    Check((Info.Section(3, 0)^.PType = eptDecal) and (Info.Section(3, 0)^.LightTime = 0.5), 'lighttime of a decal''s light');
   finally
     Info.Free;
   end;
@@ -617,6 +617,47 @@ begin
     Check(ModelIsFullBright('progs/flame2.mdl') and ModelIsFullBright('progs/bolt3.mdl') and
       not ModelIsFullBright('progs/soldier.mdl'), 'flames and lightning stay full bright');
   finally
+    Bsp.Free;
+  end;
+end;
+
+procedure TestDecals;
+var
+  Bsp: TQuakeBsp;
+  D: TQuakeDecals;
+  I: Integer;
+  Floor: TVector3;
+begin
+  { Marks of shots, explosions and blood on the level }
+  StartTest('Decals on the level');
+  Bsp := TQuakeBsp.Create;
+  D := TQuakeDecals.Create;
+  try
+    Check(Bsp.LoadFromPak('maps/e1m1.bsp'), 'e1m1.bsp loads');
+    { A point 4 units over the floor of E1M1's start (CGE coordinates) }
+    Floor := Bsp.TraceHull(0, 0, TVector3.Zero, Vector3(480, 352, 46), Vector3(480, 352, -500)).EndPos;
+    Floor := Vector3(Floor.X, Floor.Z + 4, -Floor.Y);
+    Check(not D.Add(dkBullet, Floor), 'no level, no decal');
+    D.WorldBsp := Bsp;
+    Check(D.Add(dkBullet, Floor) and (D.Count = 1), 'a shot leaves a mark on the floor next to it');
+    Check(not D.Add(dkBullet, Floor + Vector3(0, 40, 0)), 'not from the middle of the room');
+    Check(D.Add(dkScorch, Floor + Vector3(0, 20, 0)) and (D.Count = 2), 'an explosion reaches further');
+    Check(D.Add(dkBlood, Floor), 'blood');
+    DecalsEnabled := False;
+    Check(not D.Add(dkBullet, Floor), 'r_decals 0 makes none');
+    DecalsEnabled := True;
+    for I := 1 to MaxDecals + 10 do
+      D.Add(dkBullet, Floor);
+    Check((D.Count = MaxDecals) and (D.Made = MaxDecals + 13), Format('the oldest go when there are %d', [MaxDecals]));
+    D.Update(DecalLife - 1);
+    Check(D.Count = MaxDecals, 'they stay for a while');
+    D.Update(1.5);
+    Check(D.Count = 0, 'and are gone after it');
+    D.Add(dkBullet, Floor);
+    D.Clear;
+    Check((D.Count = 0) and (D.WorldBsp = nil), 'a level change clears them');
+  finally
+    D.Free;
     Bsp.Free;
   end;
 end;
@@ -2553,6 +2594,7 @@ begin
   TestLogWatch;
   TestOptions;
   TestModelLight;
+  TestDecals;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

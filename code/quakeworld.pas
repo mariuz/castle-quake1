@@ -371,7 +371,7 @@ type
 implementation
 
 uses
-  CastleDownload, CastleUriUtils, X3DNodes, StrUtils, GameTranslate, QuakeModelLight;
+  CastleDownload, CastleUriUtils, X3DNodes, StrUtils, GameTranslate, QuakeModelLight, QuakeDecals;
 
 const
   { Trace entity numbers of monsters: MonsterEntityBase - index in FMonsters }

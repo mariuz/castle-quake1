@@ -8,7 +8,8 @@ interface
 uses
   SysUtils, Classes, Generics.Collections, Math,
   CastleVectors, CastleTransform, CastleScene, CastleColors, CastleUtils, CastleImages,
-  CastleRenderOptions, X3DNodes;
+  CastleRenderOptions, X3DNodes,
+  QuakeDecals;
 
 type
   { Particle type kinds }
@@ -151,6 +152,7 @@ end;
 
 procedure TQuakeParticleManager.SetParent(const AParent: TCastleTransform);
 begin
+  Decals.SetParent(AParent);
   Clear;
   FreeAndNil(FScene);
   FParent := AParent;
@@ -217,6 +219,8 @@ end;
 
 procedure TQuakeParticleManager.Clear;
 begin
+  if Decals <> nil then
+    Decals.Clear;
   FParticles.Clear;
   if FScene <> nil then
     Rebuild;
@@ -288,6 +292,7 @@ procedure TQuakeParticleManager.Update(const SecondsPassed: Single);
 var
   I: Integer;
 begin
+  Decals.Update(SecondsPassed);
   for I := FParticles.Count - 1 downto 0 do
   begin
     if not FParticles[I].Update(SecondsPassed) then
@@ -302,6 +307,7 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  Decals.Add(dkBullet, Pos);
   if FParent = nil then
     Exit;
 
@@ -328,6 +334,8 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  { Blood on the floor or the wall next to the hit }
+  Decals.Add(dkBlood, Pos);
   if Assigned(OnEffect) then
     OnEffect('blood', Pos, Normal);
   if FParent = nil then
@@ -349,6 +357,8 @@ var
   Vel: TVector3;
   P: TQuakeParticle;
 begin
+  { A scorch mark on the surface next to it }
+  Decals.Add(dkScorch, Pos);
   if Assigned(OnEffect) then
     OnEffect('explosion', Pos, TVector3.Zero);
   if FParent = nil then
@@ -465,6 +475,8 @@ procedure TQuakeParticleManager.SpawnPuff(const Pos, Normal: TVector3);
 var
   I: Integer;
 begin
+  { The shot leaves a mark on the wall }
+  Decals.Add(dkBullet, Pos);
   if Assigned(OnEffect) then
     OnEffect('puff', Pos, Normal);
   if FParent = nil then

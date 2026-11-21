@@ -349,6 +349,9 @@ begin
   FGibs.Clear;
   FProjectiles.Clear;
   FreeAndNil(FGeometry);
+  { The marks on the level's walls go with it }
+  if Decals <> nil then
+    Decals.Clear;
   FreeAndNil(FBsp);
 
   FBsp := TQuakeBsp.Create;

@@ -35,7 +35,7 @@ implementation
 
 uses
   Math, CastleLog,
-  GameVideo, GameTranslate, QuakePalette, QuakeProgs, QuakeCaptions, QuakeModelLight;
+  GameVideo, GameTranslate, QuakePalette, QuakeProgs, QuakeCaptions, QuakeModelLight, QuakeDecals;
 
 function IsOn(const Args: String): Boolean;
 begin
@@ -113,6 +113,8 @@ begin
     Value := @WaterWarp
   else if Cmd = 'r_modellight' then
     Value := @ModelLight
+  else if Cmd = 'r_decals' then
+    Value := @DecalsEnabled
   else
     Value := @ProgsExtensions;
   if Args <> '' then
@@ -121,10 +123,12 @@ begin
   { What the last frame lit }
   if Cmd = 'r_modellight' then
     Result := Result + ' (' + ModelLightStats + ')';
+  if Cmd = 'r_decals' then
+    Result := Result + Format(' (%d decals, %d made)', [Decals.Count, Decals.Made]);
 end;
 
 const
-  Commands: array[0..12] of TSettingsCommand = (
+  Commands: array[0..13] of TSettingsCommand = (
     (Names: 'fov'; Help: '  fov <degrees>  - Field of view at 4:3 (wider screens see more)'; Run: @CmdVideo),
     (Names: 'gamma'; Help: '  gamma <0.4..1.5> - Brightness, lower is brighter'; Run: @CmdVideo),
     (Names: 'cl_bob r_drawviewmodel';
@@ -138,6 +142,9 @@ const
     (Names: 'r_waterwarp'; Help: '  r_waterwarp <0|1> - The picture waves under water'; Run: @CmdSwitch),
     (Names: 'r_modellight';
      Help: '  r_modellight <0|1> - Models take the light of the level and of flashes and explosions';
+     Run: @CmdSwitch),
+    (Names: 'r_decals';
+     Help: '  r_decals <0|1> - Shots, explosions and blood leave marks on the walls and floors';
      Run: @CmdSwitch),
     (Names: 'r_lerpmodels';
      Help: '  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)';

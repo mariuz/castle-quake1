@@ -328,8 +328,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 
 **Graphics**
 
-- [ ] **Decals**:
-  - Bullet marks, scorch marks and blood on the walls: `effectinfo.txt`'s `decal` sections (now skipped) and the engine's own impacts, as quads laid on the surface hit, fading out, with a limit on their number.
+- [x] **Decals**: shots, explosions and blood leave marks on the level's walls and floors (128 at most, fading after 40 s), in every view; a mod's `type decal` sections make them too (`r_decals`).
 - [ ] **MD3 and IQM Models**:
   - The model formats newer mods ship besides `.mdl`: MD3 (vertex animation, tags) and IQM (skeletal), loaded into the same visuals as Alias models.
 - [x] **Mod Effects in Demos and Network Games**:

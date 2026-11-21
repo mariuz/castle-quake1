@@ -292,7 +292,7 @@ var
 implementation
 
 uses
-  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate, GameConsole, GameLogWatch, QuakeModelLight;
+  CastleRectangles, CastleGameControllers, CastleDownload, GameViewMenu, GameTranslate, GameConsole, GameLogWatch, QuakeModelLight, QuakeDecals;
 
 procedure TSplitViewport.RenderFromViewEverything(const RenderingCamera: TRenderingCamera);
 var
@@ -2343,6 +2343,7 @@ begin
       FViewport.Camera.Up.Normalize);
   end;
   UpdateModelLights(FBsp, Dt);
+  Decals.WorldBsp := FBsp;
   Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);
   if FSplit then

@@ -540,6 +540,7 @@ begin
   { The models take the world's light and the dynamic lights' (before
     the lights age: a flash made this frame shows even in a long frame) }
   UpdateModelLights(FBsp, SecondsPassed);
+  Decals.WorldBsp := FBsp;
   Lighting.Update(SecondsPassed, FPlayerPos);
 
   { Update weapon cooldown and view recoil }
