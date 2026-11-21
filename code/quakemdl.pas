@@ -159,6 +159,9 @@ procedure SetSceneOpacity(const Scene: TCastleScene; const Opacity: Single;
 
 implementation
 
+uses
+  QuakeModelLight;
+
 type
   TMdlHeader = packed record
     Ident: array[0..3] of AnsiChar; { 'IDPO' }
@@ -526,6 +529,8 @@ begin
   Root.AddChildren(Shape);
 
   Result.Load(Root, True);
+  { The model takes the world's light (QuakeModelLight) }
+  RegisterModelScene(Result, UnlitMat, ModelIsFullBright(FModelName));
   { Bounding box collisions, like Quake entity hulls. A precise triangle
     octree would have to be rebuilt every time the animated mesh changes. }
   Result.PreciseCollisions := False;

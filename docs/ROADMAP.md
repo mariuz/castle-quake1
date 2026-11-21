@@ -344,8 +344,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Options (and the console) for the texture filter (Quake's blocky texels or smooth ones), anisotropic filtering (off to 16x) and anti-aliasing (off to 8x), saved with the other video settings.
 - [x] **Underwater View in Every Mode**:
   - The picture waves while the eyes are in a liquid (software Quake's warp) in QuakeC mode, demos and network games as it already did in the play view; `r_waterwarp 0` turns it off.
-- [ ] **Dynamic Light on Models**:
-  - Rockets, explosions and muzzle flashes light the world's lightmaps; check and, where missing, light the monsters and items near them the same way, and let entities take the colored light of `.lit` files under them.
+- [x] **Dynamic Light on Models**: models were full bright; they now take the light of the lightmap under them (lightstyles, `.lit` colors) and of the dynamic lights near them (`r_modellight`).
 
 **Code simplification**
 
