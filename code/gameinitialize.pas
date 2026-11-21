@@ -11,7 +11,7 @@ uses
   CastleUtils, CastleFilesUtils, CastleUriUtils, CastleRenderOptions, CastleKeysMouse,
   QuakePak, QuakePalette, QuakeSound, QuakeBsp, QuakeProgs, QuakeGeometry,
   GameViewMenu, GameViewPlay, GameViewDemo, GameViewQc, QuakeNet, QuakeServer, QuakeDemo, GameInput, GameVideo, GameTouch, GameScreen, GameTranslate, GameFontUi, CastleFonts, CastleControls, QuakeWebStorage, QuakeWebSocketClient,
-  QuakeRandomMap, QuakeWorld, QuakeMapBrowser, CastleConfig, GameLogWatch;
+  QuakeRandomMap, QuakeWorld, QuakeMapBrowser, CastleConfig, GameLogWatch, GameOptions;
 
 var
   Window: TCastleWindow;
@@ -287,263 +287,215 @@ begin
   Window.Container.DefaultFont := Font;
 end;
 
+{ The options with their own rules (see GameOptions for what a handler
+  gets and returns) }
+
+function OptAutoTest(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 2 then
+    Exit(-1);
+  AutoTestMap := Args[0];
+  AutoTestPrefix := Args[1];
+  { The script's WL: action reads the log from here on }
+  StartLogWatch;
+  Result := 2;
+end;
+
+function OptExportMap(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 2 then
+    Exit(-1);
+  CmdExportMap := Args[0];
+  CmdExportUrl := Args[1];
+  Result := 2;
+end;
+
+function OptRandomMap(const Args: TStringArray): Integer;
+begin
+  { -randommap [seed]: play maps/random<seed>.bsp (a new seed without one) }
+  if (Length(Args) > 0) and (StrToInt64Def(Args[0], -1) >= 0) then
+  begin
+    CmdWarp := RandomMapName(LongWord(StrToInt64(Args[0])));
+    Exit(1);
+  end;
+  CmdWarp := RandomMapName(NewRandomMapSeed);
+  Result := 0;
+end;
+
+function OptSplitPlayers(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 1 then
+    Exit(-1);
+  CmdSplit := True;
+  CmdCoop := True;
+  CmdSplitPlayers := StrToIntDef(Args[0], 2);
+  Result := 1;
+end;
+
+function OptSplitScreen(const Args: TStringArray): Integer;
+begin
+  { -splitscreen [stacked|sides] }
+  CmdSplit := True;
+  CmdCoop := True;
+  Result := 0;
+  if (Length(Args) > 0) and ((Args[0] = 'stacked') or (Args[0] = 'sides')) then
+  begin
+    CmdSplitStacked := Args[0] = 'stacked';
+    Result := 1;
+  end;
+end;
+
+function OptName(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 1 then
+    Exit(-1);
+  CmdPlayerName := Args[0];
+  CmdPlayerNameSet := True;
+  Result := 1;
+end;
+
+function OptColor(const Args: TStringArray): Integer;
+begin
+  { -color <shirt> [<pants>] like Quake's color command }
+  if Length(Args) < 1 then
+    Exit(-1);
+  CmdShirt := EnsureRange(StrToIntDef(Args[0], 0), 0, 13);
+  CmdPants := CmdShirt;
+  Result := 1;
+  if (Length(Args) > 1) and (StrToIntDef(Args[1], -1) >= 0) then
+  begin
+    CmdPants := EnsureRange(StrToIntDef(Args[1], 0), 0, 13);
+    Result := 2;
+  end;
+end;
+
+function OptTouch(const Args: TStringArray): Integer;
+begin
+  { The on-screen controls, the mouse as one finger }
+  TouchControlsMode := tcOn;
+  Result := 0;
+end;
+
+function OptNoTouch(const Args: TStringArray): Integer;
+begin
+  TouchControlsMode := tcOff;
+  Result := 0;
+end;
+
+function OptProtocol(const Args: TStringArray): Integer;
+begin
+  { 666: recorded demos and the network game always use FitzQuake,
+    999: RMQ (float coordinates); else 15 unless a level needs more
+    than 255 models or sounds, a sky or fog (666) or coordinates beyond
+    16 bits (999) }
+  if Length(Args) < 1 then
+    Exit(-1);
+  if Args[0] = '666' then
+  begin
+    PreferredProtocol := ProtocolFitzQuake;
+    NetForceProtocol := 666;
+  end else
+  if Args[0] = '999' then
+  begin
+    PreferredProtocol := ProtocolRMQ;
+    NetForceProtocol := 999;
+  end;
+  Result := 1;
+end;
+
+function OptGame(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 1 then
+    Exit(-1);
+  CmdGame := LowerCase(Args[0]);
+  Result := 1;
+end;
+
+function OptPak(const Args: TStringArray): Integer;
+begin
+  if Length(Args) < 1 then
+    Exit(-1);
+  CmdPaks.Add(Args[0]);
+  Result := 1;
+end;
+
+{ The table of the command line options. The last argument True: the web
+  page takes the option as ?name=value too. }
+procedure RegisterOptions;
+const
+  Web = True;
+begin
+  ClearOptions;
+  { What to play }
+  AddTextOption('warp map', CmdWarp, Web);
+  AddTextOption('load', CmdLoad);
+  AddIntegerOption('skill', CmdSkill, 1, Low(Integer), High(Integer));
+  AddCustomOption('randommap', @OptRandomMap, Web);
+  AddFlagOption('horde', CmdHorde, Web);
+  AddFlagOption('speedrun', CmdSpeedrun);
+  AddFlagOption('ghost', CmdGhost);
+  AddTextOption('qc', CmdQc);
+  AddTextOption('playdemo', CmdPlayDemo);
+  AddCustomOption('game', @OptGame);
+  AddCustomOption('pak', @OptPak);
+  AddTextOption('mapcatalog', MapCatalogOverride);
+  AddTextOption('lang', CmdLang, Web);
+  { Network games }
+  AddTextOption('host', CmdHost, Web);
+  AddTextOption('connect', CmdConnect, Web);
+  AddIntegerOption('port', CmdPort, 0, Low(Integer), High(Integer));
+  AddIntegerOption('bots', CmdBots, 0, Low(Integer), High(Integer), Web);
+  AddFlagOption('coop', CmdCoop);
+  AddFlagOption('spectate', CmdSpectate, Web);
+  AddCustomOption('name', @OptName, Web);
+  AddCustomOption('color', @OptColor);
+  AddIntegerOption('teamplay', ServerTeamPlay, 0, 0, 2, Web);
+  AddNumberOption('fraglimit', ServerFragLimit);
+  AddNumberOption('timelimit', ServerTimeLimit);
+  AddTextOption('maps', ServerMapRotation);
+  AddIntegerOption('spawnspot', ServerSpawnSpot, -1, Low(Integer), High(Integer));
+  AddTextOption('record', CmdRecord);
+  AddCustomOption('splitscreen', @OptSplitScreen);
+  AddCustomOption('splitplayers', @OptSplitPlayers);
+  AddTextOption('register', CmdRegister);
+  AddFlagOption('rendezvous', CmdRendezvous);
+  AddIntegerOption('websocket', CmdWebSocket, DefaultWebSocketPort, Low(Integer), High(Integer));
+  AddTextOption('wsrelay', CmdWsRelay);
+  AddFlagOption('nopredict', CmdNoPredict);
+  AddFlagOption('netloopback', NetLoopback);
+  AddCustomOption('protocol', @OptProtocol);
+  { The screen }
+  AddCustomOption('touch', @OptTouch);
+  AddCustomOption('notouch', @OptNoTouch);
+  AddNumberOption('density', ForcedDensity);
+  AddIntegerOption('lmatlas', LightmapAtlasSize, 2048, 64, 4096);
+  { Tests and tools }
+  AddCustomOption('autotest', @OptAutoTest);
+  AddTextOption('demo', AutoTestDemo);
+  AddTextOption('qctest', CmdQcTest);
+  AddCustomOption('export-map', @OptExportMap);
+end;
+
 procedure ApplicationInitialize;
 var
   I: Integer;
   LoadedAny: Boolean;
+  Args: TStringArray;
 begin
   UseUiFont;
-  { Command line options }
+  { Command line options (the table of RegisterOptions) }
   CmdSkill := 1;
-  I := 1;
-  while I <= Parameters.High do
-  begin
-    if (Parameters[I] = '--autotest') and (I + 2 <= Parameters.High) then
-    begin
-      AutoTestMap := Parameters[I + 1];
-      AutoTestPrefix := Parameters[I + 2];
-      { The script's WL: action reads the log from here on }
-      StartLogWatch;
-      Inc(I, 2);
-    end else
-    if (Parameters[I] = '--demo') and (I + 1 <= Parameters.High) then
-    begin
-      AutoTestDemo := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-warp') or (Parameters[I] = '--warp') or (Parameters[I] = '-map')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdWarp := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-load') or (Parameters[I] = '--load')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdLoad := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-bots') or (Parameters[I] = '--bots')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdBots := StrToIntDef(Parameters[I + 1], 0);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-mapcatalog') or (Parameters[I] = '--mapcatalog')) and (I + 1 <= Parameters.High) then
-    begin
-      { The map browser's catalog: a file or URL instead of the bundled one }
-      MapCatalogOverride := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '-horde') or (Parameters[I] = '--horde') then
-      CmdHorde := True
-    else
-    if (Parameters[I] = '-speedrun') or (Parameters[I] = '--speedrun') then
-      CmdSpeedrun := True
-    else
-    if (Parameters[I] = '-ghost') or (Parameters[I] = '--ghost') then
-      CmdGhost := True
-    else
-    if (Parameters[I] = '-randommap') or (Parameters[I] = '--randommap') then
-    begin
-      { -randommap [seed]: play maps/random<seed>.bsp (a new seed without one) }
-      if (I + 1 <= Parameters.High) and (StrToInt64Def(Parameters[I + 1], -1) >= 0) then
-      begin
-        CmdWarp := RandomMapName(LongWord(StrToInt64(Parameters[I + 1])));
-        Inc(I);
-      end else
-        CmdWarp := RandomMapName(NewRandomMapSeed);
-    end else
-    if ((Parameters[I] = '-qc') or (Parameters[I] = '--qc')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdQc := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '--export-map') and (I + 2 <= Parameters.High) then
-    begin
-      CmdExportMap := Parameters[I + 1];
-      CmdExportUrl := Parameters[I + 2];
-      Inc(I, 2);
-    end else
-    if (Parameters[I] = '--qctest') and (I + 1 <= Parameters.High) then
-    begin
-      CmdQcTest := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-host') or (Parameters[I] = '--host')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdHost := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-connect') or (Parameters[I] = '--connect')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdConnect := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '-coop') or (Parameters[I] = '--coop') then
-      CmdCoop := True
-    else
-    if ((Parameters[I] = '-lang') or (Parameters[I] = '--lang')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdLang := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-splitplayers') or (Parameters[I] = '--splitplayers')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdSplit := True;
-      CmdCoop := True;
-      CmdSplitPlayers := StrToIntDef(Parameters[I + 1], 2);
-      Inc(I);
-    end else
-    if (Parameters[I] = '-netloopback') or (Parameters[I] = '--netloopback') then
-      NetLoopback := True
-    else
-    if (Parameters[I] = '-spectate') or (Parameters[I] = '--spectate') then
-      CmdSpectate := True
-    else
-    if ((Parameters[I] = '-name') or (Parameters[I] = '--name')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdPlayerName := Parameters[I + 1];
-      CmdPlayerNameSet := True;
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-color') or (Parameters[I] = '--color')) and (I + 1 <= Parameters.High) then
-    begin
-      { -color <shirt> [<pants>] like Quake's color command }
-      CmdShirt := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 13);
-      CmdPants := CmdShirt;
-      Inc(I);
-      if (I + 1 <= Parameters.High) and (StrToIntDef(Parameters[I + 1], -1) >= 0) then
-      begin
-        CmdPants := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 13);
-        Inc(I);
-      end;
-    end else
-    if ((Parameters[I] = '-teamplay') or (Parameters[I] = '--teamplay')) and (I + 1 <= Parameters.High) then
-    begin
-      ServerTeamPlay := EnsureRange(StrToIntDef(Parameters[I + 1], 0), 0, 2);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-spawnspot') or (Parameters[I] = '--spawnspot')) and (I + 1 <= Parameters.High) then
-    begin
-      ServerSpawnSpot := StrToIntDef(Parameters[I + 1], -1);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-fraglimit') or (Parameters[I] = '--fraglimit')) and (I + 1 <= Parameters.High) then
-    begin
-      ServerFragLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-timelimit') or (Parameters[I] = '--timelimit')) and (I + 1 <= Parameters.High) then
-    begin
-      ServerTimeLimit := StrToFloatDef(Parameters[I + 1], 0, DefaultFormatSettings);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-maps') or (Parameters[I] = '--maps')) and (I + 1 <= Parameters.High) then
-    begin
-      ServerMapRotation := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-record') or (Parameters[I] = '--record')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdRecord := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '-splitscreen') or (Parameters[I] = '--splitscreen') then
-    begin
-      CmdSplit := True;
-      CmdCoop := True;
-      if (I + 1 <= Parameters.High) and ((Parameters[I + 1] = 'stacked') or (Parameters[I + 1] = 'sides')) then
-      begin
-        CmdSplitStacked := Parameters[I + 1] = 'stacked';
-        Inc(I);
-      end;
-    end else
-    if ((Parameters[I] = '-register') or (Parameters[I] = '--register')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdRegister := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '-rendezvous') or (Parameters[I] = '--rendezvous') then
-      CmdRendezvous := True
-    else
-    if ((Parameters[I] = '-websocket') or (Parameters[I] = '--websocket')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdWebSocket := StrToIntDef(Parameters[I + 1], DefaultWebSocketPort);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-wsrelay') or (Parameters[I] = '--wsrelay')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdWsRelay := Parameters[I + 1];
-      Inc(I);
-    end else
-    if (Parameters[I] = '-nopredict') or (Parameters[I] = '--nopredict') then
-      CmdNoPredict := True
-    else
-    if (Parameters[I] = '-touch') or (Parameters[I] = '--touch') then
-      TouchControlsMode := tcOn { the on-screen controls, the mouse as one finger }
-    else
-    if (Parameters[I] = '-notouch') or (Parameters[I] = '--notouch') then
-      TouchControlsMode := tcOff
-    else
-    if ((Parameters[I] = '-density') or (Parameters[I] = '--density')) and (I + 1 <= Parameters.High) then
-    begin
-      { Device pixels per density-independent pixel (a phone's layout on a desktop) }
-      ForcedDensity := StrToFloatDef(Parameters[I + 1], 0);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-protocol') or (Parameters[I] = '--protocol')) and (I + 1 <= Parameters.High) then
-    begin
-      { 666: recorded demos and the network game always use FitzQuake,
-        999: RMQ (float coordinates); else 15 unless a level needs more
-        than 255 models or sounds, a sky or fog (666) or coordinates beyond
-        16 bits (999) }
-      if Parameters[I + 1] = '666' then
-      begin
-        PreferredProtocol := ProtocolFitzQuake;
-        NetForceProtocol := 666;
-      end else
-      if Parameters[I + 1] = '999' then
-      begin
-        PreferredProtocol := ProtocolRMQ;
-        NetForceProtocol := 999;
-      end;
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-lmatlas') or (Parameters[I] = '--lmatlas')) and (I + 1 <= Parameters.High) then
-    begin
-      { Lightmap atlas page size (testing: small pages force several) }
-      LightmapAtlasSize := StrToIntDef(Parameters[I + 1], 2048);
-      if LightmapAtlasSize < 64 then
-        LightmapAtlasSize := 64;
-      if LightmapAtlasSize > 4096 then
-        LightmapAtlasSize := 4096;
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-skill') or (Parameters[I] = '--skill')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdSkill := StrToIntDef(Parameters[I + 1], 1);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-port') or (Parameters[I] = '--port')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdPort := StrToIntDef(Parameters[I + 1], 0);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-playdemo') or (Parameters[I] = '--playdemo')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdPlayDemo := Parameters[I + 1];
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-game') or (Parameters[I] = '--game')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdGame := LowerCase(Parameters[I + 1]);
-      Inc(I);
-    end else
-    if ((Parameters[I] = '-pak') or (Parameters[I] = '--pak')) and (I + 1 <= Parameters.High) then
-    begin
-      CmdPaks.Add(Parameters[I + 1]);
-      Inc(I);
-    end;
-    Inc(I);
-  end;
+  RegisterOptions;
+  SetLength(Args, Parameters.High);
+  for I := 1 to Parameters.High do
+    Args[I - 1] := Parameters[I];
+  ParseOptions(Args);
+  {$ifdef WASI}
+  { The web page's address: ?warp=<map>, ?horde=1, ?randommap=<seed|new>,
+    ?host=<map>, ?bots=N, ?teamplay=N, ?lang=<code>, ?connect=<host>,
+    ?spectate=1, ?name=<name> (the options registered for the web) }
+  ParseWebOptions(@PageParameter);
+  {$endif}
 
   WritelnLog('GameInitialize', 'Parsed AutoTestMap="%s" Prefix="%s" Demo="%s"', [AutoTestMap, AutoTestPrefix, AutoTestDemo]);
 
@@ -644,22 +596,10 @@ begin
   end;
 
   {$ifdef WASI}
-  { The web page: ?warp=<map> starts a map, ?autotest=<map>&demo=<script>
-    runs a demo script like --autotest (the smoke test; screenshots only
-    log, the browser has no files) }
-  if PageParameter('warp') <> '' then
-    CmdWarp := PageParameter('warp');
-  { ?horde=1: horde mode on the map }
-  if PageParameter('horde') = '1' then
-    CmdHorde := True;
-  { ?randommap=<seed> plays that random map, ?randommap=new a new one }
-  if PageParameter('randommap') <> '' then
-  begin
-    if StrToInt64Def(PageParameter('randommap'), -1) >= 0 then
-      CmdWarp := RandomMapName(LongWord(StrToInt64(PageParameter('randommap'))))
-    else
-      CmdWarp := RandomMapName(NewRandomMapSeed);
-  end;
+  { The web page's parameters with their own rules (the others are in
+    the options' table): ?autotest=<map>&demo=<script> runs a demo script
+    like --autotest (the smoke test; screenshots only log, the browser has
+    no files) }
   { ?touch=1 always shows the touch controls, ?touch=0 never; without it
     they appear at the first touch }
   if PageParameter('touch') = '1' then
@@ -680,16 +620,6 @@ begin
     { ?splitscreen=3 or 4: that many local players }
     CmdSplitPlayers := StrToIntDef(PageParameter('splitscreen'), 2);
   end;
-  if PageParameter('host') <> '' then
-    CmdHost := PageParameter('host');
-  { ?bots=N: deathmatch bots on the page's listen server }
-  if PageParameter('bots') <> '' then
-    CmdBots := StrToIntDef(PageParameter('bots'), 0);
-  if PageParameter('teamplay') <> '' then
-    ServerTeamPlay := EnsureRange(StrToIntDef(PageParameter('teamplay'), 0), 0, 2);
-  { ?lang=<code>: the language of this visit }
-  if PageParameter('lang') <> '' then
-    CmdLang := PageParameter('lang');
   if PageParameter('autotest') <> '' then
   begin
     AutoTestMap := PageParameter('autotest');
@@ -748,16 +678,6 @@ begin
     game on it, "connect:host[:port]" joins one }
   ViewDemo.Predict := not CmdNoPredict;
   ViewDemo.WebSocketPort := CmdWebSocket;
-  {$ifdef WASI}
-  { The web page: ?connect=host[:port] (or a ws:// / wss:// URL) joins a
-    game through its WebSocket relay }
-  if PageParameter('connect') <> '' then
-    CmdConnect := PageParameter('connect');
-  if PageParameter('spectate') = '1' then
-    CmdSpectate := True;
-  if PageParameter('name') <> '' then
-    PlayerName := PageParameter('name');
-  {$endif}
   if (AutoTestMap <> '') and (LowerCase(Copy(AutoTestMap, 1, 8)) = 'wsrelay:') then
   begin
     ViewDemo.WsRelayTarget := Copy(AutoTestMap, 9, MaxInt);

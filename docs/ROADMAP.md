@@ -355,8 +355,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - The fifteen console commands that only change settings (video, textures, accessibility, the rendering switches for mods) are one table of names, help lines and handlers that every view runs, also from the test scripts' `CMD:`.
 - [x] **Console in Every View**: `~` opens the console in the QuakeC view (`map`, `god`, `give`, `profile`, `effect`, the settings) and in demos and network games (the settings, photo mode's commands, the host's).
 - [x] **Play View Command Table**: the play view's commands are a table of names, help line and handler method (`gameviewplay_commands.inc`); `help` is built from it.
-- [ ] **Command Line Table**:
-  - `gameinitialize.pas` parses over forty `-option` checks by hand, and the web build's `?option=` parameters repeat them. One table of options (name, argument, target variable) for both.
+- [x] **Command Line Table**: `GameOptions` is the table of the 44 command line options (names, the variable set or a handler); ten of them are also the web page's `?name=value` parameters.
 - [ ] **Split the Largest Units**:
   - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
 - [x] **Stable Network Scenarios**:

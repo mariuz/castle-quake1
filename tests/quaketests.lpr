@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions;
 
 var
   Checks, Failures: Integer;
@@ -562,6 +562,81 @@ begin
   finally
     Game.Free;
   end;
+end;
+
+var
+  OptTestColor: Integer;
+
+function OptTestHandler(const Args: TStringArray): Integer;
+begin
+  { -color <shirt> [<pants>]: one or two parameters }
+  if Length(Args) < 1 then
+    Exit(-1);
+  OptTestColor := StrToIntDef(Args[0], 0);
+  Result := 1;
+  if (Length(Args) > 1) and (StrToIntDef(Args[1], -1) >= 0) then
+  begin
+    OptTestColor := OptTestColor * 100 + StrToIntDef(Args[1], 0);
+    Result := 2;
+  end;
+end;
+
+function OptTestPage(const Name: String): String;
+begin
+  if Name = 'warp' then
+    Result := 'e1m2'
+  else if Name = 'horde' then
+    Result := '1'
+  else if Name = 'bots' then
+    Result := '3'
+  else if Name = 'skill' then
+    Result := '3'
+  else
+    Result := '';
+end;
+
+procedure TestOptions;
+var
+  Warp, Demo: String;
+  Horde, Coop: Boolean;
+  Skill, Bots, Team: Integer;
+  FragLimit: Single;
+begin
+  { GameOptions: the command line table }
+  StartTest('Command line options table');
+  Warp := '';
+  Demo := '';
+  Horde := False;
+  Coop := False;
+  Skill := 1;
+  Bots := 0;
+  Team := 0;
+  FragLimit := 0;
+  OptTestColor := -1;
+  ClearOptions;
+  AddTextOption('warp map', Warp, True);
+  AddTextOption('demo', Demo);
+  AddFlagOption('horde', Horde, True);
+  AddFlagOption('coop', Coop);
+  AddIntegerOption('skill', Skill, 1, 0, 3);
+  AddIntegerOption('bots', Bots, 0, 0, 16, True);
+  AddIntegerOption('teamplay', Team, 0, 0, 2);
+  AddNumberOption('fraglimit', FragLimit);
+  AddCustomOption('color', @OptTestHandler);
+  Check(Length(OptionNames) = 10, Format('the table has its names (%d)', [Length(OptionNames)]));
+  Check(ParseOptions(TStringArray.Create('-map', 'e1m1', '--horde', '-skill', '9', '-unknown', 'x', '-teamplay',
+    'abc', '--fraglimit', '2.5', '-color', '3', '4', '--demo', 'W:1,Q', '-bots')) = 7,
+    'seven options known, an unknown one skipped and one without its value ignored');
+  Check((Warp = 'e1m1') and Horde and not Coop, 'a text by its second name and a flag with two dashes');
+  Check((Skill = 3) and (Team = 0), 'a whole number is kept in its range, a wrong one is the default');
+  Check(Abs(FragLimit - 2.5) < 0.001, 'a number with a decimal point');
+  Check(OptTestColor = 304, 'a handler takes its optional second parameter');
+  Check((Demo = 'W:1,Q') and (Bots = 0), 'the value after it is not read as an option');
+  Horde := False;
+  Skill := 1;
+  Check(ParseWebOptions(@OptTestPage) = 3, 'the web page gives the options registered for it');
+  Check((Warp = 'e1m2') and Horde and (Bots = 3) and (Skill = 1), 'and only those');
+  ClearOptions;
 end;
 
 procedure TestLogWatch;
@@ -2363,6 +2438,7 @@ begin
   TestAreaGrid;
   TestSettingsCommands;
   TestLogWatch;
+  TestOptions;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

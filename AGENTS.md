@@ -7,7 +7,7 @@ Working notes for contributors and AI agents on Castle Quake: a Quake 1 port to 
 | Path | What |
 | --- | --- |
 | `code/quake*.pas` | Asset parsing and simulation: `QuakePak`, `QuakeBsp`, `QuakeGeometry`, `QuakeMdl`, `QuakeProgs` (QuakeC VM), `QuakeQcGame`, `QuakeNet`, `QuakeServer`... |
-| `code/game*.pas` | CGE views and lifecycle: `GameViewPlay` (native gameplay), `GameViewQc` (QuakeC mode), `GameViewDemo` (demos, network client), `GameViewMenu`; `GameEntityRenderer` draws the entities of the QuakeC and demo views (add entity drawing there, once); `GameConsole` is the table of the settings console commands every view runs (add a setting's command there); `gameviewplay_commands.inc` is the play view's own command table |
+| `code/game*.pas` | CGE views and lifecycle: `GameViewPlay` (native gameplay), `GameViewQc` (QuakeC mode), `GameViewDemo` (demos, network client), `GameViewMenu`; `GameEntityRenderer` draws the entities of the QuakeC and demo views (add entity drawing there, once); `GameConsole` is the table of the settings console commands every view runs (add a setting's command there); `gameviewplay_commands.inc` is the play view's own command table; `GameOptions` is the command line table (`GameInitialize.RegisterOptions` lists the options: add one there) |
 | `code/world/quakeworld_<subsystem>.inc` | `TQuakeWorld`'s methods (declared in `code/quakeworld.pas`); add a method's body to the file of its subsystem |
 | `data/paks/` | Bundled LibreQuake paks; `data/ui/` editor designs; `data/lang/` translations |
 | `tests/` | `quaketests.lpr` (unit tests), `scenarios.py` (scripted games), `community_maps.py`, `websmoke.js` |
