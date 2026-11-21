@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch;
 
 var
   Checks, Failures: Integer;
@@ -562,6 +562,30 @@ begin
   finally
     Game.Free;
   end;
+end;
+
+procedure TestLogWatch;
+var
+  Timer: Single;
+begin
+  { The WL: action of the test scripts: wait for a log line }
+  StartTest('Script waits for log lines');
+  StartLogWatch;
+  ResetLogWatch;
+  Timer := 0;
+  Check(ScriptWaitsForLog('client joined', 0.5, Timer) and (Timer = 0.5), 'the script waits while no line has the text');
+  LogWatchLine('Test: ' + 'the client joined (1)');
+  Check(not ScriptWaitsForLog('client joined', 0.5, Timer) and (Timer = 0), 'and goes on once one has');
+  Check(ScriptWaitsForLog('client joined', 0.5, Timer), 'the next wait needs a later line');
+  LogWatchLine('Test: ' + 'level changed');
+  LogWatchLine('Test: ' + 'the client joined (2)');
+  Check(not ScriptWaitsForLog('client joined', 0.5, Timer), 'which it finds');
+  Check(ScriptWaitsForLog('level changed', 0.5, Timer), 'a line before the last one found does not count');
+  Timer := LogWaitTimeout;
+  Check(not ScriptWaitsForLog('level changed', 0.5, Timer) and (Timer = 0), 'a wait gives up after the timeout');
+  Check(not ScriptWaitsForLog('', 0.5, Timer), 'an empty text does not wait');
+  LogWatchLine('GameInitialize: Parsed AutoTestMap="e1m1" Prefix="x" Demo="WL:Connected,Q"');
+  Check(ScriptWaitsForLog('Connected', 0.5, Timer), 'the line that shows the script does not count');
 end;
 
 procedure TestSettingsCommands;
@@ -2338,6 +2362,7 @@ begin
   TestSkinContents;
   TestAreaGrid;
   TestSettingsCommands;
+  TestLogWatch;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

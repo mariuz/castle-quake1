@@ -382,6 +382,9 @@ def check_chat(logs):
                    'the client gets it back'))
     result.append((re.search(r'Demo: \w+: hello there', h) is not None, 'the host\'s player gets it'))
     result.append((re.search(r'Demo: \w+: gg', c) is not None, 'and the host\'s answer reaches the client'))
+    waits = re.findall(r'LogWatch: found "([^"]*)" after ([\d.]+) s', h + c)
+    result.append((len(waits) == 3 and 'LogWatch: gave up' not in h + c,
+                   'both scripts wait for log lines, not seconds (%s)' % ', '.join('%s %s s' % w for w in waits)))
     return result
 
 
@@ -521,6 +524,9 @@ def check_photo(logs):
     result.append((len(photos) == 2 and photos[1][1:] == ('1600', '900', '60', 'gray'),
                    'a grayscale photo at the window size with its own field of view (%s)' %
                    (' '.join(photos[1][1:]) if len(photos) > 1 else '-')))
+    helped = re.search(r'Console: help \((\d+) commands, (\d+) lines\)', log)
+    result.append((helped is not None and int(helped.group(1)) >= 40 and int(helped.group(2)) >= 35,
+                   'the play view\'s command table answers help (%s)' % (helped.group(0) if helped else 'no line')))
     v = views(log)
     result.append((len(v) == 3 and v[1]['eye'] != v[0]['eye'], 'the camera flies away from the player'))
     result.append((len(v) == 3 and v[2]['eye'] == v[0]['eye'], 'leaving puts the camera back on the player'))
@@ -1629,7 +1635,7 @@ SCENARIOS = [
     Scenario('photo', [('play', ['--autotest', 'e1m1', '{out}/play', '--demo',
                                  'W:0.5,Y,S,CMD:photo 1,M:-60,T:25,P:-10,W:2,S,CMD:photo_effect dof,'
                                  'CMD:photo_shot,CMD:photo_effect gray,CMD:photo_fov 60,CMD:photo_scale 1,'
-                                 'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,Q'], 0),
+                                 'W:0.2,CMD:photo_shot,CMD:photo 0,W:0.3,S,CMD:help,CMD:nosuch,Q'], 0),
                        ('pdemo', ['--autotest', 'demo1.dem', '{out}/pdemo', '--demo',
                                   'W:3,S,CMD:photo 1,M:-40,CMD:photo_effect vignette,W:1,CMD:photo_shot,S,'
                                   'CMD:photo 0,CMD:help,CMD:fov,CMD:nosuch 1,W:1,S,Q'], 0)],
@@ -1663,10 +1669,11 @@ SCENARIOS = [
              # -spawnspot: the host and the client start at fixed, lit spots
              check_netrecord, [], dark=('rhost',)),
     # Chat: a client says something, everyone gets it; the host answers
-    Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo', 'W:7,SAY:gg,W:3,S,Q', '-port',
+    Scenario('chat', [('chost', ['--autotest', 'host:e1m1', '{out}/chost', '--demo',
+                                 'WL:hello there,W:0.5,SAY:gg,W:2.5,S,Q', '-port',
                                  '26006'], 0),
                       ('cclient', ['--autotest', 'connect:127.0.0.1:26006', '{out}/cclient', '--demo',
-                                   'W:2,SAY:hello there,W:6,S,Q'], 2)],
+                                   'WL:Connected,W:1.5,SAY:hello there,WL:: gg,W:0.5,S,Q'], 2)],
              check_chat, [], dark=('chost', 'cclient')),
     # Player names and colors: a coop host and a client, each with its
     # -name and -color; the client turns to the host's player
