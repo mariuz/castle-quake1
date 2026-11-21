@@ -80,6 +80,12 @@ const
   svc_spawnstatic2 = 43;
   svc_spawnstaticsound2 = 44;
   svc_achievement = 52;
+  { DarkPlaces' effectinfo.txt effects (DP_SV_POINTPARTICLES): a trail
+    (entity, effect, start, end), an effect at a point (effect, origin,
+    velocity, count) and the same with no velocity and a count of 1 }
+  svc_trailparticles = 60;
+  svc_pointparticles = 61;
+  svc_pointparticles1 = 62;
 
   { Entity update bits }
   U_MOREBITS = 1;
@@ -239,6 +245,10 @@ type
   TDemoTempEntityEvent = procedure(const Kind: Integer; const Pos, Pos2: TVector3;
     const Entity, ColorStart, ColorLength: Integer) of object;
   TDemoParticleEvent = procedure(const Org, Dir: TVector3; const Count, Color: Integer) of object;
+  { An effectinfo.txt effect: at A with velocity B, Count times; or a
+    Trail from A to B }
+  TDemoEffectEvent = procedure(const Trail: Boolean; const Num: Integer; const A, B: TVector3;
+    const Count: Integer) of object;
   TDemoTextEvent = procedure(const S: String) of object;
   TDemoDamageEvent = procedure(const Armor, Blood: Integer; const From: TVector3) of object;
   TDemoLightStyleEvent = procedure(const Index: Integer; const Pattern: String) of object;
@@ -330,6 +340,7 @@ type
     OnSound: TDemoSoundEvent;
     OnTempEntity: TDemoTempEntityEvent;
     OnParticle: TDemoParticleEvent;
+    OnEffect: TDemoEffectEvent;
     OnPrint, OnCenterPrint, OnFinale: TDemoTextEvent;
     OnDamage: TDemoDamageEvent;
     OnLightStyle: TDemoLightStyleEvent;
@@ -443,6 +454,10 @@ type
     procedure WriteTempEntity(const Kind: Integer; const Pos: TVector3);
     procedure WriteBeam(const Kind, Entity: Integer; const Start, Stop: TVector3);
     procedure WriteParticle(const Org, Dir: TVector3; const Count, Color: Integer);
+    { svc_pointparticles / svc_trailparticles (a demo with them plays in
+      this engine and in DarkPlaces) }
+    procedure WritePointParticles(const Num: Integer; const Org, Vel: TVector3; const Count: Integer);
+    procedure WriteTrailParticles(const Num, Entity: Integer; const Start, Stop: TVector3);
     procedure WriteDamage(const Armor, Blood: Integer; const From: TVector3);
     procedure WriteKilledMonster;
     procedure WriteFoundSecret;
@@ -1253,6 +1268,31 @@ begin
           Color := ReadByte;
           if Assigned(OnParticle) then
             OnParticle(Pos, Dir, Count, Color);
+        end;
+      svc_trailparticles:
+        begin
+          ReadShort; { the entity the trail follows }
+          Count := ReadShort;
+          Pos := ReadVector;
+          Dir := ReadVector;
+          if Assigned(OnEffect) then
+            OnEffect(True, Count, Pos, Dir, 1);
+        end;
+      svc_pointparticles:
+        begin
+          Color := ReadShort;
+          Pos := ReadVector;
+          Dir := ReadVector;
+          Count := ReadShort;
+          if Assigned(OnEffect) then
+            OnEffect(False, Color, Pos, Dir, Count);
+        end;
+      svc_pointparticles1:
+        begin
+          Color := ReadShort;
+          Pos := ReadVector;
+          if Assigned(OnEffect) then
+            OnEffect(False, Color, Pos, TVector3.Zero, 1);
         end;
       svc_damage:
         begin
@@ -2066,6 +2106,28 @@ begin
     WriteChar(Round(EnsureRange(Dir.Data[I] * 16, -128, 127)));
   WriteByte(EnsureRange(Count, 1, 255));
   WriteByte(Color);
+end;
+
+procedure TQuakeDemoWriter.WritePointParticles(const Num: Integer; const Org, Vel: TVector3; const Count: Integer);
+begin
+  if FCur = nil then
+    Exit;
+  WriteByte(svc_pointparticles);
+  WriteShort(Num);
+  WriteVector(Org);
+  WriteVector(Vel);
+  WriteShort(EnsureRange(Count, 0, 32767));
+end;
+
+procedure TQuakeDemoWriter.WriteTrailParticles(const Num, Entity: Integer; const Start, Stop: TVector3);
+begin
+  if FCur = nil then
+    Exit;
+  WriteByte(svc_trailparticles);
+  WriteShort(Entity);
+  WriteShort(Num);
+  WriteVector(Start);
+  WriteVector(Stop);
 end;
 
 procedure TQuakeDemoWriter.WriteDamage(const Armor, Blood: Integer; const From: TVector3);

@@ -102,6 +102,8 @@ type
     procedure HandleCenterPrint(const E: Integer; const S: String);
     procedure HandleStuffCmd(const E: Integer; const S: String);
     procedure HandleTempEntity(const Kind: Integer; const Pos, Pos2: TVector3; const Entity: Integer);
+    { The progs' pointparticles / trailparticles into the recorded demo }
+    procedure HandleEffect(const Trail: Boolean; const Num, E: Integer; const A, B: TVector3; const Count: Single);
     procedure HandleDamage(const E, Armor, Blood: Integer);
     procedure HandleAmbient(const Origin: TVector3; const Sample: String; const Volume: Single);
     procedure HandleIntermission(const S: String);
@@ -139,6 +141,7 @@ begin
   FGame.OnCenterPrint := @HandleCenterPrint;
   FGame.OnStuffCmd := @HandleStuffCmd;
   FGame.OnTempEntity := @HandleTempEntity;
+  FGame.OnEffect := @HandleEffect;
   FGame.OnDamage := @HandleDamage;
   FGame.OnAmbient := @HandleAmbient;
   FGame.OnIntermission := @HandleIntermission;
@@ -643,6 +646,11 @@ begin
       N := EffectParticles.Spawn(Num, Org, TVector3.Zero, StrToFloatDef(Parts[2], 1))
     else
       N := EffectParticles.Spawn(Num, Org, TVector3.Zero, 1);
+    { Into a demo being recorded, like the progs' pointparticles }
+    if Length(Parts) > 2 then
+      HandleEffect(False, Num, 0, Org, TVector3.Zero, StrToFloatDef(Parts[2], 1))
+    else
+      HandleEffect(False, Num, 0, Org, TVector3.Zero, 1);
     Say(Format('Effect "%s" (%d): %d particles at %.0f %.0f %.0f', [Parts[1], Num, N, Org.X, Org.Y, Org.Z]));
   end else
   if Cmd = 'profile' then
@@ -847,6 +855,17 @@ begin
       FRecorder.WriteTempEntity(Kind, Pos);
   end;
   FRenderer.TempEntity(Kind, Pos, Pos2);
+end;
+
+procedure TViewQc.HandleEffect(const Trail: Boolean; const Num, E: Integer; const A, B: TVector3;
+  const Count: Single);
+begin
+  if FRecorder = nil then
+    Exit;
+  if Trail then
+    FRecorder.WriteTrailParticles(Num, E, A, B)
+  else
+    FRecorder.WritePointParticles(Num, A, B, Max(1, Round(Count)));
 end;
 
 { Rendering }

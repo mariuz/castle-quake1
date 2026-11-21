@@ -333,8 +333,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - The model formats newer mods ship besides `.mdl`: MD3 (vertex animation, tags) and IQM (skeletal), loaded into the same visuals as Alias models.
 - [x] **Mod Effects in Demos and Network Games**:
   - A mod's `effectinfo.txt` effects for the temp entities and model trails are drawn in demos and network games too, not only in QuakeC mode.
-- [ ] **Point Particles for Clients**:
-  - Send the progs' `pointparticles` and `trailparticles` to network clients and into demos (`svc_pointparticles`); now only the host's own view shows them.
+- [x] **Point Particles for Clients**: the progs' `pointparticles` and `trailparticles` go to network clients and into recorded demos as DarkPlaces' `svc_pointparticles` / `svc_trailparticles`.
 - [x] **Particle Lights, Bounce and Stretch**: an effect's `lightradius` makes a dynamic light, `bounce` particles hit the world (bounce off or vanish), sparks are drawn along their velocity (`stretchfactor`) and `rotate` turns the pictures. The lights are white (`lightcolor` only scales them).
 - [x] **Smooth Movement in Demos and Network Games**:
   - Walking monsters glide between their 10 Hz steps in demos and network games too (`r_lerpmove`), from the protocol's step flag.
