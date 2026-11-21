@@ -1030,6 +1030,20 @@ def check_video(logs):
                    'Video: texture filter linear, anisotropy 1, anti-aliasing 1 samples' in log,
                    'the console sets the texture filter and the anisotropy'))
     result += common_checks(logs, 'wplay') + common_checks(logs, 'wqc')
+    result += common_checks(logs, 'mlight') + common_checks(logs, 'mlqc') + common_checks(logs, 'mldemo')
+    lit_re = r'r_modellight (\d) \((\d+) models lit, (\d+) by dynamic lights, mean ([\d.]+)\)'
+    lit = re.findall(lit_re, logs['mlight'])
+    result.append((len(lit) == 4 and int(lit[0][1]) > 5 and 0.2 < float(lit[0][3]) < 0.95,
+                   'the models take the light of the level (%s)'
+                   % ('%s models, mean %s' % (lit[0][1], lit[0][3]) if lit else 'no line')))
+    result.append((len(lit) == 4 and lit[0][2] == '0' and int(lit[1][2]) >= 1,
+                   'a shot lights the models near it'))
+    result.append((len(lit) == 4 and lit[3][0] == '0' and float(lit[3][3]) == 1.0,
+                   'r_modellight 0 draws them full bright'))
+    for name, what in (('mlqc', 'QuakeC mode'), ('mldemo', 'a demo')):
+        other = re.findall(lit_re, logs[name])
+        result.append((len(other) == 1 and int(other[0][1]) > 5 and 0.2 < float(other[0][3]) < 0.95,
+                       'and in %s (%s)' % (what, 'mean %s' % other[0][3] if other else 'no line')))
     play = re.findall(r'Underwater view (on|off) \(play\)', logs['wplay'])
     result.append((play == ['on', 'off'],
                    'the play view waves under water, once: not with r_waterwarp 0 (%s)' % ', '.join(play)))
@@ -1709,6 +1723,14 @@ SCENARIOS = [
                        ('wplay', ['--autotest', 'e1m1', '{out}/wplay', '--demo',
                                   'W:1,Y,G:550;-318;-920,W:0.6,S,G:480;46;-352,W:0.4,CMD:r_waterwarp 0,'
                                   'G:550;-318;-920,W:0.6,S,Q'], 0),
+                       # the models take the light of the level, a shot lights
+                       # the weapon, r_modellight 0 is full bright again
+                       ('mlight', ['--autotest', 'e1m1', '{out}/mlight', '--demo',
+                                   'W:1,CMD:r_modellight,X,W:0.05,CMD:r_modellight,CMD:r_modellight 0,W:0.5,'
+                                   'CMD:r_modellight,S,Q'], 0),
+                       ('mlqc', ['--autotest', 'qc:e1m1', '{out}/mlqc', '--demo', 'W:1,CMD:r_modellight,S,Q'], 0),
+                       ('mldemo', ['--autotest', 'demo1.dem', '{out}/mldemo', '--demo',
+                                   'W:3,CMD:r_modellight,S,Q'], 0),
                        ('wqc', ['--autotest', 'qc:e1m1', '{out}/wqc', '--demo',
                                 'W:1,Y,G:550;-318;-920,W:0.6,S,Q'], 0)],
              check_video, [], frame_checks=frames_video),

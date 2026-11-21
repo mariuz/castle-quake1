@@ -538,6 +538,8 @@ begin
 
   { Update lighting styles and muzzle timer }
   Lighting.Update(SecondsPassed, FPlayerPos);
+  { The models take the world's light and the dynamic lights' }
+  UpdateModelLights(FBsp, SecondsPassed);
 
   { Update weapon cooldown and view recoil }
   if FWeaponCooldown > 0 then

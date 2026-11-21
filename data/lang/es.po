@@ -1246,3 +1246,6 @@ msgstr "  map <name>, god, give - Otro mapa, modo dios, todas las armas (modo Qu
 
 msgid "  profile, effect <name> [count] - QuakeC statements per function, a mod's particle effect"
 msgstr "  profile, effect <name> [count] - Instrucciones QuakeC por función, un efecto de partículas del mod"
+
+msgid "  r_modellight <0|1> - Models take the light of the level and of flashes and explosions"
+msgstr "  r_modellight <0|1> - Los modelos toman la luz del nivel, de los disparos y las explosiones"

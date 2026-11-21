@@ -34,6 +34,10 @@ msgid "  r_waterwarp <0|1> - The picture waves under water"
 msgstr ""
 
 #: code/gameconsole.pas
+msgid "  r_modellight <0|1> - Models take the light of the level and of flashes and explosions"
+msgstr ""
+
+#: code/gameconsole.pas
 msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
 msgstr ""
 

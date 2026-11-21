@@ -279,6 +279,14 @@ type
       -1 when the map has no BSP tree }
     function PointLeaf(const QuakePoint: TVector3): Integer;
 
+    { R_LightPoint: the light of the world under a point (Quake
+      coordinates), from the lightmap of the first face straight below it
+      (within 2048 units): the sum of the face's lightstyle layers, each
+      scaled by Styles[style] (1 without the array), in lightmap units
+      (0..255 a layer; colored with a .lit file). False when there is no
+      face below (Color is then zero). }
+    function LightPoint(const P: TVector3; const Styles: array of Single; out Color: TVector3): Boolean;
+
     { Potentially visible set: True when leaf ToLeaf is in the PVS of leaf
       FromLeaf (Mod_LeafPVS). Maps without visibility data see everything. }
     function LeafVisible(const FromLeaf, ToLeaf: Integer): Boolean;
@@ -1656,6 +1664,112 @@ begin
     end;
   end;
   Result := True;
+end;
+
+function TQuakeBsp.LightPoint(const P: TVector3; const Styles: array of Single; out Color: TVector3): Boolean;
+var
+  Found: TVector3;
+
+  { The lightmap sample of face F at Mid; False when Mid is outside it }
+  function FaceLight(const F: Integer; const Mid: TVector3): Boolean;
+  var
+    Tex: TBSPTexInfo;
+    V: TVector3;
+    I, MinS, MinT, MaxS, MaxT, DS, DT, W, H, Idx, Map: Integer;
+    S, T, LoS, HiS, LoT, HiT, Scale: Single;
+  begin
+    Result := False;
+    if (FFaces[F].TexInfoId < 0) or (FFaces[F].TexInfoId >= Length(FTexInfos)) then
+      Exit;
+    Tex := FTexInfos[FFaces[F].TexInfoId];
+    { Sky and liquids have no lightmap (TEX_SPECIAL) }
+    if (Tex.Flags and 1) <> 0 then
+      Exit;
+    { The face's extents in texture space (CalcSurfaceExtents) }
+    LoS := 1e30;
+    HiS := -1e30;
+    LoT := 1e30;
+    HiT := -1e30;
+    for I := 0 to FFaces[F].NumEdges - 1 do
+    begin
+      V := GetFaceVertex(F, I);
+      S := V.X * Tex.VecS.X + V.Y * Tex.VecS.Y + V.Z * Tex.VecS.Z + Tex.VecS.W;
+      T := V.X * Tex.VecT.X + V.Y * Tex.VecT.Y + V.Z * Tex.VecT.Z + Tex.VecT.W;
+      if S < LoS then LoS := S;
+      if S > HiS then HiS := S;
+      if T < LoT then LoT := T;
+      if T > HiT then HiT := T;
+    end;
+    MinS := Floor(LoS / 16);
+    MinT := Floor(LoT / 16);
+    MaxS := Ceil(HiS / 16);
+    MaxT := Ceil(HiT / 16);
+    S := Mid.X * Tex.VecS.X + Mid.Y * Tex.VecS.Y + Mid.Z * Tex.VecS.Z + Tex.VecS.W;
+    T := Mid.X * Tex.VecT.X + Mid.Y * Tex.VecT.Y + Mid.Z * Tex.VecT.Z + Tex.VecT.W;
+    if (S < MinS * 16) or (T < MinT * 16) or (S > MaxS * 16) or (T > MaxT * 16) then
+      Exit;
+    Result := True;
+    Found := TVector3.Zero;
+    if (FFaces[F].LightmapOffset < 0) or (FLightmaps = nil) then
+      Exit; { a face in the dark }
+    W := MaxS - MinS + 1;
+    H := MaxT - MinT + 1;
+    DS := Trunc(S - MinS * 16) div 16;
+    DT := Trunc(T - MinT * 16) div 16;
+    Idx := FFaces[F].LightmapOffset + DT * W + DS;
+    for Map := 0 to 3 do
+    begin
+      if FFaces[F].Styles[Map] = 255 then
+        Break;
+      if (Idx < 0) or (Cardinal(Idx) >= FLightmapsSize) then
+        Break;
+      if FFaces[F].Styles[Map] <= High(Styles) then
+        Scale := Styles[FFaces[F].Styles[Map]]
+      else
+        Scale := 1;
+      if FLitData <> nil then
+        Found := Found + Vector3(FLitData[Idx * 3], FLitData[Idx * 3 + 1], FLitData[Idx * 3 + 2]) * Scale
+      else
+        Found := Found + Vector3(FLightmaps[Idx], FLightmaps[Idx], FLightmaps[Idx]) * Scale;
+      Inc(Idx, W * H);
+    end;
+  end;
+
+  { RecursiveLightPoint: the first face the segment Start..Stop crosses }
+  function Walk(const Node: Integer; const Start, Stop: TVector3): Boolean;
+  var
+    Front, Back: Single;
+    Side, I: Integer;
+    Mid: TVector3;
+  begin
+    if (Node < 0) or (Node >= Length(FNodes)) or (FNodes[Node].PlaneId < 0) or
+       (FNodes[Node].PlaneId >= Length(FPlanes)) then
+      Exit(False); { a leaf: nothing hit }
+    Front := TVector3.DotProduct(Start, FPlanes[FNodes[Node].PlaneId].Normal) - FPlanes[FNodes[Node].PlaneId].Dist;
+    Back := TVector3.DotProduct(Stop, FPlanes[FNodes[Node].PlaneId].Normal) - FPlanes[FNodes[Node].PlaneId].Dist;
+    Side := Ord(Front < 0);
+    if (Back < 0) = (Front < 0) then
+      Exit(Walk(FNodes[Node].Children[Side], Start, Stop));
+    Mid := Start + (Stop - Start) * (Front / (Front - Back));
+    { The near side first }
+    if Walk(FNodes[Node].Children[Side], Start, Mid) then
+      Exit(True);
+    { The faces on this node's plane }
+    for I := FNodes[Node].FirstFace to FNodes[Node].FirstFace + FNodes[Node].NumFaces - 1 do
+      if (I >= 0) and (I < Length(FFaces)) and FaceLight(I, Mid) then
+        Exit(True);
+    Result := Walk(FNodes[Node].Children[1 - Side], Mid, Stop);
+  end;
+
+begin
+  Color := TVector3.Zero;
+  Found := TVector3.Zero;
+  Result := False;
+  if (Length(FModels) = 0) or (Length(FNodes) = 0) then
+    Exit;
+  Result := Walk(FModels[0].HeadNodes[0], P, P - Vector3(0, 0, 2048));
+  if Result then
+    Color := Found;
 end;
 
 function TQuakeBsp.PointLeaf(const QuakePoint: TVector3): Integer;

@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions, QuakeModelLight;
 
 var
   Checks, Failures: Integer;
@@ -505,6 +505,48 @@ begin
     Check(Game.PlayerWaterLevel(1) > 0, Format('the player in it has a water level (%d)', [Game.PlayerWaterLevel(1)]));
   finally
     Game.Free;
+  end;
+end;
+
+procedure TestModelLight;
+var
+  Bsp: TQuakeBsp;
+  One, Two, Zero: array[0..63] of Single;
+  I: Integer;
+  A, B, C, Tint: TVector3;
+begin
+  { R_LightPoint: the lightmap under a model }
+  StartTest('Light of the world on models');
+  for I := 0 to 63 do
+  begin
+    One[I] := 1;
+    Two[I] := 2;
+    Zero[I] := 0;
+  end;
+  Bsp := TQuakeBsp.Create;
+  try
+    Check(Bsp.LoadFromPak('maps/e1m1.bsp'), 'e1m1.bsp loads');
+    { The player's start of E1M1 }
+    Check(Bsp.LightPoint(Vector3(480, 352, 46), One, A) and (A.X > 0) and (A.X <= 4 * 255),
+      Format('the floor under the start gives its light (%.0f)', [A.X]));
+    Check((A.X = A.Y) and (A.Y = A.Z), 'gray without a .lit file');
+    Check(Bsp.LightPoint(Vector3(480, 352, 46), Two, B) and (Abs(B.X - 2 * A.X) < 0.01),
+      'the lightstyles scale it');
+    Check(Bsp.LightPoint(Vector3(480, 352, 46), Zero, C) and (C.X = 0), 'down to the dark');
+    Check(Bsp.LightPoint(Vector3(480, 352, 46), [], C) and (C.X = A.X), 'no styles means their normal value');
+    Check(Bsp.LightPoint(Vector3(480, 352, 60), One, C) and (C.X = A.X),
+      'a point a little higher above the same floor takes the same light');
+    Check(not Bsp.LightPoint(Vector3(480, 352, -6000), One, C) and (C.X = 0), 'nothing below the map');
+    Tint := ModelLightAt(Bsp, Vector3(480, 352, 46));
+    Check((Tint.X >= ModelLightMin) and (Tint.X <= ModelLightMax) and
+      (Abs(Tint.X - EnsureRange(A.X / 128, ModelLightMin, ModelLightMax)) < 0.01),
+      Format('a model there is tinted by it (%.2f)', [Tint.X]));
+    Tint := ModelLightAt(nil, Vector3(0, 0, 0));
+    Check(Abs(Tint.X - 1) < 0.01, 'without a map a model keeps its own brightness');
+    Check(ModelIsFullBright('progs/flame2.mdl') and ModelIsFullBright('progs/bolt3.mdl') and
+      not ModelIsFullBright('progs/soldier.mdl'), 'flames and lightning stay full bright');
+  finally
+    Bsp.Free;
   end;
 end;
 
@@ -2439,6 +2481,7 @@ begin
   TestSettingsCommands;
   TestLogWatch;
   TestOptions;
+  TestModelLight;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

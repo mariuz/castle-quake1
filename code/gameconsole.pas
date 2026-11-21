@@ -35,7 +35,7 @@ implementation
 
 uses
   Math, CastleLog,
-  GameVideo, GameTranslate, QuakePalette, QuakeProgs, QuakeCaptions;
+  GameVideo, GameTranslate, QuakePalette, QuakeProgs, QuakeCaptions, QuakeModelLight;
 
 function IsOn(const Args: String): Boolean;
 begin
@@ -111,15 +111,20 @@ begin
     Value := @ModEffects
   else if Cmd = 'r_waterwarp' then
     Value := @WaterWarp
+  else if Cmd = 'r_modellight' then
+    Value := @ModelLight
   else
     Value := @ProgsExtensions;
   if Args <> '' then
     Value^ := Args <> '0';
   Result := Format('%s %d', [Cmd, Ord(Value^)]);
+  { What the last frame lit }
+  if Cmd = 'r_modellight' then
+    Result := Result + ' (' + ModelLightStats + ')';
 end;
 
 const
-  Commands: array[0..11] of TSettingsCommand = (
+  Commands: array[0..12] of TSettingsCommand = (
     (Names: 'fov'; Help: '  fov <degrees>  - Field of view at 4:3 (wider screens see more)'; Run: @CmdVideo),
     (Names: 'gamma'; Help: '  gamma <0.4..1.5> - Brightness, lower is brighter'; Run: @CmdVideo),
     (Names: 'cl_bob r_drawviewmodel';
@@ -131,6 +136,9 @@ const
     (Names: 'captions hud_contrast reduced_flashes';
      Help: '  captions <0|1>, hud_contrast <0|1>, reduced_flashes <0|1> - Accessibility'; Run: @CmdAccess),
     (Names: 'r_waterwarp'; Help: '  r_waterwarp <0|1> - The picture waves under water'; Run: @CmdSwitch),
+    (Names: 'r_modellight';
+     Help: '  r_modellight <0|1> - Models take the light of the level and of flashes and explosions';
+     Run: @CmdSwitch),
     (Names: 'r_lerpmodels';
      Help: '  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)';
      Run: @CmdSwitch),

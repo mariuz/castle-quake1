@@ -126,7 +126,7 @@ var
 implementation
 
 uses
-  GameViewMenu, GameConsole, GameTranslate, GameLogWatch;
+  GameViewMenu, GameConsole, GameTranslate, GameLogWatch, QuakeModelLight;
 
 const
   DeathRestartDelay = 3.0;
@@ -1225,6 +1225,7 @@ begin
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
+  UpdateModelLights(FGame.Bsp, SecondsPassed);
   UpdateHudStats(SecondsPassed);
 end;
 
