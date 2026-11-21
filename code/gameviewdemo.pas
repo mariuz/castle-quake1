@@ -1892,8 +1892,9 @@ begin
           Inc(Gliding);
       WritelnLog('GameViewDemo', 'Entities gliding between steps: %d', [Gliding]);
       if (EffectParticles <> nil) and (EffectParticles.Calls > 0) then
-        WritelnLog('GameViewDemo', 'Effect particles: %d drawn, %d made by %d effect calls',
-          [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls]);
+        WritelnLog('GameViewDemo', 'Effect particles: %d drawn, %d made by %d effect calls, %d lights, %d hits of the world',
+          [EffectParticles.Count, EffectParticles.Spawned, EffectParticles.Calls, EffectParticles.Lights,
+      EffectParticles.Bounces]);
       if Spectate then
       begin
         Eye := CgeToQuake(FViewport.Camera.Translation);
@@ -2335,9 +2336,12 @@ begin
   Particles.Update(Dt);
   { The effect particles face the first view's camera }
   if EffectParticles <> nil then
+  begin
+    EffectParticles.WorldBsp := FBsp;
     EffectParticles.Update(Dt,
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
+  end;
   Lighting.Update(Dt, FViewport.Camera.Translation);
   UpdateModelLights(FBsp, Dt);
   UpdateHudStats(FDemo, FHud, FViewport.Camera.Translation, True, SecondsPassed);

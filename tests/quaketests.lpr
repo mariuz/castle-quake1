@@ -13,7 +13,7 @@ uses
   CastleKeysMouse, CastleConfig, CastleTransform, CastleGameControllers,
   QuakePak, QuakePalette, QuakeMdl, QuakeRecords, QuakeSprite, CastleScene, X3DNodes, QuakeBsp, QuakePhysics, QuakeProgs, QuakeSaveGame, QuakeDemo, GameInput, GameVideo, GameScreen, QuakeWebSocketRelay, CastleInternalSoundFile,
   QuakeRandomMap, QuakeCaptions, QuakeMapBrowser, GameTranslate, QuakeNet, Sockets, GameFontUi,
-  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions, QuakeModelLight;
+  CastleUnicode, ZStream, StrUtils, QuakeEffectInfo, QuakeEffectParticles, QuakeQcGame, GameConsole, GameLogWatch, GameOptions, QuakeModelLight, QuakeLight;
 
 var
   Checks, Failures: Integer;
@@ -386,7 +386,34 @@ const
     'type decal'#10 +
     'effect OTHER'#10 +
     'count 1'#10;
+  Text2 = 'effect SPARKS'#10 +
+    'countabsolute 8'#10 +
+    'type spark'#10 +
+    'bounce 1.5'#10 +
+    'stretchfactor 2'#10 +
+    'gravity 1'#10 +
+    'time 10'#10 +
+    'alpha 256 256 0'#10 +
+    'velocityjitter 20 20 0'#10 +
+    'lightradius 200'#10 +
+    'lightradiusfade 400'#10 +
+    'lightcolor 1 0.5 0.25'#10 +
+    'rotate 0 360 -90 90'#10 +
+    'effect BLOOD'#10 +
+    'countabsolute 5'#10 +
+    'type blood'#10 +
+    'bounce -1'#10 +
+    'gravity 1'#10 +
+    'time 10'#10 +
+    'alpha 256 256 0'#10 +
+    'effect SCORCH'#10 +
+    'type decal'#10 +
+    'lightradius 100'#10 +
+    'lighttime 0.5'#10;
 var
+  Bsp: TQuakeBsp;
+  Light: TVector4;
+  I: Integer;
   Info: TEffectInfo;
   Fx: TQuakeEffectParticles;
   Sec: PEffectSection;
@@ -432,6 +459,50 @@ begin
     CheckEquals(10, Fx.Trail(1, Vector3(0, 0, 0), Vector3(64, 0, 0)), 'a 64 unit trail: one every 8 units, 2 absolute');
   finally
     Fx.Free;
+  end;
+  { Lights, bounces and sparks: the keys of the second text }
+  Info := TEffectInfo.Create;
+  try
+    CheckEquals(3, Info.LoadFromText(Text2), 'a section that only makes a light is kept');
+    Sec := Info.Section(1, 0);
+    Check((Sec^.PType = eptSpark) and (Sec^.Bounce = 1.5) and (Sec^.StretchFactor = 2), 'bounce and stretchfactor');
+    Check((Sec^.LightRadius = 200) and (Sec^.LightRadiusFade = 400) and (Sec^.LightColor.Y = 0.5),
+      'lightradius, lightradiusfade and lightcolor');
+    Check((Sec^.RotateMax = 360) and (Sec^.SpinMin = -90) and (Sec^.SpinMax = 90), 'rotate');
+    Check((Info.Section(3, 0)^.PType = eptNone) and (Info.Section(3, 0)^.LightTime = 0.5), 'lighttime of a decal''s light');
+  finally
+    Info.Free;
+  end;
+  Bsp := TQuakeBsp.Create;
+  Fx := TQuakeEffectParticles.Create;
+  try
+    Check(Bsp.LoadFromPak('maps/e1m1.bsp'), 'e1m1.bsp loads');
+    Fx.Info.LoadFromText(Text2);
+    Fx.WorldBsp := Bsp;
+    Lighting.Clear;
+    { Sparks dropped over the floor of E1M1's start bounce and stay above it }
+    CheckEquals(8, Fx.Spawn(1, Vector3(480, 352, 60), Vector3(0, 0, 0), 1), 'eight sparks');
+    CheckEquals(1, Fx.Lights, 'and the effect''s light');
+    Light := TVector4.Zero;
+    for I := 0 to MaxDLights - 1 do
+      if Lighting.DLightUniform(I).W = 200 then
+        Light := Lighting.DLightUniform(I);
+    Check((Light.W = 200) and (Abs(Light.Y - 60) < 0.01), Format('a dynamic light of radius 200 at the effect (%.0f)',
+      [Light.W]));
+    for I := 1 to 150 do
+      Fx.Update(0.02, Vector3(1, 0, 0), Vector3(0, 1, 0));
+    Check((Fx.Count = 8) and (Fx.Bounces >= 8), Format('they hit the floor (%d hits) and are still there', [Fx.Bounces]));
+    { Blood (bounce -1) is gone when it lands }
+    CheckEquals(5, Fx.Spawn(2, Vector3(480, 352, 60), Vector3(0, 0, 0), 1), 'five drops of blood');
+    for I := 1 to 150 do
+      Fx.Update(0.02, Vector3(1, 0, 0), Vector3(0, 1, 0));
+    CheckEquals(8, Fx.Count, 'which the floor takes');
+    CheckEquals(0, Fx.Spawn(3, Vector3(480, 352, 60), Vector3(0, 0, 0), 1), 'a decal makes no particle');
+    CheckEquals(2, Fx.Lights, 'but its light');
+  finally
+    Fx.Free;
+    Bsp.Free;
+    Lighting.Clear;
   end;
 end;
 

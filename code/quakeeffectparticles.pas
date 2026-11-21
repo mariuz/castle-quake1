@@ -13,7 +13,7 @@ uses
   SysUtils, Classes, Math,
   CastleVectors, CastleTransform, CastleScene, CastleImages, CastleRenderOptions, CastleLog, CastleUtils,
   X3DNodes,
-  QuakeEffectInfo;
+  QuakeEffectInfo, QuakeBsp;
 
 const
   MaxEffectParticles = 4096;
@@ -31,6 +31,13 @@ type
     Friction: Single;
     Tex: TVector4;
     Additive: Boolean;
+    { 0: flies through the world; below 0: gone when it hits it; above:
+      bounces off, keeping (Bounce - 1) of its speed into the wall }
+    Bounce: Single;
+    { Above 0: drawn along its velocity (sparks), this much of it }
+    Stretch: Single;
+    { The picture's turn and spin, radians (a second) }
+    Angle, Spin: Single;
   end;
 
   { Quake coordinates: is this point in water, slime or lava }
@@ -48,11 +55,14 @@ type
     FSpawned: Int64;
     FCalls: Integer;
     FDrawnEmpty: Boolean;
+    FLights, FBounces: Integer;
     procedure BuildScene(const Parent: TCastleTransform; const FontUrl: String);
     function Add: Integer;
     procedure SpawnSection(const Sec: PEffectSection; const QuakeOrg, QuakeVel: TVector3);
   public
     OnPointInLiquid: TPointInLiquidFunc;
+    { The level the particles with a bounce collide with (nil: none do) }
+    WorldBsp: TQuakeBsp;
     constructor Create;
     destructor Destroy; override;
     { effectinfo.txt and particles/particlefont.* from the paks; the scene
@@ -75,6 +85,10 @@ type
     { Particles made since the start, and effect calls }
     property Spawned: Int64 read FSpawned;
     property Calls: Integer read FCalls;
+    { Dynamic lights made by effects (lightradius) and particles that hit
+      the world (bounce) since the start }
+    property Lights: Integer read FLights;
+    property Bounces: Integer read FBounces;
   end;
 
 var
@@ -84,12 +98,13 @@ var
 implementation
 
 uses
-  QuakePak;
+  QuakePak, QuakeLight;
 
-function QuakeToCge(const V: TVector3): TVector3;
-begin
-  Result := Vector3(V.X, V.Z, -V.Y);
-end;
+const
+  { DP draws a spark from 0.04 s behind to 0.04 s ahead of where it is }
+  SparkSeconds = 0.04;
+  { A light an effect makes without a fade or a time goes after this long }
+  MaxEffectLightTime = 2.0;
 
 function Jitter(const J: TVector3): TVector3;
 begin
@@ -256,6 +271,8 @@ end;
 procedure TQuakeEffectParticles.Clear;
 begin
   FCount := 0;
+  { The level goes: the views give the next one before the next Update }
+  WorldBsp := nil;
 end;
 
 function TQuakeEffectParticles.Add: Integer;
@@ -278,6 +295,9 @@ begin
   if (Sec^.Underwater or Sec^.NotUnderwater) and Assigned(OnPointInLiquid) then
     if OnPointInLiquid(Org) <> Sec^.Underwater then
       Exit;
+  { A section of a type that is not drawn only makes its light }
+  if Sec^.PType = eptNone then
+    Exit;
   I := Add;
   if I < 0 then
     Exit;
@@ -297,6 +317,34 @@ begin
   else
     FItems[I].Tex := FFont.Rect(Sec^.TexMin);
   FItems[I].Additive := not (Sec^.PType in [eptAlphaStatic, eptBlood]);
+  FItems[I].Bounce := Sec^.Bounce;
+  if Sec^.PType = eptSpark then
+    FItems[I].Stretch := Sec^.StretchFactor
+  else
+    FItems[I].Stretch := 0;
+  FItems[I].Angle := DegToRad(RandomBetween(Sec^.RotateMin, Sec^.RotateMax));
+  FItems[I].Spin := DegToRad(RandomBetween(Sec^.SpinMin, Sec^.SpinMax));
+end;
+
+{ The light of a section at the place of the effect (lightradius,
+  lightradiusfade, lighttime). The engine's dynamic lights are white:
+  lightcolor only scales the radius by its brightest part, up to 1. }
+function EffectLight(const Sec: PEffectSection; const QuakeOrg: TVector3): Boolean;
+var
+  Radius, Time: Single;
+begin
+  Result := False;
+  if (Sec^.LightRadius <= 0) or (Lighting = nil) then
+    Exit;
+  Radius := Sec^.LightRadius * EnsureRange(Max(Sec^.LightColor.X, Max(Sec^.LightColor.Y, Sec^.LightColor.Z)), 0, 1);
+  if Radius <= 0 then
+    Exit;
+  Time := Sec^.LightTime;
+  if Sec^.LightRadiusFade > 0 then
+    Time := Min(Time, Radius / Sec^.LightRadiusFade);
+  Lighting.AddDLight(QuakeToCge(QuakeOrg + Sec^.OriginOffset), Radius, Min(Time, MaxEffectLightTime),
+    Sec^.LightRadiusFade);
+  Result := True;
 end;
 
 function RandomCount(const N: Single): Integer;
@@ -322,6 +370,8 @@ begin
     N := Min(RandomCount(Sec^.Count * Max(Count, 0) + Sec^.CountAbsolute), MaxParticlesPerCall);
     for I := 1 to N do
       SpawnSection(Sec, QuakeOrg, QuakeVel);
+    if EffectLight(Sec, QuakeOrg) then
+      Inc(FLights);
   end;
   { What was made: underwater / notunderwater sections and a full pool make fewer }
   Result := FSpawned - Before;
@@ -387,6 +437,10 @@ begin
     FItems[P].Friction := 0;
     FItems[P].Tex := FFont.Rect(0);
     FItems[P].Additive := True;
+    FItems[P].Bounce := 0;
+    FItems[P].Stretch := 0;
+    FItems[P].Angle := 0;
+    FItems[P].Spin := 0;
   end;
 end;
 
@@ -398,12 +452,12 @@ var
   Tcs: TVector2List;
   Cols: TVector4List;
   Idx: TInt32List;
-  R, U: TVector3;
+  R, U, OldPos, Normal, Along, Forward: TVector3;
   C: TVector4;
-  V1, V2: Single;
+  V1, V2, Into, SinA, CosA: Single;
+  Trace: TQuakeTrace;
 begin
-  if FScene = nil then
-    Exit;
+  Forward := TVector3.CrossProduct(CamUp, CamRight);
   { Move them; the dead go, the last taking their place }
   I := 0;
   while I < FCount do
@@ -420,9 +474,36 @@ begin
     FItems[I].Vel.Y := FItems[I].Vel.Y - FItems[I].Gravity * SecondsPassed;
     if FItems[I].Friction > 0 then
       FItems[I].Vel := FItems[I].Vel * Max(0, 1 - FItems[I].Friction * SecondsPassed);
+    OldPos := FItems[I].Pos;
     FItems[I].Pos := FItems[I].Pos + FItems[I].Vel * SecondsPassed;
+    FItems[I].Angle := FItems[I].Angle + FItems[I].Spin * SecondsPassed;
+    { The world stops the ones with a bounce }
+    if (FItems[I].Bounce <> 0) and (WorldBsp <> nil) then
+    begin
+      Trace := WorldBsp.TraceHull(0, 0, TVector3.Zero, CgeToQuake(OldPos), CgeToQuake(FItems[I].Pos));
+      if (Trace.Fraction < 1) and not Trace.StartSolid then
+      begin
+        Inc(FBounces);
+        if FItems[I].Bounce < 0 then
+        begin
+          Dec(FCount);
+          FItems[I] := FItems[FCount];
+          Continue;
+        end;
+        Normal := QuakeToCge(Trace.PlaneNormal);
+        FItems[I].Pos := QuakeToCge(Trace.EndPos) + Normal * 0.1;
+        Into := TVector3.DotProduct(FItems[I].Vel, Normal);
+        FItems[I].Vel := FItems[I].Vel - Normal * (Into * FItems[I].Bounce);
+        { At rest on the floor }
+        if FItems[I].Vel.LengthSqr < 4 then
+          FItems[I].Vel := TVector3.Zero;
+      end;
+    end;
     Inc(I);
   end;
+  { Without a scene (tests) the particles only move }
+  if FScene = nil then
+    Exit;
   { Nothing to draw and nothing drawn: the meshes stay as they are }
   if (FCount = 0) and FDrawnEmpty then
     Exit;
@@ -440,6 +521,25 @@ begin
         begin
           R := CamRight * FItems[I].Size;
           U := CamUp * FItems[I].Size;
+          if (FItems[I].Stretch > 0) and (FItems[I].Vel.LengthSqr > 1) then
+          begin
+            { A spark: along its velocity, as wide as its size }
+            Along := FItems[I].Vel * (SparkSeconds * FItems[I].Stretch);
+            R := TVector3.CrossProduct(Along, Forward);
+            if R.LengthSqr > 1e-6 then
+            begin
+              R := R.Normalize * FItems[I].Size;
+              U := Along;
+            end else
+              R := CamRight * FItems[I].Size;
+          end else
+          if FItems[I].Angle <> 0 then
+          begin
+            SinCos(FItems[I].Angle, SinA, CosA);
+            Along := R;
+            R := Along * CosA + U * SinA;
+            U := U * CosA - Along * SinA;
+          end;
           Pts.Add(FItems[I].Pos - R - U);
           Pts.Add(FItems[I].Pos + R - U);
           Pts.Add(FItems[I].Pos + R + U);

@@ -36,7 +36,15 @@ type
     VelocityMultiplier: Single;
     TexMin, TexMax: Integer;    { particlefont cells, one picked at random }
     Underwater, NotUnderwater: Boolean;
-    LightRadius: Single;
+    { A dynamic light at the effect: its radius, how much of it goes a
+      second, its time and color (DP's defaults: no fade, 9999 s, white) }
+    LightRadius, LightRadiusFade, LightTime: Single;
+    LightColor: TVector3;
+    { Sparks are drawn along their velocity, this much longer or shorter }
+    StretchFactor: Single;
+    { The picture's turn when made (degrees, between the two) and its
+      spin (degrees a second, between the two) }
+    RotateMin, RotateMax, SpinMin, SpinMax: Single;
   end;
   PEffectSection = ^TEffectSection;
 
@@ -149,6 +157,9 @@ begin
   Result^.TimeMax := 16;
   Result^.TexMin := 0;
   Result^.TexMax := 0;
+  Result^.LightTime := 9999;
+  Result^.LightColor := Vector3(1, 1, 1);
+  Result^.StretchFactor := 1;
 end;
 
 function TEffectInfo.LoadFromText(const Text: String): Integer;
@@ -276,7 +287,22 @@ begin
       else if W[0] = 'notunderwater' then
         Sec^.NotUnderwater := True
       else if W[0] = 'lightradius' then
-        Sec^.LightRadius := Arg(1, 0);
+        Sec^.LightRadius := Arg(1, 0)
+      else if W[0] = 'lightradiusfade' then
+        Sec^.LightRadiusFade := Arg(1, 0)
+      else if W[0] = 'lighttime' then
+        Sec^.LightTime := Arg(1, 9999)
+      else if W[0] = 'lightcolor' then
+        Sec^.LightColor := Vec(0)
+      else if W[0] = 'stretchfactor' then
+        Sec^.StretchFactor := Arg(1, 1)
+      else if W[0] = 'rotate' then
+      begin
+        Sec^.RotateMin := Arg(1, 0);
+        Sec^.RotateMax := Arg(2, Sec^.RotateMin);
+        Sec^.SpinMin := Arg(3, 0);
+        Sec^.SpinMax := Arg(4, Sec^.SpinMin);
+      end;
     end;
   finally
     Lines.Free;
@@ -285,7 +311,8 @@ begin
     stay out }
   Kept := nil;
   for I := 0 to High(FSections) do
-    if FSections[I].PType <> eptNone then
+    { (a section that only makes a light is kept) }
+    if (FSections[I].PType <> eptNone) or (FSections[I].LightRadius > 0) then
     begin
       SetLength(Kept, Length(Kept) + 1);
       Kept[High(Kept)] := FSections[I];
