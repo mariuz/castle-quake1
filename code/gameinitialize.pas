@@ -486,7 +486,8 @@ begin
   { Command line options (the table of RegisterOptions) }
   CmdSkill := 1;
   RegisterOptions;
-  SetLength(Args, Parameters.High);
+  { The web page has no parameters at all (High is -1 there) }
+  SetLength(Args, Max(Parameters.High, 0));
   for I := 1 to Parameters.High do
     Args[I - 1] := Parameters[I];
   ParseOptions(Args);
