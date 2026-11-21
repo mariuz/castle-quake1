@@ -218,6 +218,8 @@ begin
   FreeAndNil(FAmbient);
   FreeAndNil(FPhys);
   FreeAndNil(FGeometry);
+  if Decals <> nil then
+    Decals.Clear;
   FreeAndNil(FBsp);
   inherited Destroy;
 end;

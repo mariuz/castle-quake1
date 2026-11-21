@@ -1045,6 +1045,13 @@ def check_video(logs):
                    'a shot lights the models near it'))
     result.append((len(lit) == 4 and lit[3][0] == '0' and float(lit[3][3]) == 1.0,
                    'r_modellight 0 draws them full bright'))
+    marks = re.findall(r'r_decals (\d) \((\d+) decals, (\d+) made\)', logs['mlight'])
+    result.append((len(marks) == 3 and int(marks[0][1]) >= 3 and marks[2][2] == marks[0][2],
+                   'shots leave marks on the floor, none with r_decals 0 (%s)'
+                   % (', '.join('%s made' % m[2] for m in marks) if marks else 'no line')))
+    marks = re.findall(r'r_decals (\d) \((\d+) decals, (\d+) made\)', logs['mlqc'])
+    result.append((len(marks) == 1 and int(marks[0][1]) >= 3,
+                   'and in QuakeC mode (%s)' % (marks[0][1] if marks else 'no line')))
     for name, what in (('mlqc', 'QuakeC mode'), ('mldemo', 'a demo')):
         other = re.findall(lit_re, logs[name])
         result.append((len(other) == 1 and int(other[0][1]) > 5 and 0.2 < float(other[0][3]) < 0.95,
@@ -1732,8 +1739,10 @@ SCENARIOS = [
                        # the weapon, r_modellight 0 is full bright again
                        ('mlight', ['--autotest', 'e1m1', '{out}/mlight', '--demo',
                                    'W:1,CMD:r_modellight,X,W:0.4,CMD:r_modellight,CMD:r_modellight 0,W:0.5,'
-                                   'CMD:r_modellight,S,Q'], 0),
-                       ('mlqc', ['--autotest', 'qc:e1m1', '{out}/mlqc', '--demo', 'W:1,CMD:r_modellight,S,Q'], 0),
+                                   'CMD:r_modellight,P:-35,X,W:0.5,CMD:r_decals,S,CMD:r_decals 0,X,W:0.5,'
+                                   'CMD:r_decals,Q'], 0),
+                       ('mlqc', ['--autotest', 'qc:e1m1', '{out}/mlqc', '--demo',
+                                 'W:1,CMD:r_modellight,P:-35,X,W:0.5,CMD:r_decals,S,Q'], 0),
                        ('mldemo', ['--autotest', 'demo1.dem', '{out}/mldemo', '--demo',
                                    'W:3,CMD:r_modellight,S,Q'], 0),
                        ('wqc', ['--autotest', 'qc:e1m1', '{out}/wqc', '--demo',

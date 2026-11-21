@@ -13,9 +13,10 @@ uses
   SysUtils, Classes, Math, CastleVectors;
 
 type
-  { DP's particle types; the ones not drawn (decals, beams...) are eptNone }
+  { DP's particle types; eptDecal is a mark on the level, not a particle;
+    the ones not drawn (beams, entity particles...) are eptNone }
   TEffectParticleType = (eptAlphaStatic, eptStatic, eptSpark, eptSmoke, eptBlood, eptBubble,
-    eptSnow, eptRain, eptNone);
+    eptSnow, eptRain, eptDecal, eptNone);
 
   TEffectSection = record
     Name: String;
@@ -229,7 +230,8 @@ begin
           'bubble': Sec^.PType := eptBubble;
           'snow': Sec^.PType := eptSnow;
           'rain': Sec^.PType := eptRain;
-          else Sec^.PType := eptNone;   { decal, beam, entityparticle, raindecal }
+          'decal': Sec^.PType := eptDecal;
+          else Sec^.PType := eptNone;   { beam, entityparticle, raindecal }
         end;
       end
       else if W[0] = 'color' then

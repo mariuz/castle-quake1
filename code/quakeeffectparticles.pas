@@ -98,7 +98,7 @@ var
 implementation
 
 uses
-  QuakePak, QuakeLight;
+  QuakePak, QuakeLight, QuakeDecals;
 
 const
   { DP draws a spark from 0.04 s behind to 0.04 s ahead of where it is }
@@ -295,8 +295,9 @@ begin
   if (Sec^.Underwater or Sec^.NotUnderwater) and Assigned(OnPointInLiquid) then
     if OnPointInLiquid(Org) <> Sec^.Underwater then
       Exit;
-  { A section of a type that is not drawn only makes its light }
-  if Sec^.PType = eptNone then
+  { A section of a type that is not drawn only makes its light; a decal
+    is made once by Spawn }
+  if Sec^.PType in [eptNone, eptDecal] then
     Exit;
   I := Add;
   if I < 0 then
@@ -372,6 +373,11 @@ begin
       SpawnSection(Sec, QuakeOrg, QuakeVel);
     if EffectLight(Sec, QuakeOrg) then
       Inc(FLights);
+    { type decal: a mark on the surface next to the effect, in the
+      section's size, color and alpha }
+    if (Sec^.PType = eptDecal) and (Decals <> nil) then
+      Decals.AddCustom(QuakeToCge(QuakeOrg + Sec^.OriginOffset), RandomBetween(Sec^.SizeMin, Sec^.SizeMax),
+        Sec^.Color1 + (Sec^.Color2 - Sec^.Color1) * Random, EnsureRange(Sec^.AlphaMax, 0.1, 1));
   end;
   { What was made: underwater / notunderwater sections and a full pool make fewer }
   Result := FSpawned - Before;

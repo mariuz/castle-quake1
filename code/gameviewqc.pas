@@ -126,7 +126,7 @@ var
 implementation
 
 uses
-  GameViewMenu, GameConsole, GameTranslate, GameLogWatch, QuakeModelLight;
+  GameViewMenu, GameConsole, GameTranslate, GameLogWatch, QuakeModelLight, QuakeDecals;
 
 const
   DeathRestartDelay = 3.0;
@@ -1230,6 +1230,7 @@ begin
   end;
   { Before the lights age: a flash made this frame shows even in a long frame }
   UpdateModelLights(FGame.Bsp, SecondsPassed);
+  Decals.WorldBsp := FGame.Bsp;
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
   UpdateHudStats(SecondsPassed);
 end;

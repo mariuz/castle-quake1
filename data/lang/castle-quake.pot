@@ -38,6 +38,10 @@ msgid "  r_modellight <0|1> - Models take the light of the level and of flashes 
 msgstr ""
 
 #: code/gameconsole.pas
+msgid "  r_decals <0|1> - Shots, explosions and blood leave marks on the walls and floors"
+msgstr ""
+
+#: code/gameconsole.pas
 msgid "  r_lerpmodels <0|1> - Blend the models from pose to pose (QuakeC mode, demos, network)"
 msgstr ""
 
