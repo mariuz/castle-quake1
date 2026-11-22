@@ -316,6 +316,18 @@ def prepare_fxmod(out_dir):
                 'lightradius 120\nlightradiusfade 400\nlightcolor 1 0.7 0.3\n\n'
                 'effect TE_TELEPORT\ncountabsolute 80\ntype alphastatic\ncolor 0x4080ff 0xffffff\n'
                 'size 2 4\nalpha 256 256 128\noriginjitter 16 16 28\nvelocityjitter 8 8 8\n')
+    # The mod's soldier is an MD3 model (two surfaces, a texture each, one
+    # named without its extension) under the stock model's name
+    pyramid = [(-16, -16, -24, 0, 1), (16, -16, -24, 1, 1), (0, 16, -24, 0.5, 1), (0, 0, 32, 0.5, 0)]
+    faces = [(0, 1, 2), (0, 1, 3), (1, 2, 3), (2, 0, 3)]
+    os.makedirs(os.path.join(d, 'progs'), exist_ok=True)
+    with open(os.path.join(d, 'progs', 'soldier.mdl'), 'wb') as f:
+        f.write(md3_bytes([('textures/md3test/red.tga', pyramid, faces),
+                           ('textures/md3test/blue', [(x, y, z + 56, s, t) for x, y, z, s, t in pyramid], faces)]))
+    tex = os.path.join(d, 'textures', 'md3test')
+    os.makedirs(tex, exist_ok=True)
+    Image.new('RGB', (16, 8), (220, 30, 30)).save(os.path.join(tex, 'red.tga'))
+    Image.new('RGB', (8, 8), (30, 30, 220)).save(os.path.join(tex, 'blue.tga'))
 
 
 def check_fxmod(logs):
@@ -338,6 +350,10 @@ def check_fxmod(logs):
     net = [int(x) for x in re.findall(r'Effect particles: \d+ drawn, \d+ made by (\d+) effect calls', logs['fxnet'])]
     result.append((len(net) == 1 and net[0] >= 1,
                    'a network game draws the shotgun\'s impacts from it too (%s calls)' % net))
+    md3 = re.search(r'MD3 "soldier": 2 surfaces joined \((\d+) vertices, (\d+) triangles, textures (\d+) x (\d+)\)', on)
+    result.append((md3 is not None and md3.groups() == ('8', '8', '24', '8') and 'no texture' not in on,
+                   'the mod\'s MD3 soldier loads with its two textures side by side (%s)'
+                   % ('%s vertices, %s triangles, %s x %s' % md3.groups() if md3 else 'no line')))
     sent = re.search(r'Effect "TE_TELEPORT" \(2\) sent, (\d+) effect messages', logs['fxnet'])
     got = [int(x) for x in re.findall(r'Effect messages: (\d+)', logs['fxnet'])]
     result.append((sent is not None and len(got) == 1 and got[0] >= 1,

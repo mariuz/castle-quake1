@@ -329,7 +329,7 @@ begin
     ShowSprite(V, Model, Origin, Angles, Frame, Time);
     Exit;
   end;
-  if Ext <> '.mdl' then
+  if (Ext <> '.mdl') and (Ext <> '.md3') then
   begin
     Hide(V);
     Exit;
