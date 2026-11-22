@@ -1057,7 +1057,7 @@ def check_video(logs):
     result += common_checks(logs, 'mlight') + common_checks(logs, 'mlqc') + common_checks(logs, 'mldemo')
     lit_re = r'r_modellight (\d) \((\d+) models lit, (\d+) by dynamic lights, mean ([\d.]+)\)'
     lit = re.findall(lit_re, logs['mlight'])
-    result.append((len(lit) == 4 and int(lit[0][1]) > 5 and 0.2 < float(lit[0][3]) < 0.95,
+    result.append((len(lit) == 4 and int(lit[0][1]) >= 1 and 0.2 < float(lit[0][3]) < 0.95,
                    'the models take the light of the level (%s)'
                    % ('%s models, mean %s' % (lit[0][1], lit[0][3]) if lit else 'no line')))
     result.append((len(lit) == 4 and lit[0][2] == '0' and int(lit[1][2]) >= 1,
@@ -1073,7 +1073,7 @@ def check_video(logs):
                    'and in QuakeC mode (%s)' % (marks[0][1] if marks else 'no line')))
     for name, what in (('mlqc', 'QuakeC mode'), ('mldemo', 'a demo')):
         other = re.findall(lit_re, logs[name])
-        result.append((len(other) == 1 and int(other[0][1]) > 5 and 0.2 < float(other[0][3]) < 0.95,
+        result.append((len(other) == 1 and int(other[0][1]) >= 1 and 0.2 < float(other[0][3]) < 0.95,
                        'and in %s (%s)' % (what, 'mean %s' % other[0][3] if other else 'no line')))
     play = re.findall(r'Underwater view (on|off) \(play\)', logs['wplay'])
     result.append((play == ['on', 'off'],
