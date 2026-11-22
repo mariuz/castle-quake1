@@ -321,8 +321,7 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - Quake's `profile`: the ten QuakeC functions that ran the most statements since the last call, and the statements per frame.
 - [x] **Frame Time Budgets for Mods**: the community test measures `ad_sepulcher` and `ad_tears` in QuakeC mode against budgets; the first run found a file lookup that cost a second a frame there (now indexed: 1190 ms to 130 ms).
 - [x] **World Update With Thousands of Visible Clusters**: it was not the clusters: every frame of an animated texture made the engine look at all 15 000 world shapes and upload the image again. The animated shapes are a scene of their own now and the frames stay loaded (121 ms to 8 ms a frame at Tears' start).
-- [ ] **The Rest of the QuakeC View's Update**:
-  - At the start of `ad_tears` the view's update takes 67 ms a frame, of which the progs, the entities and the world are 18 ms: time the lights on models, the ambient sounds, the particles and the HUD, and fix what grows with the number of entities.
+- [x] **The Rest of the QuakeC View's Update**: timed part by part, the 50 ms were the screenshot the first measurement had inside its window; the real rest is the lights on models (now skipping culled ones) and the lightstyle uniforms (now sent only to the shaders whose faces use a changed style).
 - [x] **Level Load Timing**:
   - Every level load logs how long each stage took (BSP, QuakeC spawn, geometry and its parts, lights, entities).
 - [x] **Faster World Build for Huge Maps**: Sepulcher's world builds in 2.5 s instead of 4.3 s: the shapes of a texture share one appearance, and brush entities get lightmap pages of the size they need (16 to 512) instead of 512 each.

@@ -158,7 +158,8 @@ begin
   begin
     Tag := TModelLightTag(Tags[I]);
     Scene := TCastleScene(Tag.Owner);
-    if (Scene.World = nil) or not Scene.Exists then
+    { Not the ones the view culled: they take their light when they show }
+    if (Scene.World = nil) or not Scene.Exists or not Scene.Visible then
       Continue;
     if Tag.FullBright or not ModelLight then
       Target := Vector3(1, 1, 1)

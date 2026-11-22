@@ -57,6 +57,10 @@ type
     { The world's part: its textures, lightstyles and movers; what the
       camera sees; culling the entities }
     FBenchWorldParts: array[0..2] of Single;
+    { The ambient sounds; the particles; the lights (on the models, the
+      level's); the HUD; and what comes before the progs' frame (the
+      engine's own update of the view's children, the script, the input) }
+    FBenchOther: array[0..4] of Single;
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -1104,6 +1108,17 @@ begin
            1000 * FBenchEntities / FBenchFrames, 1000 * FBenchWorld / FBenchFrames,
            1000 * FBenchWorldParts[0] / FBenchFrames, 1000 * FBenchWorldParts[1] / FBenchFrames,
            1000 * FBenchWorldParts[2] / FBenchFrames]);
+      if FBenchStarted and (FBenchFrames > 0) then
+        WritelnLog('GameViewQc', 'Frame parts: ambient sounds %.1f, particles %.1f, lights %.1f, HUD %.1f, ' +
+          'before the progs %.1f ms a frame',
+          [1000 * FBenchOther[0] / FBenchFrames, 1000 * FBenchOther[1] / FBenchFrames,
+           1000 * FBenchOther[2] / FBenchFrames, 1000 * FBenchOther[3] / FBenchFrames,
+           1000 * FBenchOther[4] / FBenchFrames]);
+      if FGeometry <> nil then
+        WritelnLog('GameViewQc', 'Lightstyles: %d sends to %d lightmap shaders since the level loaded',
+          [FGeometry.StyleSends, FGeometry.LightmapSetCount]);
+      for P := 0 to High(FBenchOther) do
+        FBenchOther[P] := 0;
       FBenchWorldParts[0] := 0;
       FBenchWorldParts[1] := 0;
       FBenchWorldParts[2] := 0;
@@ -1176,7 +1191,7 @@ var
   E, I: Integer;
   Fire: Boolean;
   Flags: Integer;
-  T0, T1, T2, TStart: TTimerResult;
+  T0, T1, T2, T3, TStart: TTimerResult;
 begin
   TStart := Timer;
   inherited Update(SecondsPassed, HandleInput);
@@ -1224,6 +1239,7 @@ begin
 
   { The frame of the progs }
   T0 := Timer;
+  FBenchOther[4] := FBenchOther[4] + TimerSeconds(T0, TStart);
   FGame.Frame(Cmd, Yaw, Pitch, Min(SecondsPassed, 0.1), Fire, FImpulse);
   FBenchGame := FBenchGame + TimerSeconds(Timer, T0);
   FImpulse := 0;
@@ -1294,7 +1310,9 @@ begin
   FBenchWorldParts[0] := FBenchWorldParts[0] + TimerSeconds(T1, T0);
   FBenchWorldParts[1] := FBenchWorldParts[1] + TimerSeconds(T2, T1);
   FBenchWorldParts[2] := FBenchWorldParts[2] + TimerSeconds(Timer, T2);
+  T0 := Timer;
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
+  T1 := Timer;
   Particles.Update(SecondsPassed);
   if EffectParticles <> nil then
   begin
@@ -1303,11 +1321,17 @@ begin
       TVector3.CrossProduct(FViewport.Camera.Direction, FViewport.Camera.Up).Normalize,
       FViewport.Camera.Up.Normalize);
   end;
+  T2 := Timer;
   { Before the lights age: a flash made this frame shows even in a long frame }
   UpdateModelLights(FGame.Bsp, SecondsPassed);
   Decals.WorldBsp := FGame.Bsp;
   Lighting.Update(SecondsPassed, FViewport.Camera.Translation);
+  T3 := Timer;
   UpdateHudStats(SecondsPassed);
+  FBenchOther[0] := FBenchOther[0] + TimerSeconds(T1, T0);
+  FBenchOther[1] := FBenchOther[1] + TimerSeconds(T2, T1);
+  FBenchOther[2] := FBenchOther[2] + TimerSeconds(T3, T2);
+  FBenchOther[3] := FBenchOther[3] + TimerSeconds(Timer, T3);
   FBenchUpdate := FBenchUpdate + TimerSeconds(Timer, TStart);
 end;
 
