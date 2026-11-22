@@ -14,12 +14,17 @@ uses
 type
   { Lightmap atlases (one per lightstyle slot) of a BSP model and the shader
     that blends them with the live lightstyle values and dynamic lights }
+  TLightStyleSet = set of 0..63;
+
   TQuakeLightmapSet = record
     Layers: array[0..3] of TPixelTextureNode;
     LayerCount: Integer;
     Effect: TEffectNode;
     StylesField: TMFFloat;
     DLightsField: TMFVec4f;
+    { The lightstyles its faces use: the shader gets new values only when
+      one of them changed (a door lit by style 0 alone never does) }
+    UsedStyles: TLightStyleSet;
   end;
 
   { A batch of triangles sharing one texture }
@@ -84,6 +89,8 @@ type
     FTexelsUsed: Int64;
     procedure NeedLayer(const Layer: Integer);
   public
+    { The lightstyles of the faces packed here }
+    UsedStyles: TLightStyleSet;
     { ARgb: three bytes per texel (colored .lit lightmaps), else one }
     constructor Create(const AWidth: Integer = 1024; const AMaxHeight: Integer = 4096; const ARgb: Boolean = False);
     { Reserve a W x H block. Returns False if the atlas is full. }
@@ -204,6 +211,7 @@ type
     FAnimRoot, FAnimWorldRoot: TX3DRootNode;
     FAnimLMSets: array of TQuakeLightmapSet;
     FAnimShapes, FAnimKeepers: Integer;
+    FStyleSends: Int64;
     FWorldTransform: TCastleTransform;
     FSubmodels: TQuakeSubmodelList;
     FAnimTextures: TQuakeAnimTexList;
@@ -317,6 +325,10 @@ type
     function FindSubmodel(const AName: String): TQuakeSubmodel;
 
     property SceneWorld: TCastleScene read FSceneWorld;
+    { The lightmap shaders of the level, and how often one of them got new
+      lightstyle values since the level loaded }
+    function LightmapSetCount: Integer;
+    property StyleSends: Int64 read FStyleSends;
     { r_wateralpha: opacity of water, slime and lava surfaces, both from
       above and from inside (the surfaces are two sided), default 0.65 }
     property LiquidAlpha: Single read FLiquidAlpha write SetLiquidAlpha;
@@ -1371,6 +1383,10 @@ begin
       Page := Atlases.Count - 1;
       AllocOk := Atlas.Allocate(SurfW, SurfH, AtlasX, AtlasY);
     end;
+    { The page's shader follows the lightstyles of its faces }
+    for K := 0 to NumStyles - 1 do
+      if Face.Styles[K] < 64 then
+        Include(Atlas.UsedStyles, Face.Styles[K]);
     if not AllocOk then
       Inc(FFullbrightFaces);
     if AllocOk then
@@ -2428,6 +2444,7 @@ begin
   Result := Default(TQuakeLightmapSet);
   if not WorldLightmaps then
     Exit;
+  Result.UsedStyles := Atlas.UsedStyles;
   for K := 0 to 3 do
   begin
     Result.Layers[K] := Atlas.CreateTextureNode(K);
@@ -2477,6 +2494,7 @@ var
   StylesChanged, DLightsOn: Boolean;
   V: Single;
   DL: array[0..3] of TVector4;
+  Changed: TLightStyleSet;
 begin
   for Sub in FSubmodels do
     Sub.Update(SecondsPassed);
@@ -2485,6 +2503,7 @@ begin
   if Length(FLightmapSets) > 0 then
   begin
     StylesChanged := False;
+    Changed := [];
     for I := 0 to 63 do
     begin
       V := Lighting.GetStyleMultiplier(I);
@@ -2492,6 +2511,7 @@ begin
       begin
         FLastStyles[I] := V;
         StylesChanged := True;
+        Include(Changed, I);
       end;
     end;
     DLightsOn := False;
@@ -2503,8 +2523,13 @@ begin
     end;
     for K := 0 to High(FLightmapSets) do
     begin
-      if StylesChanged then
+      { (a set gets the values of every style, so one that was skipped
+        while only other styles changed is still right for its own) }
+      if StylesChanged and (Changed * FLightmapSets[K].UsedStyles <> []) then
+      begin
         FLightmapSets[K].StylesField.Send(FLastStyles);
+        Inc(FStyleSends);
+      end;
       if DLightsOn or FDLightsOn then
         FLightmapSets[K].DLightsField.Send(DL);
     end;
@@ -2523,6 +2548,11 @@ begin
   FLiquidTime := FloatModulo(FLiquidTime + SecondsPassed, 2 * Pi);
   for I := 0 to FLiquidTimeFields.Count - 1 do
     FLiquidTimeFields[I].Send(FLiquidTime);
+end;
+
+function TQuakeGeometry.LightmapSetCount: Integer;
+begin
+  Result := Length(FLightmapSets);
 end;
 
 function TQuakeGeometry.BoxVisible(const Mins, Maxs: TVector3): Boolean;
