@@ -54,6 +54,9 @@ type
     { Where the time of the frames between two Z actions went (seconds):
       the progs' frame, the entities, the world and the rest of Update }
     FBenchGame, FBenchEntities, FBenchWorld, FBenchUpdate: Single;
+    { The world's part: its textures, lightstyles and movers; what the
+      camera sees; culling the entities }
+    FBenchWorldParts: array[0..2] of Single;
     FWeaponTransform: TCastleTransform;
     FWeapon: TQcVisual;
     FSoundPool: array[0..31] of TCastleTransform;
@@ -1095,10 +1098,15 @@ begin
            FGeometry.VisibleClusters, FGeometry.ClusterCount, FGeometry.VisibleShapes, FGeometry.ShapeCount,
            FGeometry.VisibleEntities, FGeometry.EntityCount, FGame.Progs.NumEdicts]);
       if FBenchStarted and (FBenchFrames > 0) then
-        WritelnLog('GameViewQc', 'Frame parts: update %.1f ms a frame (progs %.1f, entities %.1f, world %.1f), ' +
-          'the rest is drawing',
+        WritelnLog('GameViewQc', 'Frame parts: update %.1f ms a frame (progs %.1f, entities %.1f, world %.1f: ' +
+          'animation %.1f, visibility %.1f, culling %.1f), the rest is drawing',
           [1000 * FBenchUpdate / FBenchFrames, 1000 * FBenchGame / FBenchFrames,
-           1000 * FBenchEntities / FBenchFrames, 1000 * FBenchWorld / FBenchFrames]);
+           1000 * FBenchEntities / FBenchFrames, 1000 * FBenchWorld / FBenchFrames,
+           1000 * FBenchWorldParts[0] / FBenchFrames, 1000 * FBenchWorldParts[1] / FBenchFrames,
+           1000 * FBenchWorldParts[2] / FBenchFrames]);
+      FBenchWorldParts[0] := 0;
+      FBenchWorldParts[1] := 0;
+      FBenchWorldParts[2] := 0;
       FBenchGame := 0;
       FBenchEntities := 0;
       FBenchWorld := 0;
@@ -1168,7 +1176,7 @@ var
   E, I: Integer;
   Fire: Boolean;
   Flags: Integer;
-  T0, TStart: TTimerResult;
+  T0, T1, T2, TStart: TTimerResult;
 begin
   TStart := Timer;
   inherited Update(SecondsPassed, HandleInput);
@@ -1278,9 +1286,14 @@ begin
 
   T0 := Timer;
   FGeometry.Update(SecondsPassed, FViewport.Camera.Translation);
+  T1 := Timer;
   FGeometry.UpdateVisibility(FViewport.Camera.Translation);
+  T2 := Timer;
   CullVisuals;
   FBenchWorld := FBenchWorld + TimerSeconds(Timer, T0);
+  FBenchWorldParts[0] := FBenchWorldParts[0] + TimerSeconds(T1, T0);
+  FBenchWorldParts[1] := FBenchWorldParts[1] + TimerSeconds(T2, T1);
+  FBenchWorldParts[2] := FBenchWorldParts[2] + TimerSeconds(Timer, T2);
   FAmbient.Update(SecondsPassed, FViewport.Camera.Translation);
   Particles.Update(SecondsPassed);
   if EffectParticles <> nil then

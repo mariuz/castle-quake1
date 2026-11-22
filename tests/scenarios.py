@@ -865,6 +865,11 @@ def check_quakec(logs):
     result.append((shared is not None and int(shared.group(1)) > int(shared.group(2)) // 2,
                    'the world\'s shapes share their appearances (%s)'
                    % ('%s of %s' % shared.groups() if shared else 'no line')))
+    anim = re.search(r'Animated textures: (\d+) world shapes in their own scene, (\d+) frames kept loaded',
+                     logs['qcglide'])
+    result.append((anim is not None and int(anim.group(1)) >= 1 and int(anim.group(2)) >= 2,
+                   'the animated textures have their own scene (%s)'
+                   % ('%s shapes, %s frames' % anim.groups() if anim else 'no line')))
     small = re.findall(r'Lightmaps of model [1-9]\d*: \d+ atlas page\(s\) of (\d+)x', logs['qcglide'])
     result.append((all(int(x) <= 128 for x in small), 'brush entities get small lightmap pages (%d logged)' % len(small)))
     # the console's commands of the QuakeC view (CMD: runs what the console runs)

@@ -196,6 +196,14 @@ type
   private
     FBsp: TQuakeBsp;
     FSceneWorld: TCastleScene;
+    { The world's shapes with animated textures (+0name...): a scene of
+      their own, because the engine looks at every shape of a scene when a
+      texture node changes, and a frame of animation changes one. Built
+      with FAnimRoot while the world (FAnimWorldRoot) is. }
+    FSceneAnim: TCastleScene;
+    FAnimRoot, FAnimWorldRoot: TX3DRootNode;
+    FAnimLMSets: array of TQuakeLightmapSet;
+    FAnimShapes, FAnimKeepers: Integer;
     FWorldTransform: TCastleTransform;
     FSubmodels: TQuakeSubmodelList;
     FAnimTextures: TQuakeAnimTexList;
@@ -243,6 +251,7 @@ type
       var OutBatches: TQuakeGeomBatchDict; const Clustered: Boolean = False);
     procedure SetupSubmodels(const Parent: TCastleTransform);
     procedure RegisterAnimNode(const TexName: String; const Node: TImageTextureNode);
+    procedure AddAnimKeepers(const Root: TX3DRootNode);
   public
     { Skill the brush entities are spawned for (set before AddToWorld) }
     Skill: Integer;
@@ -1137,6 +1146,11 @@ begin
   FWorldTransform := TCastleTransform.Create(nil);
   FWorldTransform.Name := 'world';
   FWorldTransform.Add(FSceneWorld);
+  FSceneAnim := TCastleScene.Create(nil);
+  FSceneAnim.PreciseCollisions := True;
+  FSceneAnim.Collides := True;
+  FSceneAnim.Name := 'world_anim_scene';
+  FWorldTransform.Add(FSceneAnim);
   FSubmodels := TQuakeSubmodelList.Create(True);
   FAnimTextures := TQuakeAnimTexList.Create(True);
   FSkyTimeFields := TSFFloatList.Create;
@@ -1421,6 +1435,9 @@ var
   SkySurface: TQuakeSkySurface;
   MapAlpha: Single;
   First: TSharedAppearance;
+  Root: TX3DRootNode;
+  Key: String;
+  LM: TQuakeLightmapSet;
 begin
   { The appearances are shared between the batches of one scene (a new
     scene's root has no shapes yet) }
@@ -1432,22 +1449,34 @@ begin
   for BatchPair in Batches do
   begin
     Batch := BatchPair.Value;
-    if FSharedBatches.TryGetValue(BatchPair.Key, First) and (First.Appearance <> nil) and
+    Root := RootNode;
+    Key := BatchPair.Key;
+    LM := LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))];
+    { The world's animated textures go to their own scene, with their own
+      copy of the lightmap shader (a node belongs to one scene) }
+    if (FAnimRoot <> nil) and (RootNode = FAnimWorldRoot) and (Length(FAnimLMSets) > 0) and
+       (Batch.TextureName <> '') and (Batch.TextureName[1] = '+') and (Batch.Coords.Count > 0) then
+    begin
+      Root := FAnimRoot;
+      Key := 'anim/' + Key;
+      LM := FAnimLMSets[EnsureRange(Batch.LightmapPage, 0, High(FAnimLMSets))];
+      Inc(FAnimShapes);
+    end;
+    if FSharedBatches.TryGetValue(Key, First) and (First.Appearance <> nil) and
        (First.IsSky = Batch.IsSky) and (First.IsLiquid = Batch.IsLiquid) and (First.IsFence = Batch.IsFence) then
     begin
-      Batch.CreateNodes(FBsp.MapName, LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))],
-        First.Appearance, First.TexNode);
+      Batch.CreateNodes(FBsp.MapName, LM, First.Appearance, First.TexNode);
       if Batch.Shape <> nil then
       begin
         Inc(FSharedCount);
-        RootNode.AddChildren(Batch.Shape);
+        Root.AddChildren(Batch.Shape);
         if Cluster <> nil then
           Cluster.Shapes.Add(Batch.Shape);
       end;
       { Its texture animation, sky and liquid fields are the first one's }
       Continue;
     end;
-    Batch.CreateNodes(FBsp.MapName, LMSets[EnsureRange(Batch.LightmapPage, 0, High(LMSets))]);
+    Batch.CreateNodes(FBsp.MapName, LM);
     if Batch.Shape <> nil then
     begin
       First.Appearance := Batch.Appearance;
@@ -1455,8 +1484,8 @@ begin
       First.IsSky := Batch.IsSky;
       First.IsLiquid := Batch.IsLiquid;
       First.IsFence := Batch.IsFence;
-      FSharedBatches.AddOrSetValue(BatchPair.Key, First);
-      RootNode.AddChildren(Batch.Shape);
+      FSharedBatches.AddOrSetValue(Key, First);
+      Root.AddChildren(Batch.Shape);
       if Cluster <> nil then
         Cluster.Shapes.Add(Batch.Shape);
       if Batch.TexNode <> nil then
@@ -1772,6 +1801,13 @@ begin
             AddFace(FaceIdx, OutBatches, Atlases);
         FBuildTime.Stage('faces');
         CreateLightmapSets;
+        { The animated textures' scene has its own lightmap shader }
+        if FAnimRoot <> nil then
+        begin
+          SetLength(FAnimLMSets, Atlases.Count);
+          for C := 0 to Atlases.Count - 1 do
+            FAnimLMSets[C] := CreateLightmapSet(Atlases[C]);
+        end;
         FBuildTime.Stage('lightmaps');
         for C := 0 to High(ClusterBatches) do
           FinishBatches(ClusterBatches[C], LMSets, RootNode, FClusters[C]);
@@ -2127,10 +2163,64 @@ begin
     [FSubmodels.Count, BuildSeconds, LoadSeconds]);
 end;
 
+procedure TQuakeGeometry.AddAnimKeepers(const Root: TX3DRootNode);
+var
+  I: Integer;
+  FrameName: String;
+  Shape: TShapeNode;
+  Geom: TIndexedTriangleSetNode;
+  Coord: TCoordinateNode;
+  TexCoord: TTextureCoordinateNode;
+  App: TAppearanceNode;
+  Mat: TUnlitMaterialNode;
+  Tex: TImageTextureNode;
+  TexProps: TTexturePropertiesNode;
+  Center: TVector3;
+begin
+  { A shape nobody sees (a triangle of no area in the middle of the map)
+    for every frame of every animated texture: the frames stay loaded on
+    the GPU, so showing the next one uploads nothing }
+  FAnimKeepers := 0;
+  Center := QuakeToCge((FBsp.Models[0].Mins + FBsp.Models[0].Maxs) * 0.5);
+  for I := 0 to FBsp.Miptexes.Count - 1 do
+    if (FBsp.Miptexes[I] <> nil) and (FBsp.Miptexes[I].Name <> '') and (FBsp.Miptexes[I].Name[1] = '+') then
+    begin
+      { (every frame of the map: the brush entities' too) }
+      FrameName := FBsp.Miptexes[I].Name;
+      Coord := TCoordinateNode.Create;
+      Coord.SetPoint([Center, Center, Center]);
+      TexCoord := TTextureCoordinateNode.Create;
+      TexCoord.SetPoint([Vector2(0, 0), Vector2(0, 0), Vector2(0, 0)]);
+      Geom := TIndexedTriangleSetNode.Create;
+      Geom.Coord := Coord;
+      Geom.TexCoord := TexCoord;
+      Geom.SetIndex([0, 1, 2]);
+      TexProps := TTexturePropertiesNode.Create;
+      SetupTextureFilter(TexProps, True);
+      Tex := TImageTextureNode.Create;
+      Tex.SetUrl(['quaketex:/map/' + FBsp.MapName + '/' + FrameName]);
+      Tex.RepeatS := True;
+      Tex.RepeatT := True;
+      Tex.TextureProperties := TexProps;
+      Mat := TUnlitMaterialNode.Create;
+      Mat.EmissiveColor := Vector3(1, 1, 1);
+      App := TAppearanceNode.Create;
+      App.Material := Mat;
+      App.Texture := Tex;
+      Shape := TShapeNode.Create;
+      Shape.Geometry := Geom;
+      Shape.Appearance := App;
+      Shape.Collision := scNone;
+      Root.AddChildren(Shape);
+      Inc(FAnimKeepers);
+    end;
+end;
+
 procedure TQuakeGeometry.AddToWorld(const Parent: TCastleTransform);
 var
   RootWorld: TX3DRootNode;
   Batches: TQuakeGeomBatchDict;
+  I: Integer;
 begin
   if (FBsp = nil) or (Parent = nil) then
     Exit;
@@ -2150,13 +2240,33 @@ begin
   { Build static world model (Model 0) }
   FBuildTime.Start;
   RootWorld := TX3DRootNode.Create;
+  { A map with animated textures gets a second, small scene for them }
+  FAnimRoot := nil;
+  FAnimWorldRoot := RootWorld;
+  FAnimShapes := 0;
+  SetLength(FAnimLMSets, 0);
+  for I := 0 to FBsp.Miptexes.Count - 1 do
+    if (FBsp.Miptexes[I] <> nil) and (FBsp.Miptexes[I].Name <> '') and (FBsp.Miptexes[I].Name[1] = '+') then
+    begin
+      FAnimRoot := TX3DRootNode.Create;
+      Break;
+    end;
   Batches := TQuakeGeomBatchDict.Create([doOwnsValues]);
   try
     BuildModelGeometry(0, RootWorld, Batches, True);
     FSceneWorld.Load(RootWorld, True);
+    if FAnimRoot <> nil then
+    begin
+      AddAnimKeepers(FAnimRoot);
+      FSceneAnim.Load(FAnimRoot, True);
+      WritelnLog('QuakeGeometry', 'Animated textures: %d world shapes in their own scene, %d frames kept loaded',
+        [FAnimShapes, FAnimKeepers]);
+    end;
     FBuildTime.Stage('scene');
   finally
     Batches.Free;
+    FAnimRoot := nil;
+    FAnimWorldRoot := nil;
   end;
 
   Parent.Add(FWorldTransform);
@@ -2540,7 +2650,7 @@ function TQuakeGeometry.IsGeometryScene(const T: TCastleTransform): Boolean;
 var
   Sub: TQuakeSubmodel;
 begin
-  Result := T = FSceneWorld;
+  Result := (T = FSceneWorld) or (T = FSceneAnim);
   if not Result then
     for Sub in FSubmodels do
       if T = Sub.Scene then
