@@ -356,5 +356,4 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 - [x] **Stable Network Scenarios**:
   - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
 - [x] **Scenarios That Wait for Log Lines**: the script action `WL:<text>` waits for a log line in every view; the `chat` scenario's host and client use it.
-- [ ] **Shared Test Helpers**:
-  - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.
+- [x] **Shared Test Helpers**: `tests/qtest.py` holds what the test scripts share (starting the game, the log patterns, image comparison, the pak reader); the scenario checks are `tests/checks_play.py`, `checks_net.py` and `checks_mods.py`, and `scenarios.py` is the list of scenarios and the runner.

@@ -48,7 +48,8 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scenarios  # noqa: E402  (game_command, FRAMES_RE, budget_margin, views)
+import qtest  # noqa: E402
+from qtest import run, pak_file  # noqa: E402
 
 BUDGETS_PATH = os.path.join(ROOT, 'tests', 'community_budgets.json')
 MAPS = [
@@ -150,15 +151,6 @@ def spots(bsp_path):
     return ['%g;%g;%g' % (x, z + 40, -y) for x, y, z in chosen]
 
 
-def run(exe, args, log_path):
-    with open(log_path, 'w') as log:
-        try:
-            code = subprocess.run(scenarios.game_command(exe, args), stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
-                                  timeout=scenarios.PROCESS_TIMEOUT).returncode
-        except subprocess.TimeoutExpired:
-            code = 'timeout'
-    with open(log_path, errors='replace') as f:
-        return code, f.read()
 
 
 def check_map(exe, out, mod, entry, budgets, update, results, measured):
@@ -180,7 +172,7 @@ def check_map(exe, out, mod, entry, budgets, update, results, measured):
     if entry['fog']:
         results.append(('Fog: density' in log, '%s: its worldspawn fog is applied' % name))
     results.append((log.count('Loading level') == 1, '%s: no level change during the run' % name))
-    frames = scenarios.FRAMES_RE.findall(log)[::2]
+    frames = qtest.FRAMES_RE.findall(log)[::2]
     compares = NC_RE.findall(log)
     results.append((len(frames) == len(places) and len(compares) == len(places),
                     '%s: a Z line and a PVS compare at each of the %d spots (got %d, %d)'
@@ -211,7 +203,7 @@ def check_map(exe, out, mod, entry, budgets, update, results, measured):
                             % (where, row['leaf'], b['leaf'])))
             continue
         for kind in ('clusters', 'shapes', 'entities'):
-            limit = scenarios.budget_margin(b[kind], kind)
+            limit = qtest.budget_margin(b[kind], kind)
             results.append((row[kind] <= limit, '%s: %d %s drawn (budget %d, limit %.0f)'
                             % (where, row[kind], kind, b[kind], limit)))
         limit = 3 * b['ms_average'] + 50
@@ -295,21 +287,6 @@ def check_arcane_dimensions(exe, out, cache, results):
 AD_BUDGET_MAPS = ('ad_sepulcher', 'ad_tears')
 
 
-def pak_file(pak_path, name):
-    """The bytes of a file in a .pak, None without it"""
-    with open(pak_path, 'rb') as f:
-        magic, offset, length = struct.unpack('<4sii', f.read(12))
-        if magic != b'PACK':
-            return None
-        f.seek(offset)
-        directory = f.read(length)
-        for i in range(0, length, 64):
-            entry = directory[i:i + 56].split(b'\0')[0].decode('latin1').lower()
-            if entry == name:
-                pos, size = struct.unpack_from('<ii', directory, i + 56)
-                f.seek(pos)
-                return f.read(size)
-    return None
 
 
 def check_ad_budgets(exe, out, budgets, update, results, measured):
@@ -338,7 +315,7 @@ def check_ad_budgets(exe, out, budgets, update, results, measured):
         code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'budget_' + name), '--demo', demo],
                         os.path.join(out, 'budget_%s.log' % name))
         results.append((code == 0 and 'Exception "' not in log, '%s: the budget run exits with 0 (got %s)' % (tag, code)))
-        frames = scenarios.FRAMES_RE.findall(log)[::2]
+        frames = qtest.FRAMES_RE.findall(log)[::2]
         edicts = re.findall(r'entities \d+/\d+, edicts (\d+)', log)
         results.append((len(frames) == len(places), '%s: a Z line at each of the %d spots (got %d)'
                         % (tag, len(places), len(frames))))
@@ -369,7 +346,7 @@ def check_ad_budgets(exe, out, budgets, update, results, measured):
             # counts, and only the frame time is held to the budget
             if row['leaf'] == b['leaf']:
                 for kind in ('clusters', 'shapes', 'entities'):
-                    limit = scenarios.budget_margin(b[kind], kind)
+                    limit = qtest.budget_margin(b[kind], kind)
                     results.append((row[kind] <= limit, '%s: %d %s drawn (budget %d, limit %.0f)'
                                     % (where, row[kind], kind, b[kind], limit)))
             else:

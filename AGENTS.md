@@ -11,7 +11,7 @@ Working notes for contributors and AI agents on Castle Quake: a Quake 1 port to 
 | `code/world/quakeworld_<subsystem>.inc` | `TQuakeWorld`'s methods (declared in `code/quakeworld.pas`); add a method's body to the file of its subsystem |
 | `code/demo/gameviewdemo_<subsystem>.inc`, `code/geometry/quakegeometry_<subsystem>.inc` | The methods of `TViewDemo` and `TQuakeGeometry` by subsystem, the same way |
 | `data/paks/` | Bundled LibreQuake paks; `data/ui/` editor designs; `data/lang/` translations |
-| `tests/` | `quaketests.lpr` (unit tests), `scenarios.py` (scripted games), `community_maps.py`, `websmoke.js` |
+| `tests/` | `quaketests.lpr` (unit tests), `scenarios.py` (scripted games: the list and the runner; their checks are `checks_play.py`, `checks_net.py`, `checks_mods.py`, shared helpers `qtest.py`), `community_maps.py`, `websmoke.js` |
 | `docs/` | `ARCHITECTURE.md` (code structure), `REFERENCE.md` (test harness, log lines, builds), `ROADMAP.md`, `HISTORY.md`, `FEATURES.md`, `USAGE.md` |
 
 Read `docs/ARCHITECTURE.md` before a larger change, and the section of `docs/REFERENCE.md` for the feature you touch: it lists the script actions and the log lines the tests assert on.
