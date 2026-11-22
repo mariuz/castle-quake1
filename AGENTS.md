@@ -9,6 +9,7 @@ Working notes for contributors and AI agents on Castle Quake: a Quake 1 port to 
 | `code/quake*.pas` | Asset parsing and simulation: `QuakePak`, `QuakeBsp`, `QuakeGeometry`, `QuakeMdl`, `QuakeProgs` (QuakeC VM), `QuakeQcGame`, `QuakeNet`, `QuakeServer`... |
 | `code/game*.pas` | CGE views and lifecycle: `GameViewPlay` (native gameplay), `GameViewQc` (QuakeC mode), `GameViewDemo` (demos, network client), `GameViewMenu`; `GameEntityRenderer` draws the entities of the QuakeC and demo views (add entity drawing there, once); `GameConsole` is the table of the settings console commands every view runs (add a setting's command there); `gameviewplay_commands.inc` is the play view's own command table; `GameOptions` is the command line table (`GameInitialize.RegisterOptions` lists the options: add one there) |
 | `code/world/quakeworld_<subsystem>.inc` | `TQuakeWorld`'s methods (declared in `code/quakeworld.pas`); add a method's body to the file of its subsystem |
+| `code/demo/gameviewdemo_<subsystem>.inc`, `code/geometry/quakegeometry_<subsystem>.inc` | The methods of `TViewDemo` and `TQuakeGeometry` by subsystem, the same way |
 | `data/paks/` | Bundled LibreQuake paks; `data/ui/` editor designs; `data/lang/` translations |
 | `tests/` | `quaketests.lpr` (unit tests), `scenarios.py` (scripted games), `community_maps.py`, `websmoke.js` |
 | `docs/` | `ARCHITECTURE.md` (code structure), `REFERENCE.md` (test harness, log lines, builds), `ROADMAP.md`, `HISTORY.md`, `FEATURES.md`, `USAGE.md` |
