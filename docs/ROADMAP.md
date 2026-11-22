@@ -352,10 +352,8 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 - [x] **Console in Every View**: `~` opens the console in the QuakeC view (`map`, `god`, `give`, `profile`, `effect`, the settings) and in demos and network games (the settings, photo mode's commands, the host's).
 - [x] **Play View Command Table**: the play view's commands are a table of names, help line and handler method (`gameviewplay_commands.inc`); `help` is built from it.
 - [x] **Command Line Table**: `GameOptions` is the table of the 44 command line options (names, the variable set or a handler); ten of them are also the web page's `?name=value` parameters.
-- [ ] **Split the Largest Units**:
-  - `gameviewdemo.pas` (2900 lines: demo playback, network client, split-screen, spectator, chat, scoreboard) and `quakegeometry.pas` (2500) into include files per subsystem, the way `TQuakeWorld` is split in `code/world/`.
+- [x] **Split the Largest Units**: `gameviewdemo.pas` (2717 lines to 1172) and `quakegeometry.pas` (2761 to 1001) keep their declarations and core; their methods are include files per subsystem in `code/demo/` and `code/geometry/`.
 - [x] **Stable Network Scenarios**:
   - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
 - [x] **Scenarios That Wait for Log Lines**: the script action `WL:<text>` waits for a log line in every view; the `chat` scenario's host and client use it.
-- [ ] **Shared Test Helpers**:
-  - `tests/scenarios.py` (1600 lines) and `tests/community_maps.py` each have their own process runner, log checks and pak writer; move them to one module and split the scenario checks by area.
+- [x] **Shared Test Helpers**: `tests/qtest.py` holds what the test scripts share (starting the game, the log patterns, image comparison, the pak reader); the scenario checks are `tests/checks_play.py`, `checks_net.py` and `checks_mods.py`, and `scenarios.py` is the list of scenarios and the runner.
