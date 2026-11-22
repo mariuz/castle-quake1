@@ -292,6 +292,94 @@ def check_arcane_dimensions(exe, out, cache, results):
                             % (tag, made.group(1) if made else 0, drawn_fx[-1] if drawn_fx else 0)))
 
 
+AD_BUDGET_MAPS = ('ad_sepulcher', 'ad_tears')
+
+
+def pak_file(pak_path, name):
+    """The bytes of a file in a .pak, None without it"""
+    with open(pak_path, 'rb') as f:
+        magic, offset, length = struct.unpack('<4sii', f.read(12))
+        if magic != b'PACK':
+            return None
+        f.seek(offset)
+        directory = f.read(length)
+        for i in range(0, length, 64):
+            entry = directory[i:i + 56].split(b'\0')[0].decode('latin1').lower()
+            if entry == name:
+                pos, size = struct.unpack_from('<ii', directory, i + 56)
+                f.seek(pos)
+                return f.read(size)
+    return None
+
+
+def check_ad_budgets(exe, out, budgets, update, results, measured):
+    """The largest maps of Arcane Dimensions in QuakeC mode: the frame times
+    and the counts of what is drawn at the player start and three far
+    items, against tests/community_budgets.json (the Z action of the
+    QuakeC view). The game unpacked AD's paks into the config directory
+    when it mounted the mod."""
+    paks = sorted(p for p in os.listdir(config_dir())
+                  if p.startswith('quaddicted_%s_pak' % AD['id']) and p.endswith('.pak'))
+    for name in AD_BUDGET_MAPS:
+        tag = 'ad %s' % name
+        data = None
+        for pak in paks:
+            data = data or pak_file(os.path.join(config_dir(), pak), 'maps/%s.bsp' % name)
+        if data is None:
+            results.append((False, '%s: maps/%s.bsp in AD\'s unpacked paks' % (tag, name)))
+            continue
+        bsp = os.path.join(out, name + '.bsp')
+        with open(bsp, 'wb') as f:
+            f.write(data)
+        places = spots(bsp)
+        os.remove(bsp)
+        demo = ('W:0.5,CMD:maps_play %s %s,W:20,Y,' % (AD['id'], name) +
+                ''.join('G:%s,W:0.5,Z,W:1,Z,' % p for p in places) + 'Q')
+        code, log = run(exe, ['--autotest', 'e1m1', os.path.join(out, 'budget_' + name), '--demo', demo],
+                        os.path.join(out, 'budget_%s.log' % name))
+        results.append((code == 0 and 'Exception "' not in log, '%s: the budget run exits with 0 (got %s)' % (tag, code)))
+        frames = scenarios.FRAMES_RE.findall(log)[::2]
+        edicts = re.findall(r'entities \d+/\d+, edicts (\d+)', log)
+        results.append((len(frames) == len(places), '%s: a Z line at each of the %d spots (got %d)'
+                        % (tag, len(places), len(frames))))
+        load = re.search(r'Level load "%s": ([\d.]+) s' % name, log)
+        results.append((load is not None and float(load.group(1)) < 60,
+                        '%s: loads in %s s' % (tag, load.group(1) if load else '?')))
+        rows = [{'spot': spot, 'leaf': int(m[5]), 'clusters': int(m[6]), 'shapes': int(m[8]), 'entities': int(m[10]),
+                 'ms_average': float(m[2]), 'ms_longest': float(m[3])} for spot, m in zip(places, frames)]
+        # A map that holds the player at its start (ad_tears' opening): one spot
+        if len(rows) > 1 and len(set(r['leaf'] for r in rows)) == 1:
+            rows = rows[:1]
+        measured[name] = {'spots': rows, 'qc_edicts': int(edicts[-1]) if edicts else 0}
+        if update:
+            continue
+        budget = budgets.get(name)
+        if budget is None:
+            results.append((False, '%s: has a budget (run with --update)' % tag))
+            continue
+        results.append((measured[name]['qc_edicts'] <= budget['qc_edicts'] * 1.2 + 50,
+                        '%s: %d edicts (budget %d)' % (tag, measured[name]['qc_edicts'], budget['qc_edicts'])))
+        for i, (row, b) in enumerate(zip(rows, budget['spots'])):
+            where = '%s spot %d (%s)' % (tag, i + 1, row['spot'])
+            if row['spot'] != b['spot']:
+                results.append((False, '%s: budgeted at %s (--update if intended)' % (where, b['spot'])))
+                continue
+            # The progs move the player in these maps (Tears' opening lets
+            # him drop for a while): in another leaf the counts are other
+            # counts, and only the frame time is held to the budget
+            if row['leaf'] == b['leaf']:
+                for kind in ('clusters', 'shapes', 'entities'):
+                    limit = scenarios.budget_margin(b[kind], kind)
+                    results.append((row[kind] <= limit, '%s: %d %s drawn (budget %d, limit %.0f)'
+                                    % (where, row[kind], kind, b[kind], limit)))
+            else:
+                print('  note %s: camera in leaf %d, budgeted in leaf %d (%d clusters, %d shapes drawn)'
+                      % (where, row['leaf'], b['leaf'], row['clusters'], row['shapes']), flush=True)
+            limit = 3 * b['ms_average'] + 50
+            results.append((row['ms_average'] <= limit, '%s: %.1f ms per frame (budget %.1f, limit %.0f)'
+                            % (where, row['ms_average'], b['ms_average'], limit)))
+
+
 def check_mod_map(exe, out, results):
     """A map for a mod through the map browser: udob1_4 (Drowning in Space)
     needs Copper, which the game downloads first from Quaddicted, mounts in
@@ -353,6 +441,7 @@ def main():
     print('=== Arcane Dimensions', flush=True)
     start = len(results)
     check_arcane_dimensions(args.exe, args.out, args.cache, results)
+    check_ad_budgets(args.exe, args.out, budgets, args.update, results, measured)
     for ok, text in results[start:]:
         print('  %s %s' % ('ok  ' if ok else 'FAIL', text), flush=True)
     with open(os.path.join(args.out, 'community.json'), 'w') as f:

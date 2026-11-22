@@ -16,5 +16,14 @@
     {"spot": "744;104;-2152", "leaf": 996, "clusters": 117, "shapes": 350, "entities": 57, "ms_average": 34.9, "ms_longest": 73.97},
     {"spot": "-432;392;296", "leaf": 2597, "clusters": 22, "shapes": 103, "entities": 36, "ms_average": 25.54, "ms_longest": 57.46},
     {"spot": "1496;680;-88", "leaf": 1529, "clusters": 59, "shapes": 179, "entities": 65, "ms_average": 59.7, "ms_longest": 98.53}
+  ]},
+  "ad_sepulcher": {"qc_edicts": 4091, "spots": [
+    {"spot": "-2560;32;-2464", "leaf": 30710, "clusters": 323, "shapes": 1681, "entities": 400, "ms_average": 130.88, "ms_longest": 136.1},
+    {"spot": "2816;-568;2272", "leaf": 15332, "clusters": 99, "shapes": 535, "entities": 86, "ms_average": 78.15, "ms_longest": 89.05},
+    {"spot": "-1512;388;2920", "leaf": 49862, "clusters": 53, "shapes": 348, "entities": 71, "ms_average": 82.94, "ms_longest": 101.51},
+    {"spot": "1120;72;-1512", "leaf": 8546, "clusters": 22, "shapes": 147, "entities": 41, "ms_average": 92.4, "ms_longest": 99.03}
+  ]},
+  "ad_tears": {"qc_edicts": 3494, "spots": [
+    {"spot": "672;-472;256", "leaf": 41385, "clusters": 2870, "shapes": 8572, "entities": 482, "ms_average": 350.33, "ms_longest": 365.43}
   ]}
 }
