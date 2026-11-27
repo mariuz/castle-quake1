@@ -67,6 +67,63 @@ begin
     Loaded.Free;
 end;
 
+{ The texture files of a model's surfaces drawn side by side into one image,
+  which becomes the model's skin (a gray square for a file the paks do not
+  have: Missing lists those). Parts tells where each one is, in texture
+  coordinates, half a texel in from its edges so the neighbour's color does
+  not bleed in. }
+procedure TQuakeMdl.JoinSkin(const Textures: array of String; out Parts: TSkinParts; out W, H: Integer;
+  out Missing: String);
+var
+  Images: array of TRGBAlphaImage;
+  Atlas: TRGBAlphaImage;
+  I, X: Integer;
+  ImgId: String;
+begin
+  SetLength(Images, Length(Textures));
+  SetLength(Parts, Length(Textures));
+  W := 0;
+  H := 1;
+  Missing := '';
+  for I := 0 to High(Textures) do
+  begin
+    Images[I] := LoadModelTexture(Textures[I]);
+    if Images[I] = nil then
+    begin
+      if Missing <> '' then
+        Missing := Missing + ', ';
+      Missing := Missing + '"' + Textures[I] + '"';
+      Images[I] := TRGBAlphaImage.Create(8, 8);
+      Images[I].Clear(Vector4Byte(160, 160, 160, 255));
+    end;
+    Inc(W, Images[I].Width);
+    H := Max(H, Images[I].Height);
+  end;
+  W := Max(W, 1);
+  Atlas := TRGBAlphaImage.Create(W, H);
+  Atlas.Clear(Vector4Byte(0, 0, 0, 255));
+  X := 0;
+  for I := 0 to High(Textures) do
+  begin
+    { (the images' rows go up from the bottom, like the coordinates) }
+    Atlas.DrawFrom(Images[I], X, 0, 0, 0, Images[I].Width, Images[I].Height, dmOverwrite);
+    Parts[I].U0 := (X + 0.5) / W;
+    Parts[I].UScale := (Images[I].Width - 1) / W;
+    Parts[I].V0 := 0.5 / H;
+    Parts[I].VScale := (Images[I].Height - 1) / H;
+    Inc(X, Images[I].Width);
+    FreeAndNil(Images[I]);
+  end;
+  FSkinWidth := W;
+  FSkinHeight := H;
+  FNumSkins := 1;
+  FFlags := 0;
+  ImgId := 'mdl/' + FModelName + '/skin0';
+  FSkinImageIds.Add(ImgId);
+  SetLength(FSkinPixels, 1);
+  Palette.CacheImage(ImgId, Atlas);
+end;
+
 function TQuakeMdl.LoadMd3(const Data: TBytes): Boolean;
 const
   Md3Scale = 1 / 64;
@@ -115,18 +172,16 @@ type
   TSurface = record
     Ofs, NumVerts, NumTris, OfsTris, OfsSt, OfsXyz: Integer;
     Texture: String;
-    Image: TRGBAlphaImage;
     FirstVert: Integer;
-    { Its part of the joined image, in texture coordinates }
-    U0, UScale, V0, VScale: Single;
   end;
 
 var
-  NumFrames, NumSurfaces, OfsFrames, OfsSurfaces, S, F, V, T, Ofs, X, W, H: Integer;
+  NumFrames, NumSurfaces, OfsFrames, OfsSurfaces, S, F, V, T, Ofs, W, H: Integer;
   Surfaces: array of TSurface;
   Frame: TMdlFrame;
-  Atlas: TRGBAlphaImage;
-  ImgId, Missing: String;
+  Names: array of String;
+  Parts: TSkinParts;
+  Missing: String;
 begin
   Result := False;
   if not Fits(0, 108) or (Str(0, 4) <> 'IDP3') or (I32(4) <> 15) then
@@ -161,7 +216,6 @@ begin
     Surfaces[S].OfsSt := Ofs + I32(Ofs + 96);
     Surfaces[S].OfsXyz := Ofs + I32(Ofs + 100);
     Surfaces[S].FirstVert := FNumVerts;
-    Surfaces[S].Image := nil;
     if (I32(Ofs + 72) <> NumFrames) or (Surfaces[S].NumVerts < 1) or (Surfaces[S].NumVerts > 65536) or
        (Surfaces[S].NumTris < 1) or
        not Fits(Surfaces[S].OfsTris, Int64(Surfaces[S].NumTris) * 12) or
@@ -183,55 +237,19 @@ begin
     Ofs := Ofs + I32(Ofs + 104);
   end;
 
-  { The textures side by side, a gray square for one the paks do not have }
-  W := 0;
-  H := 1;
-  Missing := '';
+  { The textures side by side as the model's one skin }
+  SetLength(Names, NumSurfaces);
   for S := 0 to NumSurfaces - 1 do
-  begin
-    Surfaces[S].Image := LoadModelTexture(Surfaces[S].Texture);
-    if Surfaces[S].Image = nil then
-    begin
-      if Missing <> '' then
-        Missing := Missing + ', ';
-      Missing := Missing + '"' + Surfaces[S].Texture + '"';
-      Surfaces[S].Image := TRGBAlphaImage.Create(8, 8);
-      Surfaces[S].Image.Clear(Vector4Byte(160, 160, 160, 255));
-    end;
-    Inc(W, Surfaces[S].Image.Width);
-    H := Max(H, Surfaces[S].Image.Height);
-  end;
-  Atlas := TRGBAlphaImage.Create(W, H);
-  Atlas.Clear(Vector4Byte(0, 0, 0, 255));
-  X := 0;
-  for S := 0 to NumSurfaces - 1 do
-  begin
-    { (the images' rows go up from the bottom, like the coordinates) }
-    Atlas.DrawFrom(Surfaces[S].Image, X, 0, 0, 0, Surfaces[S].Image.Width, Surfaces[S].Image.Height, dmOverwrite);
-    { Half a texel in from its edges: no color of the neighbour bleeds in }
-    Surfaces[S].U0 := (X + 0.5) / W;
-    Surfaces[S].UScale := (Surfaces[S].Image.Width - 1) / W;
-    Surfaces[S].V0 := 0.5 / H;
-    Surfaces[S].VScale := (Surfaces[S].Image.Height - 1) / H;
-    Inc(X, Surfaces[S].Image.Width);
-    FreeAndNil(Surfaces[S].Image);
-  end;
-  FSkinWidth := W;
-  FSkinHeight := H;
-  FNumSkins := 1;
-  FFlags := 0;
-  ImgId := 'mdl/' + FModelName + '/skin0';
-  FSkinImageIds.Add(ImgId);
-  SetLength(FSkinPixels, 1);
-  Palette.CacheImage(ImgId, Atlas);
+    Names[S] := Surfaces[S].Texture;
+  JoinSkin(Names, Parts, W, H, Missing);
 
   { One mesh of all surfaces }
   for S := 0 to NumSurfaces - 1 do
   begin
     for V := 0 to Surfaces[S].NumVerts - 1 do
       FBaseUVs.Add(Vector2(
-        Surfaces[S].U0 + EnsureRange(F32(Surfaces[S].OfsSt + V * 8), 0, 1) * Surfaces[S].UScale,
-        Surfaces[S].V0 + (1 - EnsureRange(F32(Surfaces[S].OfsSt + V * 8 + 4), 0, 1)) * Surfaces[S].VScale));
+        Parts[S].U0 + EnsureRange(F32(Surfaces[S].OfsSt + V * 8), 0, 1) * Parts[S].UScale,
+        Parts[S].V0 + (1 - EnsureRange(F32(Surfaces[S].OfsSt + V * 8 + 4), 0, 1)) * Parts[S].VScale));
     for T := 0 to Surfaces[S].NumTris * 3 - 1 do
       FIndices.Add(Surfaces[S].FirstVert +
         EnsureRange(I32(Surfaces[S].OfsTris + T * 4), 0, Surfaces[S].NumVerts - 1));

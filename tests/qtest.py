@@ -255,3 +255,53 @@ def md3_bytes(surfaces, frames=2):
                           ofs_surfaces + len(body)))
     return header + frame_data + body
 
+
+def iqm_bytes(meshes, lift=8.0):
+    """A small IQM model with two joints, "root" at the origin and "top" 16
+    units above it, and one animation "wave" of two frames whose second
+    lifts the top joint by lift units. Each mesh is (texture,
+    [(x, y, z, s, t, joint), ...], [(a, b, c), ...]): a vertex follows the
+    one joint it names."""
+    text = b'\0root\0top\0wave\0'
+    names = {'root': 1, 'top': 6, 'wave': 10}
+    mesh_data, positions, texcoords, indexes, weights, triangles = b'', b'', b'', b'', b'', b''
+    first_vertex = first_triangle = 0
+    for texture, verts, tris in meshes:
+        material = len(text)
+        text += texture.encode('latin1') + b'\0'
+        mesh_data += struct.pack('<6I', 0, material, first_vertex, len(verts), first_triangle, len(tris))
+        for x, y, z, s, t, joint in verts:
+            positions += struct.pack('<3f', x, y, z)
+            texcoords += struct.pack('<2f', s, t)
+            indexes += bytes([joint, 0, 0, 0])
+            weights += bytes([255, 0, 0, 0])
+        triangles += b''.join(struct.pack('<3I', a + first_vertex, b + first_vertex, c + first_vertex)
+                              for a, b, c in tris)
+        first_vertex += len(verts)
+        first_triangle += len(tris)
+    text += b'\0' * (-len(text) % 4)
+    identity = (0.0, 0.0, 0.0, 1.0)
+    joints = (struct.pack('<Ii3f4f3f', names['root'], -1, 0, 0, 0, *identity, 1, 1, 1) +
+              struct.pack('<Ii3f4f3f', names['top'], 0, 0, 0, 16, *identity, 1, 1, 1))
+    # ten channels a pose: translate, rotate, scale; only the top joint's
+    # height (channel 2) changes with the frames
+    poses = (struct.pack('<iI10f10f', -1, 0, 0, 0, 0, *identity, 1, 1, 1, *([0.0] * 10)) +
+             struct.pack('<iI10f10f', 0, 1 << 2, 0, 0, 16, *identity, 1, 1, 1,
+                         0, 0, lift / 65535, 0, 0, 0, 0, 0, 0, 0))
+    anims = struct.pack('<3IfI', names['wave'], 0, 2, 10.0, 0)
+    frames = struct.pack('<2H', 0, 65535)
+    blocks = [text, mesh_data, None, positions, texcoords, indexes, weights, triangles, joints, poses, anims, frames]
+    offsets = []
+    position = 124
+    for i, block in enumerate(blocks):
+        size = 4 * 20 if block is None else len(block)
+        offsets.append(position)
+        position += size + (-size % 4)
+    arrays = (struct.pack('<5I', 0, 0, 7, 3, offsets[3]) + struct.pack('<5I', 1, 0, 7, 2, offsets[4]) +
+              struct.pack('<5I', 4, 0, 1, 4, offsets[5]) + struct.pack('<5I', 5, 0, 1, 4, offsets[6]))
+    blocks[2] = arrays
+    header = b'INTERQUAKEMODEL\0' + struct.pack(
+        '<27I', 2, position, 0, len(text), offsets[0], len(meshes), offsets[1], 4, first_vertex, offsets[2],
+        first_triangle, offsets[7], 0, 2, offsets[8], 2, offsets[9], 1, offsets[10], 2, 1, offsets[11], 0, 0, 0, 0, 0)
+    return header + b''.join(block + b'\0' * (-len(block) % 4) for block in blocks)
+

@@ -326,6 +326,12 @@ def prepare_fxmod(out_dir):
                            ('textures/md3test/blue', [(x, y, z + 56, s, t) for x, y, z, s, t in pyramid], faces)]))
     tex = os.path.join(d, 'textures', 'md3test')
     os.makedirs(tex, exist_ok=True)
+    # and its shotgun in the player's view an IQM: two meshes on a skeleton
+    # of two joints, an animation of two frames
+    held = [(30, -8, -14, 0, 1, 0), (30, 8, -14, 1, 1, 0), (40, 0, -10, 0.5, 0.5, 0), (30, 0, -2, 0.5, 0, 1)]
+    with open(os.path.join(d, 'progs', 'v_shot.mdl'), 'wb') as f:
+        f.write(iqm_bytes([('textures/md3test/red.tga', held, faces),
+                           ('textures/md3test/blue', [(x, y, z + 14, s, t, 1) for x, y, z, s, t, j in held], faces)]))
     Image.new('RGB', (16, 8), (220, 30, 30)).save(os.path.join(tex, 'red.tga'))
     Image.new('RGB', (8, 8), (30, 30, 220)).save(os.path.join(tex, 'blue.tga'))
 
@@ -354,6 +360,11 @@ def check_fxmod(logs):
     result.append((md3 is not None and md3.groups() == ('8', '8', '24', '8') and 'no texture' not in on,
                    'the mod\'s MD3 soldier loads with its two textures side by side (%s)'
                    % ('%s vertices, %s triangles, %s x %s' % md3.groups() if md3 else 'no line')))
+    iqm = re.search(r'IQM "v_shot": 2 meshes joined \((\d+) vertices, (\d+) triangles, (\d+) joints, (\d+) frames, '
+                    r'textures (\d+) x (\d+)\)', on)
+    result.append((iqm is not None and iqm.groups() == ('8', '8', '2', '2', '24', '8'),
+                   'the mod\'s IQM shotgun is skinned into its frames (%s)'
+                   % ('%s vertices, %s triangles, %s joints, %s frames' % iqm.groups()[:4] if iqm else 'no line')))
     sent = re.search(r'Effect "TE_TELEPORT" \(2\) sent, (\d+) effect messages', logs['fxnet'])
     got = [int(x) for x in re.findall(r'Effect messages: (\d+)', logs['fxnet'])]
     result.append((sent is not None and len(got) == 1 and got[0] >= 1,

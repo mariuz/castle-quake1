@@ -25,6 +25,13 @@ type
   end;
 
   { Single frame vertex positions }
+  { Where a surface's texture is in the joined skin image of an MD3 or IQM
+    model, in texture coordinates }
+  TSkinPart = record
+    U0, UScale, V0, VScale: Single;
+  end;
+  TSkinParts = array of TSkinPart;
+
   TMdlFrame = class
   public
     Name: String;
@@ -70,6 +77,11 @@ type
     function LoadFromStream(const Stream: TStream): Boolean;
     { Quake III's MD3: its surfaces as one mesh, their textures side by side }
     function LoadMd3(const Data: TBytes): Boolean;
+    { Inter-Quake Model: its meshes as one mesh, the skeleton's poses
+      applied to the vertices for every frame }
+    function LoadIqm(const Data: TBytes): Boolean;
+    procedure JoinSkin(const Textures: array of String; out Parts: TSkinParts; out W, H: Integer;
+      out Missing: String);
 
     { Create a new TCastleScene displaying this model; Colors (a client's
       svc_updatecolors byte: shirt * 16 + pants) above 0 paint the skin's
@@ -266,6 +278,13 @@ begin
       Stream.ReadBuffer(Whole[0], Length(Whole));
       Exit(LoadMd3(Whole));
     end;
+    { "INTERQUAKEMODEL": an IQM }
+    if (Magic[0] = 'I') and (Magic[1] = 'N') and (Magic[2] = 'T') and (Magic[3] = 'E') then
+    begin
+      SetLength(Whole, Stream.Size - Stream.Position);
+      Stream.ReadBuffer(Whole[0], Length(Whole));
+      Exit(LoadIqm(Whole));
+    end;
   end;
   if Stream.Size < SizeOf(TMdlHeader) then
     Exit;
@@ -415,6 +434,7 @@ begin
 end;
 
 {$I quakemdl_md3.inc}
+{$I quakemdl_iqm.inc}
 
 { R_TranslatePlayerSkin: the shirt rows (16..31) and the pants rows
   (96..111) take the row of the chosen color, reversed for the colors of
