@@ -751,6 +751,151 @@ begin
   end;
 end;
 
+procedure TestIqm;
+var
+  S: TMemoryStream;
+  Mdl: TQuakeMdl;
+  Hdr: array[0..26] of LongInt;
+  OfsText, OfsMeshes, OfsArrays, OfsPos, OfsTex, OfsIdx, OfsWgt, OfsTris, OfsJoints, OfsPoses, OfsAnims, OfsFrames,
+    I: Integer;
+  Magic: array[0..15] of AnsiChar = 'INTERQUAKEMODEL';
+  B: Byte;
+  W: Word;
+
+  procedure Int(const V: LongInt);
+  begin
+    S.WriteBuffer(V, 4);
+  end;
+
+  procedure Flt(const V: Single);
+  begin
+    S.WriteBuffer(V, 4);
+  end;
+
+  procedure Bytes4(const A, B1, C, D: Byte);
+  begin
+    B := A; S.WriteBuffer(B, 1);
+    B := B1; S.WriteBuffer(B, 1);
+    B := C; S.WriteBuffer(B, 1);
+    B := D; S.WriteBuffer(B, 1);
+  end;
+
+  { A joint or a pose's fixed part: no rotation, scale 1 }
+  procedure Still(const X, Y, Z: Single);
+  begin
+    Flt(X); Flt(Y); Flt(Z);
+    Flt(0); Flt(0); Flt(0); Flt(1);
+    Flt(1); Flt(1); Flt(1);
+  end;
+
+begin
+  { An IQM skinned at load: two joints, the second lifted 8 units and
+    turned a quarter around the up axis in the second frame }
+  StartTest('IQM models');
+  S := TMemoryStream.Create;
+  Mdl := TQuakeMdl.Create('iqmtest');
+  try
+    S.WriteBuffer(Magic, 16);
+    FillChar(Hdr, SizeOf(Hdr), 0);
+    S.WriteBuffer(Hdr, SizeOf(Hdr));
+    OfsText := S.Position;
+    { 0 "", 1 root, 6 top, 10 wave, 15 none }
+    B := 0; S.WriteBuffer(B, 1);
+    S.WriteBuffer(PAnsiChar('root')^, 5);
+    S.WriteBuffer(PAnsiChar('top')^, 4);
+    S.WriteBuffer(PAnsiChar('wave')^, 5);
+    S.WriteBuffer(PAnsiChar('none')^, 5);
+    OfsMeshes := S.Position;
+    Int(0); Int(15); Int(0); Int(4); Int(0); Int(1);
+    OfsArrays := S.Position;
+    for I := 0 to 3 do
+    begin
+      Int(0); Int(0); Int(0); Int(0); Int(0);
+    end;
+    OfsPos := S.Position;
+    Flt(0); Flt(0); Flt(0);       { held by the root }
+    Flt(4); Flt(0); Flt(16);      { held by the top joint }
+    Flt(0); Flt(0); Flt(8);       { half by each }
+    Flt(1); Flt(1); Flt(1);       { held by nothing }
+    OfsTex := S.Position;
+    for I := 0 to 3 do
+    begin
+      Flt(0.5); Flt(0.5);
+    end;
+    OfsIdx := S.Position;
+    Bytes4(0, 0, 0, 0); Bytes4(1, 0, 0, 0); Bytes4(0, 1, 0, 0); Bytes4(0, 0, 0, 0);
+    OfsWgt := S.Position;
+    Bytes4(255, 0, 0, 0); Bytes4(255, 0, 0, 0); Bytes4(128, 128, 0, 0); Bytes4(0, 0, 0, 0);
+    OfsTris := S.Position;
+    Int(0); Int(1); Int(2);
+    OfsJoints := S.Position;
+    Int(1); Int(-1); Still(0, 0, 0);
+    Int(6); Int(0); Still(0, 0, 16);
+    OfsPoses := S.Position;
+    Int(-1); Int(0); Still(0, 0, 0);
+    for I := 0 to 9 do
+      Flt(0);
+    { The top joint: its height (channel 2) and its turn (the quaternion's
+      z and w, channels 5 and 6) follow the frames }
+    Int(0); Int((1 shl 2) or (1 shl 5) or (1 shl 6)); Still(0, 0, 16);
+    Flt(0); Flt(0); Flt(8 / 65535);
+    Flt(0); Flt(0); Flt(Sqrt(0.5) / 65535); Flt((Sqrt(0.5) - 1) / 65535);
+    Flt(0); Flt(0); Flt(0);
+    OfsAnims := S.Position;
+    Int(10); Int(0); Int(2); Flt(10); Int(0);
+    OfsFrames := S.Position;
+    for I := 0 to 2 do
+    begin
+      W := 0; S.WriteBuffer(W, 2);
+    end;
+    for I := 0 to 2 do
+    begin
+      W := 65535; S.WriteBuffer(W, 2);
+    end;
+    { The vertex arrays and the header, now that the offsets are known }
+    S.Position := OfsArrays;
+    Int(0); Int(0); Int(7); Int(3); Int(OfsPos);
+    Int(1); Int(0); Int(7); Int(2); Int(OfsTex);
+    Int(4); Int(0); Int(1); Int(4); Int(OfsIdx);
+    Int(5); Int(0); Int(1); Int(4); Int(OfsWgt);
+    Hdr[0] := 2; Hdr[1] := S.Size;
+    Hdr[3] := OfsMeshes - OfsText; Hdr[4] := OfsText;
+    Hdr[5] := 1; Hdr[6] := OfsMeshes;
+    Hdr[7] := 4; Hdr[8] := 4; Hdr[9] := OfsArrays;
+    Hdr[10] := 1; Hdr[11] := OfsTris;
+    Hdr[13] := 2; Hdr[14] := OfsJoints;
+    Hdr[15] := 2; Hdr[16] := OfsPoses;
+    Hdr[17] := 1; Hdr[18] := OfsAnims;
+    Hdr[19] := 2; Hdr[20] := 3; Hdr[21] := OfsFrames;
+    S.Position := 16;
+    S.WriteBuffer(Hdr, SizeOf(Hdr));
+    S.Position := 0;
+    Check(Mdl.LoadFromStream(S), 'an IQM loads by its first bytes');
+    CheckEquals(2, Mdl.FrameCount, 'a frame of positions for each frame of the animation');
+    CheckEqualsStr('wave2', Mdl.Frames[1].Name, 'named after the animation');
+    CheckEquals(4, Mdl.Frames[0].Coords.Count, 'four vertices');
+    { Quake (x, y, z) is CGE (x, z, -y). The first frame is the model as made. }
+    CheckVector(Vector3(4, 16, 0), Mdl.Frames[0].Coords[1], 0.01, 'the first frame is the pose it was made in');
+    CheckVector(Vector3(0, 8, 0), Mdl.Frames[0].Coords[2], 0.01, 'for every vertex');
+    { The second: the top joint is 8 higher and a quarter turned, so its
+      vertex, 4 units along x from it, is 4 along y and 8 higher }
+    CheckVector(Vector3(0, 0, 0), Mdl.Frames[1].Coords[0], 0.01, 'the root''s vertex stays');
+    CheckVector(Vector3(0, 24, -4), Mdl.Frames[1].Coords[1], 0.05, 'the top joint''s vertex is lifted and turned');
+    { Half held by each joint: half the lift (it is on the turn's axis) }
+    CheckVector(Vector3(0, 12, 0), Mdl.Frames[1].Coords[2], 0.05, 'a vertex of two joints goes half way');
+    CheckVector(Vector3(1, 1, -1), Mdl.Frames[1].Coords[3], 0.01, 'a vertex no joint holds stays as made');
+    { Cut short: refused without reading past the end }
+    S.Size := OfsJoints + 10;
+    S.Position := 0;
+    Mdl.Free;
+    Mdl := TQuakeMdl.Create('iqmcut');
+    Check(not Mdl.LoadFromStream(S), 'an IQM cut short is refused');
+  finally
+    Mdl.Free;
+    S.Free;
+  end;
+end;
+
 procedure TestAreaGrid;
 var
   Game: TQuakeQcGame;
@@ -2753,6 +2898,7 @@ begin
   TestModelLight;
   TestDecals;
   TestMd3;
+  TestIqm;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;
