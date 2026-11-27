@@ -357,3 +357,51 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
   - A host started with `-spawnspot N` puts the players that join at fixed deathmatch spawn spots, and the scenario runner plays a failed network scenario once more before it counts.
 - [x] **Scenarios That Wait for Log Lines**: the script action `WL:<text>` waits for a log line in every view; the `chat` scenario's host and client use it.
 - [x] **Shared Test Helpers**: `tests/qtest.py` holds what the test scripts share (starting the game, the log patterns, image comparison, the pak reader); the scenario checks are `tests/checks_play.py`, `checks_net.py` and `checks_mods.py`, and `scenarios.py` is the list of scenarios and the runner.
+
+### Phase 19: Loose Ends and Daily Use
+Proposals from the work on Phase 18: the limits its items were finished with, what the measurements on the largest maps still show, and what slowed the releases down.
+
+**Fixes**
+- [ ] **Fullbright Pixels on Lit Models**:
+  - Models take the level's light since 0.3.77, including the skin pixels of the palette's fullbright range (224..255: eyes, flames on torches held by monsters, the lights of the enforcer). Keep those at full brightness with a mask in the skin's alpha channel, the way the world's textures do.
+- [ ] **Colored Dynamic Lights**:
+  - The dynamic lights are white, so an effect's `lightcolor` only scales its radius. Give a light its color in the lightmap shader and on the models (a blue lightning flash, an orange explosion).
+- [ ] **Marks on Doors and Lifts**:
+  - Decals lie on the world only: a shot at a door leaves nothing. Trace against the brush entities too and move a mark with the one it is on.
+- [ ] **Effect Particles That Start in a Wall**:
+  - A particle made at an impact point can begin inside the surface and fly through it. Start it a little off the surface along the impact's normal.
+- [ ] **The Check of the Lit Models**:
+  - The `video` scenario's count of lit models became "at least one" when culled models stopped being lit. Stand in view of an item and a monster so the check sees models other than the weapon take the light.
+
+**Performance**
+- [ ] **Texture Animation of Brush Entities**:
+  - The world's animated textures are a scene of their own; those of the brush entities still cost about 8 ms a frame at the start of `ad_tears`. Animate only the ones in view, or give all brush entities one shared set of animated appearances.
+- [ ] **One Lightmap Atlas for the Brush Entities**:
+  - Every brush entity has its own atlas page, textures and lightmap shader (769 on `ad_tears`). Pack them into shared pages with one shader each, as the world's faces are.
+- [ ] **Fewer Shapes in View on Huge Maps**:
+  - 8 500 shapes are drawn at the start of `ad_tears` (2 870 clusters, three shapes each). Merge the batches of small neighbouring clusters, or draw far clusters as one shape per texture.
+- [ ] **The Model of an Entity Looked Up Once**:
+  - The entity renderer asks the model manager for each entity's model by name every frame (a lower-cased path, the pak's variant). Keep the model with the visual and ask again only when the name changes.
+
+**Features**
+- [ ] **Model Tags and Skins**:
+  - MD3 tags (a weapon in a hand, a head on a body) and the several skins of MD3 and IQM models, chosen by the entity's `skin`.
+- [ ] **Blob Shadows**:
+  - A soft dark spot under monsters and items in the lightmap mode (`r_shadows`), which has no shadow maps: the decals' quad on the floor under the model.
+- [ ] **Graphics Options in the Menu**:
+  - `r_modellight`, `r_decals`, `r_waterwarp` and `r_effectinfo` are console commands only. Add them to the Options menu and save them like the other video options.
+- [ ] **Console Completion**:
+  - Tab completes a command from the settings table and the view's own table (the tables have every name), and shows the matches when there are several.
+- [ ] **Smooth Lightstyles**:
+  - Flickering and pulsing lights step ten times a second. Blend between two steps (`r_lerplightstyles`), as later engines do.
+
+**Tests and releases**
+- [ ] **Cancel Superseded Builds**:
+  - The `Build` workflow has no `concurrency` group: every push to a branch queues eight jobs that run to the end even when a newer commit is waiting, which held releases back by an hour or more when the runners were busy. Cancel a branch's older run when a new one starts (not on `main`, not for a release dispatch).
+- [ ] **A Cache for the Android Build**:
+  - The Android package failed twice on the download of its Gradle dependencies (Maven Central answering 429). Cache them between runs.
+- [ ] **Network Scenarios Wait for Each Other**:
+  - Only `chat` uses the `WL:` action. Move `bots`, `lan`, `spectate`, `netrecord`, `names`, `teamplay` and `hostcmd` from counted seconds to waiting for the other side's log line.
+- [ ] **Release Notes From the History**:
+  - A release's page lists only its files. Put the `docs/HISTORY.md` entries added since the last tag into the release's text.
+
