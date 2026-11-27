@@ -329,8 +329,9 @@ Proposals from a pass over the code after Phase 17: what costs frame time on the
 **Graphics**
 
 - [x] **Decals**: shots, explosions and blood leave marks on the level's walls and floors (128 at most, fading after 40 s), in every view; a mod's `type decal` sections make them too (`r_decals`).
-- [ ] **MD3 and IQM Models**:
-  - The model formats newer mods ship besides `.mdl`: MD3 (vertex animation, tags) and IQM (skeletal), loaded into the same visuals as Alias models.
+- [x] **MD3 Models**: Quake III's MD3 (vertex animation, several surfaces with a texture file each) loads into the Alias model's structures, so every view draws it; tags are not used.
+- [ ] **IQM Models**:
+  - The skeletal format newer mods ship: read the joints, poses and animations, skin the vertices for each frame when the model loads, and give the frames to the same structures as MD3.
 - [x] **Mod Effects in Demos and Network Games**:
   - A mod's `effectinfo.txt` effects for the temp entities and model trails are drawn in demos and network games too, not only in QuakeC mode.
 - [x] **Point Particles for Clients**: the progs' `pointparticles` and `trailparticles` go to network clients and into recorded demos as DarkPlaces' `svc_pointparticles` / `svc_trailparticles`.

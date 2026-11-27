@@ -66,8 +66,10 @@ type
     constructor Create(const AModelName: String);
     destructor Destroy; override;
 
-    { Load MDL from stream }
+    { Load MDL (or, by its first bytes, MD3) from stream }
     function LoadFromStream(const Stream: TStream): Boolean;
+    { Quake III's MD3: its surfaces as one mesh, their textures side by side }
+    function LoadMd3(const Data: TBytes): Boolean;
 
     { Create a new TCastleScene displaying this model; Colors (a client's
       svc_updatecolors byte: shirt * 16 + pants) above 0 paint the skin's
@@ -249,8 +251,22 @@ var
   VPos: TVector3;
   NbGroupFrames: Cardinal;
   U, V: Single;
+  Magic: array[0..3] of AnsiChar;
+  Whole: TBytes;
 begin
   Result := False;
+  { An MD3 (Quake III) model under any name: by its first bytes }
+  if Stream.Size >= 4 then
+  begin
+    Stream.ReadBuffer(Magic, 4);
+    Stream.Position := Stream.Position - 4;
+    if (Magic[0] = 'I') and (Magic[1] = 'D') and (Magic[2] = 'P') and (Magic[3] = '3') then
+    begin
+      SetLength(Whole, Stream.Size - Stream.Position);
+      Stream.ReadBuffer(Whole[0], Length(Whole));
+      Exit(LoadMd3(Whole));
+    end;
+  end;
   if Stream.Size < SizeOf(TMdlHeader) then
     Exit;
 
@@ -397,6 +413,8 @@ begin
 
   Result := (FFrames.Count > 0) and (FNumTris > 0);
 end;
+
+{$I quakemdl_md3.inc}
 
 { R_TranslatePlayerSkin: the shirt rows (16..31) and the pants rows
   (96..111) take the row of the chosen color, reversed for the colors of

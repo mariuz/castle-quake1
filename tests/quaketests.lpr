@@ -670,6 +670,87 @@ begin
   end;
 end;
 
+procedure TestMd3;
+var
+  S: TMemoryStream;
+  Mdl: TQuakeMdl;
+  SurfaceStart, I: Integer;
+
+  procedure Int(const V: LongInt);
+  begin
+    S.WriteBuffer(V, 4);
+  end;
+
+  procedure Flt(const V: Single);
+  begin
+    S.WriteBuffer(V, 4);
+  end;
+
+  procedure Shrt(const V: SmallInt);
+  begin
+    S.WriteBuffer(V, 2);
+  end;
+
+  procedure Txt(const T: String; const Size: Integer);
+  var
+    Buf: array[0..63] of Byte;
+  begin
+    FillChar(Buf, SizeOf(Buf), 0);
+    if T <> '' then
+      Move(T[1], Buf, Min(Length(T), Size));
+    S.WriteBuffer(Buf, Size);
+  end;
+
+begin
+  { Quake III's MD3 through the Alias model loader: one triangle, two frames }
+  StartTest('MD3 models');
+  S := TMemoryStream.Create;
+  Mdl := TQuakeMdl.Create('md3test');
+  try
+    Txt('IDP3', 4); Int(15); Txt('test', 64);
+    Int(0); Int(2); Int(0); Int(1); Int(0);           { flags, frames, tags, surfaces, skins }
+    Int(108); Int(108 + 112); Int(108 + 112); Int(0);  { the frames, tags, surfaces, end }
+    for I := 0 to 1 do
+    begin
+      Flt(-8); Flt(-8); Flt(-8); Flt(8); Flt(8); Flt(8); Flt(0); Flt(0); Flt(0); Flt(12);
+      Txt('pose' + IntToStr(I), 16);
+    end;
+    SurfaceStart := S.Position;
+    Txt('IDP3', 4); Txt('surface', 64);
+    Int(0); Int(2); Int(1); Int(3); Int(1);            { flags, frames, shaders, vertices, triangles }
+    Int(108); Int(108 + 12); Int(108 + 12 + 68); Int(108 + 12 + 68 + 24); Int(108 + 12 + 68 + 24 + 48);
+    Int(0); Int(1); Int(2);                            { the triangle }
+    Txt('textures/none', 64); Int(0);                  { its shader }
+    Flt(0); Flt(1); Flt(1); Flt(1); Flt(0.5); Flt(0);  { texture coordinates }
+    for I := 0 to 1 do
+    begin
+      Shrt(-8 * 64); Shrt(0); Shrt(I * 16 * 64); Shrt(0);
+      Shrt(8 * 64); Shrt(0); Shrt(I * 16 * 64); Shrt(0);
+      Shrt(0); Shrt(0); Shrt((8 + I * 16) * 64); Shrt(0);
+    end;
+    Check(S.Position - SurfaceStart = 108 + 12 + 68 + 24 + 48, 'the test surface has its size');
+    S.Position := 0;
+    Check(Mdl.LoadFromStream(S), 'an MD3 loads by its first bytes');
+    CheckEquals(2, Mdl.FrameCount, 'its frames');
+    CheckEquals(1, Mdl.SkinCount, 'one skin of all its textures');
+    CheckEqualsStr('pose1', Mdl.Frames[1].Name, 'the frames'' names');
+    CheckEquals(3, Mdl.Frames[0].Coords.Count, 'three vertices');
+    { Quake (0, 0, 8) is CGE (0, 8, 0); the second frame is 16 units up }
+    CheckVector(Vector3(0, 8, 0), Mdl.Frames[0].Coords[2], 0.01, 'a vertex of the first frame');
+    CheckVector(Vector3(0, 24, 0), Mdl.Frames[1].Coords[2], 0.01, 'and of the second');
+    Check(Mdl.FindFrame('pose') = 0, 'frames are found by name');
+    { A file cut short does not load (and does not read past its end) }
+    S.Size := SurfaceStart + 150;
+    S.Position := 0;
+    Mdl.Free;
+    Mdl := TQuakeMdl.Create('md3cut');
+    Check(not Mdl.LoadFromStream(S), 'an MD3 cut short is refused');
+  finally
+    Mdl.Free;
+    S.Free;
+  end;
+end;
+
 procedure TestAreaGrid;
 var
   Game: TQuakeQcGame;
@@ -2671,6 +2752,7 @@ begin
   TestOptions;
   TestModelLight;
   TestDecals;
+  TestMd3;
   TestProgsStateRoundTrip;
   TestSaveData;
   TestDemoRoundTrip;

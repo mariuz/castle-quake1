@@ -223,3 +223,35 @@ def pak_file(pak_path, name):
                 f.seek(pos)
                 return f.read(size)
     return None
+
+
+def md3_bytes(surfaces, frames=2):
+    """A small MD3 model: each surface is (texture, [(x, y, z, s, t), ...],
+    [(a, b, c), ...]); the frames after the first move the vertices up by
+    8 units each"""
+    def name(text, size):
+        return text.encode('latin1').ljust(size, b'\0')[:size]
+    body = b''
+    for texture, verts, tris in surfaces:
+        shaders = name(texture, 64) + struct.pack('<i', 0)
+        triangles = b''.join(struct.pack('<3i', *t) for t in tris)
+        st = b''.join(struct.pack('<2f', v[3], v[4]) for v in verts)
+        xyz = b''.join(struct.pack('<4h', round(v[0] * 64), round(v[1] * 64), round((v[2] + 8 * f) * 64), 0)
+                       for f in range(frames) for v in verts)
+        ofs_tris = 108
+        ofs_shaders = ofs_tris + len(triangles)
+        ofs_st = ofs_shaders + len(shaders)
+        ofs_xyz = ofs_st + len(st)
+        ofs_end = ofs_xyz + len(xyz)
+        body += (b'IDP3' + name('surface', 64) + struct.pack('<10i', 0, frames, 1, len(verts), len(tris), ofs_tris,
+                                                             ofs_shaders, ofs_st, ofs_xyz, ofs_end) +
+                 triangles + shaders + st + xyz)
+    frame_data = b''.join(struct.pack('<10f', -16, -16, -24, 16, 16, 32, 0, 0, 0, 40) + name('frame%d' % f, 16)
+                          for f in range(frames))
+    ofs_frames = 108
+    ofs_surfaces = ofs_frames + len(frame_data)
+    header = (b'IDP3' + struct.pack('<i', 15) + name('test', 64) +
+              struct.pack('<9i', 0, frames, 0, len(surfaces), 0, ofs_frames, ofs_surfaces, ofs_surfaces,
+                          ofs_surfaces + len(body)))
+    return header + frame_data + body
+
